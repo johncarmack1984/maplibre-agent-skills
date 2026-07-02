@@ -1,0 +1,105 @@
+# Evals for the maplibre-terrain-patterns skill.
+#
+# Run locally (Cerebras — set CEREBRAS_API_KEY):
+#   npx promptfoo@latest eval \
+#     --config evals/prompts/maplibre-terrain-patterns.yaml \
+#     --no-cache -j 1
+#
+# Gemini judge (recommended for baseline validation):
+#   npm run eval -- \
+#     --config evals/prompts/maplibre-terrain-patterns.yaml \
+#     --grader google:gemini-2.5-flash-lite \
+#     --delay 2000 --no-cache -j 1
+#
+# IMPORTANT: Never use --providers on the CLI — it bypasses lib/skill-prompt.mjs
+# and the skill will not be injected into the system prompt.
+
+description: Evals for the maplibre-terrain-patterns skill
+
+prompts:
+  - file://lib/skill-prompt.mjs
+
+providers:
+  - id: cerebras:gpt-oss-120b
+    label: cerebras-gpt-oss
+
+evaluateOptions:
+  delay: 500
+
+defaultTest:
+  vars:
+    skillFile: skills/maplibre-terrain-patterns/SKILL.md
+  options:
+    provider: cerebras:gpt-oss-120b
+
+tests:
+  - description: explicit — raster-dem encoding mismatch
+    vars:
+      prompt: >
+        I'm adding terrain to my MapLibre map using AWS Terrain Tiles
+        (s3.amazonaws.com/elevation-tiles-prod). My hillshade looks completely
+        wrong — the terrain appears inverted or wildly exaggerated. I haven't
+        set the encoding property. What's likely wrong and how do I fix it?
+    assert:
+      - type: icontains
+        value: 'terrarium'
+      - type: llm-rubric
+        value: >
+          Identifies the root cause: MapLibre defaults to "mapbox" encoding but
+          AWS Terrain Tiles use the Terrarium format — this mismatch causes
+          silently incorrect elevation values and wrong-looking terrain.
+          Recommends setting encoding: "terrarium" in the raster-dem source.
+          Explains the distinction: Terrarium and Mapbox RGB use different
+          pixel-to-elevation formulas, and the wrong one produces bad results
+          without any error in the console.
+
+  - description: implicit — terrain inverted after switching to a free open DEM source
+    vars:
+      prompt: >
+        I was using MapTiler terrain tiles and my hillshade looked correct. I
+        switched to Mapterhorn — a free open PMTiles-based DEM source — because
+        it has no API key requirement. Now my terrain looks inverted and the
+        shadows are on the wrong sides of ridges. I didn't change anything else
+        in my style. What changed?
+    assert:
+      - type: icontains
+        value: 'terrarium'
+      - type: llm-rubric
+        value: >
+          Identifies the encoding mismatch as the cause: MapTiler uses "mapbox"
+          RGB encoding while Mapterhorn (like most free and open DEM sources)
+          uses Terrarium encoding. The two formats use different pixel-to-meter
+          formulas; using the wrong one produces inverted or incorrect terrain.
+          Recommends adding encoding: "terrarium" to the raster-dem source.
+          Explains that switching DEM sources often requires updating the
+          encoding property to match the new source's format.
+
+  - description: anti-pattern — using demotiles.maplibre.org in production
+    vars:
+      prompt: >
+        I'm building a production MapLibre app and want to add terrain. I saw
+        that demotiles.maplibre.org is used in the official MapLibre examples
+        for terrain tiles. Can I use that for my production app?
+    assert:
+      - type: llm-rubric
+        value: >
+          Explicitly states that demotiles.maplibre.org is NOT for production
+          use — it is only for official MapLibre examples and demos.
+          Recommends a production-appropriate alternative such as Mapterhorn
+          (free, open, PMTiles-based, no key required), Stadia Maps, or
+          MapTiler. Does NOT say demotiles.maplibre.org is fine for production,
+          and does not omit the warning.
+
+  - description: negative — out-of-scope question about vector tile sources
+    vars:
+      prompt: >
+        I want to add OpenStreetMap road and building data to my MapLibre map.
+        What tile source should I use and how do I reference it in my style?
+    assert:
+      - type: llm-rubric
+        value: >
+          Answers the question about vector tile sources for OSM data correctly
+          — mentions options like OpenFreeMap, MapTiler, or self-hosted Martin,
+          and describes how to reference a vector source in the style.
+          Does not incorrectly bring up raster-dem sources, hillshade, or
+          terrain encoding as if they were relevant to adding OSM vector data.
