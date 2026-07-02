@@ -89,4 +89,3 @@ Once installed, you can manage skills with:
 ## License
 
 MIT License. Copyright (c) MapLibre and contributors. See [LICENSE.md](LICENSE.md) and [NOTICE](NOTICE) for more information.
-
