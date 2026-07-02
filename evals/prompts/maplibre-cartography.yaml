@@ -27,41 +27,32 @@ defaultTest:
     provider: cerebras:gpt-oss-120b
 
 tests:
-  - description: explicit — glyphs URL format for self-hosted fonts
+  # Replaced 2026-07-01: the previous explicit test (glyphs URL placeholder
+  # format) and the semantic-label-colors implicit test both PASSED at
+  # baseline in clean runs — the model already knows them, so they cannot
+  # demonstrate the gap the launch bar requires. This explicit test targets
+  # post-training-cutoff behavior (GL JS 5.11.0 local glyph fallback) that
+  # the skill documents.
+  - description: explicit — missing-glyph behavior in GL JS 5.11+ vs Native
     vars:
       prompt: >
-        I'm building a custom MapLibre style with self-hosted glyphs. What
-        format does the glyphs URL in my style need to be, and what do the
-        placeholder variables in the path represent?
-    assert:
-      - type: icontains
-        value: '{fontstack}'
-      - type: llm-rubric
-        value: >
-          States the glyphs URL must contain {fontstack} and {range} placeholders
-          (e.g. ending in /{fontstack}/{range}.pbf). Explains that {fontstack} is
-          the URL-encoded font name or comma-joined list of font names from the
-          text-font array. Explains that {range} is a Unicode range (e.g. 0-255).
-          Provides an example URL pattern. Mentions that font names in text-font
-          must exactly match the names the glyph server knows.
-
-  - description: implicit — semantic label colors on imagery
-    vars:
-      prompt: >
-        I'm styling a MapLibre map that uses aerial imagery as the basemap.
-        My park labels use dark green text and my water labels use dark blue text,
-        copied from a light street map style. They're hard to read over the imagery.
-        What should I change them to?
+        In current MapLibre GL JS, what happens if a glyph PBF requested from
+        my style's glyphs URL is missing or fails to load? Do I still need to
+        serve glyphs for production, and is the behavior the same in MapLibre
+        Native?
     assert:
       - type: llm-rubric
         value: >
-          Recommends switching to LIGHT tints of the semantic colors (e.g. light
-          green for parks, light blue for water) rather than dark saturated
-          versions. Recommends a dark semi-transparent halo (e.g. rgba(0,0,0,0.75))
-          for all labels. Explains that dark saturated colors fail on imagery
-          backgrounds AND contrast poorly with adjacent white place labels at small
-          sizes. Does NOT simply say "use white text" for all labels — must
-          distinguish the tinted-semantic-color approach for parks and water.
+          States that in MapLibre GL JS 5.11.0 and later a missing glyph PBF is
+          no longer fatal: the glyph is rendered locally instead (TinySDF),
+          with text-font treated as a cascading list of local/web font names.
+          Notes the fallback is environment-dependent (it needs a matching font
+          available to the browser or OS), so production styles should still
+          serve glyphs explicitly. States that MapLibre Native does NOT have
+          this fallback and still requires glyphs served from the style's
+          glyphs URL. An answer that claims missing glyphs simply break label
+          rendering in current GL JS with no fallback, or that Native behaves
+          the same as GL JS, FAILS.
 
   - description: anti-pattern — sprite URL set to full file path instead of base path
     vars:
