@@ -56,27 +56,38 @@ tests:
           rendering in current GL JS with no fallback, or that Native behaves
           the same as GL JS, FAILS.
 
-  # Needs a clean baseline rerun — every attempt so far (trim-check-glyphs,
-  # the 2026-07-01 yxk run) hit a Gemini 503 before returning a real
-  # grading verdict. Content of the rubric is unverified against training data.
-  - description: anti-pattern — sprite URL set to full file path instead of base path
+  # Replaced 2026-07-02: the sprite-base-path test passed cleanly at baseline
+  # three times running (Gemini clean run 2026-07-01, Gemini 2026-07-02
+  # eval-KPU, Cerebras 2026-07-02 eval-jE9) — raw completions show the model
+  # already explains the base-path/no-extension mechanism correctly and
+  # unprompted. No gap, so it cannot sit in the launch-bar suite. Replaced
+  # with a sharper trap grounded in the skill's private-repo CORS claim
+  # (SKILL.md ref #17): base models default to diagnosing "works for me,
+  # 404s for others" as a CORS problem, which is the wrong root cause here.
+  - description: anti-pattern — self-hosted sprite in a private GitHub repo returns 404 for other users
     vars:
       prompt: >
-        I set the sprite field in my MapLibre style to
-        "https://example.com/sprites/basic.json" but my icons are not
-        appearing on the map. The file exists at that URL and returns a 200
-        response. What is wrong?
+        I'm self-hosting my MapLibre GL JS sprite by committing sprite.json
+        and sprite.png to a private GitHub repo and pointing my style's
+        sprite field at the raw.githubusercontent.com URLs. It renders fine
+        for me in my browser (I'm logged into GitHub), but other users report
+        the icons never load and their network tab shows 404s on both files.
+        What's actually wrong, and how do I fix it?
     assert:
       - type: llm-rubric
         value: >
-          Identifies the root cause: the sprite value must be a BASE PATH
-          without any file extension — MapLibre automatically appends .json
-          and .png to construct the actual request URLs. Recommends removing
-          the .json extension so the sprite value is just the base path
-          (e.g. "https://example.com/sprites/basic"). Notes that both the
-          .json metadata file and .png spritesheet must exist at the base path.
-          Does NOT simply say "check the file exists" without explaining the
-          base-path requirement.
+          Identifies the root cause as the repo being PRIVATE: raw.githubusercontent.com
+          does not honor a visitor's GitHub browser login/session, so requests
+          from other users are effectively anonymous, and a private repo
+          returns 404 to anonymous requests — this is why it works for the
+          logged-in owner but not for anyone else. Explicitly states this is
+          NOT a CORS problem, so adding Access-Control-Allow-Origin headers or
+          similar CORS fixes will not help. The fix is to host the sprite
+          somewhere genuinely public: make the repo (or its GitHub Pages site)
+          public, or move the sprite files to a public static host or the same
+          origin as the style. An answer that diagnoses this as a CORS issue,
+          recommends adding CORS headers, or suggests embedding a GitHub token
+          or credentials in the URL FAILS.
 
   - description: implicit — self-hosting existing glyphs for an offline GL JS map
     vars:
@@ -201,8 +212,9 @@ tests:
           naming scheme (e.g. "road_shield_{ref}") and must NOT tell the user to
           use a Mapbox sprite / mapbox:// URL or a Mapbox account.
 
-  # Needs a clean baseline rerun — the only baseline attempts so far
-  # (cjk-baseline, yxk) hit a 503/429 before returning a real verdict.
+  # Confirmed real gap 2026-07-02 (Cerebras eval-jE9, clean baseline): model
+  # gave an incomplete answer, missing the localIdeographFontFamily mechanism
+  # entirely.
   - description: implicit — CJK labels ignore served font / slow (localIdeographFontFamily)
     vars:
       prompt: >
@@ -227,28 +239,11 @@ tests:
           CJK glyphs, at a significant performance cost. Does NOT claim you must
           serve CJK glyph PBFs to display Chinese labels.
 
-  # PROBE — keep only if it FAILS at baseline (--var injectSkill=false).
-  # Baseline models may already know the beforeId/first-symbol pattern; if the
-  # baseline run passes, delete this test rather than shipping a no-gap test.
-  - description: probe — injected data layer covers basemap labels
-    vars:
-      prompt: >
-        I'm adding a GeoJSON fill layer for neighborhood boundaries to an
-        existing vector basemap style in MapLibre GL JS with map.addLayer().
-        It draws, but it sits on top of the city and street labels and makes
-        them unreadable. I don't control the basemap style. What is the right
-        way to add my layer so the labels stay on top?
-    assert:
-      - type: icontains
-        value: 'beforeId'
-      - type: llm-rubric
-        value: >
-          Uses the beforeId argument of map.addLayer() and finds the first
-          symbol layer dynamically from map.getStyle().layers (since the
-          basemap style is not under the user's control, a hardcoded layer id
-          is fragile) to insert the data layer beneath all label layers. An
-          answer that only suggests lowering fill-opacity, editing the basemap
-          style, or re-adding layers FAILS.
+  # Removed 2026-07-02 (Cerebras eval-jE9, clean baseline PASS): raw
+  # completion shows the model already scans map.getStyle().layers for the
+  # first symbol layer and inserts via addLayer(layer, beforeId) unprompted —
+  # exactly the pattern this probe was checking for. No gap; met its own
+  # keep-only-if-baseline-fails condition for removal.
 
   - description: negative — out-of-scope question about map camera animation
     vars:
