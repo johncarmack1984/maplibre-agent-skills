@@ -1,0 +1,183 @@
+# Evals for the maplibre-cartography skill.
+#
+# Run locally (Cerebras — set CEREBRAS_API_KEY):
+#   npx promptfoo@latest eval \
+#     --config evals/prompts/maplibre-cartography.yaml \
+#     --no-cache -j 1
+#
+# IMPORTANT: Never use --providers on the CLI — it bypasses lib/skill-prompt.mjs
+# and the skill will not be injected into the system prompt.
+
+description: Evals for the maplibre-cartography skill
+
+prompts:
+  - file://lib/skill-prompt.mjs
+
+providers:
+  - id: cerebras:gpt-oss-120b
+    label: cerebras-gpt-oss
+
+evaluateOptions:
+  delay: 500
+
+defaultTest:
+  vars:
+    skillFile: skills/maplibre-cartography/SKILL.md
+  options:
+    provider: cerebras:gpt-oss-120b
+
+tests:
+  - description: explicit — glyphs URL format for self-hosted fonts
+    vars:
+      prompt: >
+        I'm building a custom MapLibre style with self-hosted glyphs. What
+        format does the glyphs URL in my style need to be, and what do the
+        placeholder variables in the path represent?
+    assert:
+      - type: icontains
+        value: '{fontstack}'
+      - type: llm-rubric
+        value: >
+          States the glyphs URL must contain {fontstack} and {range} placeholders
+          (e.g. ending in /{fontstack}/{range}.pbf). Explains that {fontstack} is
+          the URL-encoded font name or comma-joined list of font names from the
+          text-font array. Explains that {range} is a Unicode range (e.g. 0-255).
+          Provides an example URL pattern. Mentions that font names in text-font
+          must exactly match the names the glyph server knows.
+
+  - description: implicit — semantic label colors on imagery
+    vars:
+      prompt: >
+        I'm styling a MapLibre map that uses aerial imagery as the basemap.
+        My park labels use dark green text and my water labels use dark blue text,
+        copied from a light street map style. They're hard to read over the imagery.
+        What should I change them to?
+    assert:
+      - type: llm-rubric
+        value: >
+          Recommends switching to LIGHT tints of the semantic colors (e.g. light
+          green for parks, light blue for water) rather than dark saturated
+          versions. Recommends a dark semi-transparent halo (e.g. rgba(0,0,0,0.75))
+          for all labels. Explains that dark saturated colors fail on imagery
+          backgrounds AND contrast poorly with adjacent white place labels at small
+          sizes. Does NOT simply say "use white text" for all labels — must
+          distinguish the tinted-semantic-color approach for parks and water.
+
+  - description: anti-pattern — sprite URL set to full file path instead of base path
+    vars:
+      prompt: >
+        I set the sprite field in my MapLibre style to
+        "https://example.com/sprites/basic.json" but my icons are not
+        appearing on the map. The file exists at that URL and returns a 200
+        response. What is wrong?
+    assert:
+      - type: llm-rubric
+        value: >
+          Identifies the root cause: the sprite value must be a BASE PATH
+          without any file extension — MapLibre automatically appends .json
+          and .png to construct the actual request URLs. Recommends removing
+          the .json extension so the sprite value is just the base path
+          (e.g. "https://example.com/sprites/basic"). Notes that both the
+          .json metadata file and .png spritesheet must exist at the base path.
+          Does NOT simply say "check the file exists" without explaining the
+          base-path requirement.
+
+  - description: implicit — self-hosting existing glyphs for an offline GL JS map
+    vars:
+      prompt: >
+        I have a MapLibre GL JS map and want to stop depending on a public font
+        server — I need the glyphs served from my own origin so the map works
+        offline and looks the same for everyone. I'm using standard fonts my
+        style already references (Noto Sans / Open Sans). How do I host the
+        glyphs myself?
+    assert:
+      - type: llm-rubric
+        value: >
+          Explains that for standard fonts the user does NOT need to generate
+          anything: they obtain ready-made glyph PBFs (e.g. a prebuilt set such as
+          openmaptiles/fonts, or by copying the {fontstack}/{range}.pbf files the
+          current font server already serves) and host that {fontstack}/{range}.pbf
+          directory tree on their own origin. States that the style's top-level
+          "glyphs" property is then set to their own URL template ending in
+          /{fontstack}/{range}.pbf, and that each layer's text-font names must
+          match the served font-stack folder names. Treats generating glyphs from
+          a TTF/OTF (e.g. Font Maker) as a SEPARATE task only needed for a custom
+          font not already available as PBFs — does NOT present generation as
+          required for hosting standard fonts. Does NOT resolve the problem by
+          pointing "glyphs" back at a public or remote font server.
+
+  - description: anti-pattern — reducing road opacity to calm bright roads on imagery
+    vars:
+      prompt: >
+        I dropped my OSM Bright vector road layers on top of satellite imagery
+        and the bright orange/yellow roads look garish and dominate the map. My
+        instinct is to lower their opacity so the imagery shows through. Is that
+        the right fix?
+    assert:
+      - type: llm-rubric
+        value: >
+          Advises AGAINST lowering road opacity — semi-transparent roads let
+          the imagery texture bleed through and flatten/muddy the map. Instead
+          recommends: desaturate the fills and casings toward neutral greys/
+          muted tones; keep the road hierarchy in WIDTH and VALUE rather than
+          hue; keep roads OPAQUE with a value-contained casing (a knockout
+          casing a deeper shade of the fill, not a foreign black). May mention
+          interpolating brightness by zoom. The key correction is opaque-and-
+          desaturated over transparent.
+
+  - description: implicit — route shields missing badge on the open OpenMapTiles stack
+    vars:
+      prompt: >
+        I'm using an open OpenMapTiles / OSM-based vector basemap with MapLibre
+        GL JS (no Mapbox account). My interstate and US highway shields render
+        as bare floating numbers with no shield badge behind them; the numbers
+        are fine. My tiles do populate network, ref, and ref_length. Which
+        exact sprite image names do the shield layers expect, and how do I get
+        the badges to appear without editing the layers?
+    assert:
+      - type: llm-rubric
+        value: >
+          Correctly states that OpenMapTiles/OSM Liberty shield layers
+          reference icon-image by the pattern "{network}_{ref_length}" for
+          known networks — e.g. us-interstate_2, us-highway_3, us-state_2 — and
+          road_{ref_length} for generic refs, and that a missing icon is
+          silently omitted. The fix is to point the style's sprite at one that
+          actually contains those shield images (so the {network}_{ref_length}
+          layers resolve with no layer edits). Must NOT invent a different
+          naming scheme (e.g. "road_shield_{ref}") and must NOT tell the user to
+          use a Mapbox sprite / mapbox:// URL or a Mapbox account.
+
+  - description: implicit — CJK labels ignore served font / slow (localIdeographFontFamily)
+    vars:
+      prompt: >
+        I'm adding Chinese place labels to my MapLibre GL JS map. I added
+        "Noto Sans CJK SC" to my layer's text-font and I'm serving its glyph
+        PBFs, but the map seems to ignore my font for the Chinese characters.
+        What is going on, and what is the recommended way to handle CJK text?
+    assert:
+      - type: llm-rubric
+        value: >
+          Explains that MapLibre GL JS renders CJK (Chinese/Japanese/Korean)
+          characters LOCALLY by default via the localIdeographFontFamily map
+          option (default 'sans-serif'), so the style's text-font is ignored
+          for CJK glyphs (aside from weight) — which is why the served
+          "Noto Sans CJK SC" font is not being used. States this is intentional,
+          to avoid downloading very large CJK glyph sets (CJK has poor Unicode
+          locality). Recommends LEAVING local rendering on (optionally setting
+          localIdeographFontFamily to a preferred on-device CJK font), and notes
+          that setting localIdeographFontFamily to false is what forces served
+          CJK glyphs, at a significant performance cost. Does NOT claim you must
+          serve CJK glyph PBFs to display Chinese labels.
+
+  - description: negative — out-of-scope question about map camera animation
+    vars:
+      prompt: >
+        How do I smoothly fly the camera to a new location in MapLibre GL JS
+        after the user clicks a button?
+    assert:
+      - type: llm-rubric
+        value: >
+          Describes the map.flyTo() method with at minimum a center coordinate
+          and zoom level. Does not incorrectly bring up label colors, font
+          stacks, sprite configuration, or cartographic styling as if they were
+          relevant to camera animation.
