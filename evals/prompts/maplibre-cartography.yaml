@@ -106,6 +106,52 @@ tests:
           required for hosting standard fonts. Does NOT resolve the problem by
           pointing "glyphs" back at a public or remote font server.
 
+  - description: implicit — point symbols camouflaged against aerial imagery
+    vars:
+      prompt: >
+        I have custom point icons on a MapLibre GL JS map over satellite/aerial
+        imagery. Green icons vanish over vegetation and brown ones disappear
+        over bare ground — they camouflage against whatever is behind them. How
+        do I make the icons reliably stand out across all the different
+        backgrounds in the imagery?
+    assert:
+      - type: llm-rubric
+        value: >
+          Identifies that aerial/satellite imagery is predominantly
+          LOW-SATURATION, so the reliable separation axis is CHROMA
+          (saturation), not hue: recommends a saturated fill (e.g. amber or
+          terracotta) rather than swapping one earth tone for another, and
+          explains that shifting hue alone fails because the new hue can also
+          occur in the scene. Also recommends carving the symbol out with a
+          thin casing or halo (light edge holds against dark canopy/water, dark
+          edge against bright soil/rooftops). An answer that gives only generic
+          advice (increase contrast, add a halo, make the icons bigger) without
+          the chroma-vs-hue insight for desaturated imagery FAILS.
+
+  - description: implicit — complete self-hosted stack (glyphs + sprite alongside tiles)
+    vars:
+      prompt: >
+        My MapLibre GL JS style already points its tile source at my own
+        self-hosted server. I now need the glyphs (standard fonts, Noto Sans)
+        and the sprite (icons) self-hosted too, so nothing calls out to a
+        third-party server. What do I need to serve for each, and what do I set
+        in the style JSON?
+    assert:
+      - type: llm-rubric
+        value: >
+          For glyphs: states that standard fonts like Noto Sans require NO
+          generation step — the user obtains prebuilt glyph PBFs (e.g.
+          openmaptiles/fonts, UNDP-Data/fonts, or copies the tree their current
+          font server serves) and serves the {fontstack}/{range}.pbf directory,
+          with the style's "glyphs" property set to their own URL template
+          ending in /{fontstack}/{range}.pbf. Presenting TTF/OTF glyph
+          generation (fontnik, Font Maker) as REQUIRED for standard fonts is a
+          FAIL. For the sprite: states that both the sprite .json and .png are
+          served together and the style's "sprite" value is a BASE PATH without
+          any file extension (MapLibre appends .json/.png/@2x itself); giving a
+          sprite URL that includes a file extension is a FAIL. Notes that
+          text-font names must match the served font-stack folder names.
+
   - description: anti-pattern — reducing road opacity to calm bright roads on imagery
     vars:
       prompt: >
@@ -168,6 +214,27 @@ tests:
           that setting localIdeographFontFamily to false is what forces served
           CJK glyphs, at a significant performance cost. Does NOT claim you must
           serve CJK glyph PBFs to display Chinese labels.
+
+  # PROBE — keep only if it FAILS at baseline (--var injectSkill=false).
+  # Baseline models may already know the beforeId/first-symbol pattern; if the
+  # baseline run passes, delete this test rather than shipping a no-gap test.
+  - description: probe — injected data layer covers basemap labels
+    vars:
+      prompt: >
+        I'm adding a GeoJSON fill layer for neighborhood boundaries to an
+        existing vector basemap style in MapLibre GL JS with map.addLayer().
+        It draws, but it sits on top of the city and street labels and makes
+        them unreadable. I don't control the basemap style. What is the right
+        way to add my layer so the labels stay on top?
+    assert:
+      - type: llm-rubric
+        value: >
+          Uses the beforeId argument of map.addLayer() and finds the first
+          symbol layer dynamically from map.getStyle().layers (since the
+          basemap style is not under the user's control, a hardcoded layer id
+          is fragile) to insert the data layer beneath all label layers. An
+          answer that only suggests lowering fill-opacity, editing the basemap
+          style, or re-adding layers FAILS.
 
   - description: negative — out-of-scope question about map camera animation
     vars:
