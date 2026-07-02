@@ -41,6 +41,8 @@ tests:
         serve glyphs for production, and is the behavior the same in MapLibre
         Native?
     assert:
+      - type: icontains
+        value: 'Native'
       - type: llm-rubric
         value: >
           States that in MapLibre GL JS 5.11.0 and later a missing glyph PBF is
@@ -54,6 +56,9 @@ tests:
           rendering in current GL JS with no fallback, or that Native behaves
           the same as GL JS, FAILS.
 
+  # Needs a clean baseline rerun — every attempt so far (trim-check-glyphs,
+  # the 2026-07-01 yxk run) hit a Gemini 503 before returning a real
+  # grading verdict. Content of the rubric is unverified against training data.
   - description: anti-pattern — sprite URL set to full file path instead of base path
     vars:
       prompt: >
@@ -82,6 +87,8 @@ tests:
         style already references (Noto Sans / Open Sans). How do I host the
         glyphs myself?
     assert:
+      - type: icontains
+        value: '{fontstack}'
       - type: llm-rubric
         value: >
           Explains that for standard fonts the user does NOT need to generate
@@ -119,6 +126,12 @@ tests:
           advice (increase contrast, add a halo, make the icons bigger) without
           the chroma-vs-hue insight for desaturated imagery FAILS.
 
+  # Overlaps tests 2 and 3 by design: this is issue #11's "complete self-hosted
+  # workflow" criterion specifically — glyphs and sprite handled TOGETHER
+  # alongside an existing tile source, not just each in isolation. The
+  # baseline probe that seeded this test failed on BOTH sub-claims at once
+  # (issue11-probes-baseline), which the two isolated tests wouldn't catch on
+  # their own if a response nails one and silently drops the other.
   - description: implicit — complete self-hosted stack (glyphs + sprite alongside tiles)
     vars:
       prompt: >
@@ -128,6 +141,8 @@ tests:
         third-party server. What do I need to serve for each, and what do I set
         in the style JSON?
     assert:
+      - type: icontains
+        value: '{fontstack}'
       - type: llm-rubric
         value: >
           For glyphs: states that standard fonts like Noto Sans require NO
@@ -172,6 +187,8 @@ tests:
         exact sprite image names do the shield layers expect, and how do I get
         the badges to appear without editing the layers?
     assert:
+      - type: icontains
+        value: 'ref_length'
       - type: llm-rubric
         value: >
           Correctly states that OpenMapTiles/OSM Liberty shield layers
@@ -184,6 +201,8 @@ tests:
           naming scheme (e.g. "road_shield_{ref}") and must NOT tell the user to
           use a Mapbox sprite / mapbox:// URL or a Mapbox account.
 
+  # Needs a clean baseline rerun — the only baseline attempts so far
+  # (cjk-baseline, yxk) hit a 503/429 before returning a real verdict.
   - description: implicit — CJK labels ignore served font / slow (localIdeographFontFamily)
     vars:
       prompt: >
@@ -192,6 +211,8 @@ tests:
         PBFs, but the map seems to ignore my font for the Chinese characters.
         What is going on, and what is the recommended way to handle CJK text?
     assert:
+      - type: icontains
+        value: 'localIdeographFontFamily'
       - type: llm-rubric
         value: >
           Explains that MapLibre GL JS renders CJK (Chinese/Japanese/Korean)
@@ -218,6 +239,8 @@ tests:
         them unreadable. I don't control the basemap style. What is the right
         way to add my layer so the labels stay on top?
     assert:
+      - type: icontains
+        value: 'beforeId'
       - type: llm-rubric
         value: >
           Uses the beforeId argument of map.addLayer() and finds the first
@@ -233,6 +256,8 @@ tests:
         How do I smoothly fly the camera to a new location in MapLibre GL JS
         after the user clicks a button?
     assert:
+      - type: icontains
+        value: 'flyTo'
       - type: llm-rubric
         value: >
           Describes the map.flyTo() method with at minimum a center coordinate
