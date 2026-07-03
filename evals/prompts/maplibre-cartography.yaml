@@ -7,6 +7,10 @@
 #
 # IMPORTANT: Never use --providers on the CLI — it bypasses lib/skill-prompt.mjs
 # and the skill will not be injected into the system prompt.
+#
+# Suite redesigned 2026-07-02 (9 tests → 4, one per category). Baseline/
+# with-skill evidence and rationale per test are logged in the project plan
+# (Agent Skills / eval-run-log-cartography.md).
 
 description: Evals for the maplibre-cartography skill
 
@@ -16,6 +20,10 @@ prompts:
 providers:
   - id: cerebras:gpt-oss-120b
     label: cerebras-gpt-oss
+    config:
+      # Ceiling, not spend — gpt-oss-120b burns ~1-3K tokens on reasoning
+      # before answering; the promptfoo default truncates answers mid-code.
+      max_tokens: 8192
 
 evaluateOptions:
   delay: 500
@@ -27,235 +35,41 @@ defaultTest:
     provider: cerebras:gpt-oss-120b
 
 tests:
-  # Replaced 2026-07-01: the previous explicit test (glyphs URL placeholder
-  # format) and the semantic-label-colors implicit test both PASSED at
-  # baseline in clean runs — the model already knows them, so they cannot
-  # demonstrate the gap the launch bar requires. This explicit test targets
-  # post-training-cutoff behavior (GL JS 5.11.0 local glyph fallback) that
-  # the skill documents.
-  - description: explicit — missing-glyph behavior in GL JS 5.11+ vs Native
+  - description: explicit — route shields missing badge on the open OpenMapTiles stack
     vars:
-      prompt: >
-        In current MapLibre GL JS, what happens if a glyph PBF requested from
-        my style's glyphs URL is missing or fails to load? Do I still need to
-        serve glyphs for production, and is the behavior the same in MapLibre
-        Native?
-    assert:
-      - type: icontains
-        value: 'Native'
-      - type: llm-rubric
-        value: >
-          States that in MapLibre GL JS 5.11.0 and later a missing glyph PBF is
-          no longer fatal: the glyph is rendered locally instead (TinySDF),
-          with text-font treated as a cascading list of local/web font names.
-          Notes the fallback is environment-dependent (it needs a matching font
-          available to the browser or OS), so production styles should still
-          serve glyphs explicitly. States that MapLibre Native does NOT have
-          this fallback and still requires glyphs served from the style's
-          glyphs URL. An answer that claims missing glyphs simply break label
-          rendering in current GL JS with no fallback, or that Native behaves
-          the same as GL JS, FAILS.
-
-  # Replaced 2026-07-02: the sprite-base-path test passed cleanly at baseline
-  # three times running (Gemini clean run 2026-07-01, Gemini 2026-07-02
-  # eval-KPU, Cerebras 2026-07-02 eval-jE9) — raw completions show the model
-  # already explains the base-path/no-extension mechanism correctly and
-  # unprompted. No gap, so it cannot sit in the launch-bar suite. Replaced
-  # with a sharper trap grounded in the skill's private-repo CORS claim
-  # (SKILL.md ref #17): base models default to diagnosing "works for me,
-  # 404s for others" as a CORS problem, which is the wrong root cause here.
-  - description: anti-pattern — self-hosted sprite in a private GitHub repo returns 404 for other users
-    vars:
-      prompt: >
-        I'm self-hosting my MapLibre GL JS sprite by committing sprite.json
-        and sprite.png to a private GitHub repo and pointing my style's
-        sprite field at the raw.githubusercontent.com URLs. It renders fine
-        for me in my browser (I'm logged into GitHub), but other users report
-        the icons never load and their network tab shows 404s on both files.
-        What's actually wrong, and how do I fix it?
-    assert:
-      - type: llm-rubric
-        value: >
-          Identifies the root cause as the repo being PRIVATE: raw.githubusercontent.com
-          does not honor a visitor's GitHub browser login/session, so requests
-          from other users are effectively anonymous, and a private repo
-          returns 404 to anonymous requests — this is why it works for the
-          logged-in owner but not for anyone else. Explicitly states this is
-          NOT a CORS problem, so adding Access-Control-Allow-Origin headers or
-          similar CORS fixes will not help. The fix is to host the sprite
-          somewhere genuinely public: make the repo (or its GitHub Pages site)
-          public, or move the sprite files to a public static host or the same
-          origin as the style. An answer that diagnoses this as a CORS issue,
-          recommends adding CORS headers, or suggests embedding a GitHub token
-          or credentials in the URL FAILS.
-
-  - description: implicit — self-hosting existing glyphs for an offline GL JS map
-    vars:
-      prompt: >
-        I have a MapLibre GL JS map and want to stop depending on a public font
-        server — I need the glyphs served from my own origin so the map works
-        offline and looks the same for everyone. I'm using standard fonts my
-        style already references (Noto Sans / Open Sans). How do I host the
-        glyphs myself?
-    assert:
-      - type: icontains
-        value: '{fontstack}'
-      - type: llm-rubric
-        value: >
-          Explains that for standard fonts the user does NOT need to generate
-          anything: they obtain ready-made glyph PBFs (e.g. a prebuilt set such as
-          openmaptiles/fonts, or by copying the {fontstack}/{range}.pbf files the
-          current font server already serves) and host that {fontstack}/{range}.pbf
-          directory tree on their own origin. States that the style's top-level
-          "glyphs" property is then set to their own URL template ending in
-          /{fontstack}/{range}.pbf, and that each layer's text-font names must
-          match the served font-stack folder names. Treats generating glyphs from
-          a TTF/OTF (e.g. Font Maker) as a SEPARATE task only needed for a custom
-          font not already available as PBFs — does NOT present generation as
-          required for hosting standard fonts. Does NOT resolve the problem by
-          pointing "glyphs" back at a public or remote font server.
-
-  - description: implicit — point symbols camouflaged against aerial imagery
-    vars:
-      prompt: >
-        I have custom point icons on a MapLibre GL JS map over satellite/aerial
-        imagery. Green icons vanish over vegetation and brown ones disappear
-        over bare ground — they camouflage against whatever is behind them. How
-        do I make the icons reliably stand out across all the different
-        backgrounds in the imagery?
-    assert:
-      - type: llm-rubric
-        value: >
-          Identifies that aerial/satellite imagery is predominantly
-          LOW-SATURATION, so the reliable separation axis is CHROMA
-          (saturation), not hue: recommends a saturated fill (e.g. amber or
-          terracotta) rather than swapping one earth tone for another, and
-          explains that shifting hue alone fails because the new hue can also
-          occur in the scene. Also recommends carving the symbol out with a
-          thin casing or halo (light edge holds against dark canopy/water, dark
-          edge against bright soil/rooftops). An answer that gives only generic
-          advice (increase contrast, add a halo, make the icons bigger) without
-          the chroma-vs-hue insight for desaturated imagery FAILS.
-
-  # Overlaps tests 2 and 3 by design: this is issue #11's "complete self-hosted
-  # workflow" criterion specifically — glyphs and sprite handled TOGETHER
-  # alongside an existing tile source, not just each in isolation. The
-  # baseline probe that seeded this test failed on BOTH sub-claims at once
-  # (issue11-probes-baseline), which the two isolated tests wouldn't catch on
-  # their own if a response nails one and silently drops the other.
-  - description: implicit — complete self-hosted stack (glyphs + sprite alongside tiles)
-    vars:
-      prompt: >
-        My MapLibre GL JS style already points its tile source at my own
-        self-hosted server. I now need the glyphs (standard fonts, Noto Sans)
-        and the sprite (icons) self-hosted too, so nothing calls out to a
-        third-party server. What do I need to serve for each, and what do I set
-        in the style JSON?
-    assert:
-      - type: icontains
-        value: '{fontstack}'
-      - type: llm-rubric
-        value: >
-          For glyphs: states that standard fonts like Noto Sans require NO
-          generation step — the user obtains prebuilt glyph PBFs (e.g.
-          openmaptiles/fonts, UNDP-Data/fonts, or copies the tree their current
-          font server serves) and serves the {fontstack}/{range}.pbf directory,
-          with the style's "glyphs" property set to their own URL template
-          ending in /{fontstack}/{range}.pbf. Presenting TTF/OTF glyph
-          generation (fontnik, Font Maker) as REQUIRED for standard fonts is a
-          FAIL. For the sprite: states that both the sprite .json and .png are
-          served together and the style's "sprite" value is a BASE PATH without
-          any file extension (MapLibre appends .json/.png/@2x itself); giving a
-          sprite URL that includes a file extension is a FAIL. Notes that
-          text-font names must match the served font-stack folder names.
-
-  - description: anti-pattern — reducing road opacity to calm bright roads on imagery
-    vars:
-      prompt: >
-        I dropped my OSM Bright vector road layers on top of satellite imagery
-        and the bright orange/yellow roads look garish and dominate the map. My
-        instinct is to lower their opacity so the imagery shows through. Is that
-        the right fix?
-    assert:
-      - type: llm-rubric
-        value: >
-          Advises AGAINST lowering road opacity — semi-transparent roads let
-          the imagery texture bleed through and flatten/muddy the map. Instead
-          recommends: desaturate the fills and casings toward neutral greys/
-          muted tones; keep the road hierarchy in WIDTH and VALUE rather than
-          hue; keep roads OPAQUE with a value-contained casing (a knockout
-          casing a deeper shade of the fill, not a foreign black). May mention
-          interpolating brightness by zoom. The key correction is opaque-and-
-          desaturated over transparent.
-
-  - description: implicit — route shields missing badge on the open OpenMapTiles stack
-    vars:
-      prompt: >
-        I'm using an open OpenMapTiles / OSM-based vector basemap with MapLibre
-        GL JS (no Mapbox account). My interstate and US highway shields render
-        as bare floating numbers with no shield badge behind them; the numbers
-        are fine. My tiles do populate network, ref, and ref_length. Which
-        exact sprite image names do the shield layers expect, and how do I get
-        the badges to appear without editing the layers?
+      prompt: "I'm using an open OpenMapTiles / OSM-based vector basemap with MapLibre GL JS (no Mapbox account). My interstate and US highway shields render as bare floating numbers with no shield badge behind them; the numbers are fine. My tiles do populate network, ref, and ref_length. Which exact sprite image names do the shield layers expect, and how do I get the badges to appear without editing the layers?"
     assert:
       - type: icontains
         value: 'ref_length'
-      - type: llm-rubric
-        value: >
-          Correctly states that OpenMapTiles/OSM Liberty shield layers
-          reference icon-image by the pattern "{network}_{ref_length}" for
-          known networks — e.g. us-interstate_2, us-highway_3, us-state_2 — and
-          road_{ref_length} for generic refs, and that a missing icon is
-          silently omitted. The fix is to point the style's sprite at one that
-          actually contains those shield images (so the {network}_{ref_length}
-          layers resolve with no layer edits). Must NOT invent a different
-          naming scheme (e.g. "road_shield_{ref}") and must NOT tell the user to
-          use a Mapbox sprite / mapbox:// URL or a Mapbox account.
-
-  # Confirmed real gap 2026-07-02 (Cerebras eval-jE9, clean baseline): model
-  # gave an incomplete answer, missing the localIdeographFontFamily mechanism
-  # entirely.
-  - description: implicit — CJK labels ignore served font / slow (localIdeographFontFamily)
-    vars:
-      prompt: >
-        I'm adding Chinese place labels to my MapLibre GL JS map. I added
-        "Noto Sans CJK SC" to my layer's text-font and I'm serving its glyph
-        PBFs, but the map seems to ignore my font for the Chinese characters.
-        What is going on, and what is the recommended way to handle CJK text?
-    assert:
+      # Deterministic tripwires: baseline hallucinates a "road_shield_N" scheme
+      # and never produces the real key names, and the Cerebras self-judge
+      # believes the hallucination — so don't rely on the rubric alone.
       - type: icontains
-        value: 'localIdeographFontFamily'
+        value: 'us-interstate'
+      - type: not-icontains
+        value: 'road_shield'
       - type: llm-rubric
-        value: >
-          Explains that MapLibre GL JS renders CJK (Chinese/Japanese/Korean)
-          characters LOCALLY by default via the localIdeographFontFamily map
-          option (default 'sans-serif'), so the style's text-font is ignored
-          for CJK glyphs (aside from weight) — which is why the served
-          "Noto Sans CJK SC" font is not being used. States this is intentional,
-          to avoid downloading very large CJK glyph sets (CJK has poor Unicode
-          locality). Recommends LEAVING local rendering on (optionally setting
-          localIdeographFontFamily to a preferred on-device CJK font), and notes
-          that setting localIdeographFontFamily to false is what forces served
-          CJK glyphs, at a significant performance cost. Does NOT claim you must
-          serve CJK glyph PBFs to display Chinese labels.
+        value: "Correctly states that OpenMapTiles/OSM Liberty shield layers reference icon-image by the pattern \"{network}_{ref_length}\" for known networks — e.g. us-interstate_2, us-highway_3, us-state_2 — and road_{ref_length} for generic refs, and that a missing icon is silently omitted. The fix is to point the style's sprite at one that actually contains those shield images (so the {network}_{ref_length} layers resolve with no layer edits). Must NOT invent a different naming scheme (e.g. \"road_shield_{ref}\") and must NOT tell the user to use a Mapbox sprite / mapbox:// URL or a Mapbox account."
 
-  # Removed 2026-07-02 (Cerebras eval-jE9, clean baseline PASS): raw
-  # completion shows the model already scans map.getStyle().layers for the
-  # first symbol layer and inserts via addLayer(layer, beforeId) unprompted —
-  # exactly the pattern this probe was checking for. No gap; met its own
-  # keep-only-if-baseline-fails condition for removal.
+  - description: implicit — point symbols camouflaged against aerial imagery
+    vars:
+      prompt: "I have custom point icons on a MapLibre GL JS map over satellite/aerial imagery. Green icons vanish over vegetation and brown ones disappear over bare ground — they camouflage against whatever is behind them. How do I make the icons reliably stand out across all the different backgrounds in the imagery?"
+    assert:
+      - type: llm-rubric
+        value: "Recommends, as a primary part of the fix, changing the icons to a SATURATED accent fill color that natural imagery does not contain (e.g. amber, terracotta, teal, magenta) — not merely swapping one earth tone for another, since any natural hue can occur somewhere in the scene. Also recommends a thin contrasting casing/halo around the symbol. An answer that relies solely on halos, outlines, background shapes, or generic advice (increase contrast, make icons bigger) WITHOUT recommending a saturated distinct fill color FAILS."
+
+  - description: anti-pattern — reducing road opacity to calm bright roads on imagery
+    vars:
+      prompt: "I dropped my OSM Bright vector road layers on top of satellite imagery and the bright orange/yellow roads look garish and dominate the map. My instinct is to lower their opacity so the imagery shows through. Is that the right fix?"
+    assert:
+      - type: llm-rubric
+        value: "Advises AGAINST lowering road opacity — semi-transparent roads let the imagery texture bleed through and flatten/muddy the map. Instead recommends: desaturate the fills and casings toward neutral greys or muted tones; keep the road hierarchy in WIDTH and VALUE rather than hue; keep roads OPAQUE with a casing that contains the fill (e.g. a knockout casing — a deeper shade of the fill's own hue rather than a foreign black). May mention interpolating brightness by zoom. The key correction is opaque-and-desaturated over transparent."
 
   - description: negative — out-of-scope question about map camera animation
     vars:
-      prompt: >
-        How do I smoothly fly the camera to a new location in MapLibre GL JS
-        after the user clicks a button?
+      prompt: "How do I smoothly fly the camera to a new location in MapLibre GL JS after the user clicks a button?"
     assert:
       - type: icontains
         value: 'flyTo'
       - type: llm-rubric
-        value: >
-          Describes the map.flyTo() method with at minimum a center coordinate
-          and zoom level. Does not incorrectly bring up label colors, font
-          stacks, sprite configuration, or cartographic styling as if they were
-          relevant to camera animation.
+        value: "Answers the camera-animation question directly: uses map.flyTo() (or easeTo/jumpTo where appropriate) with a target center and zoom, wired to a click handler. Grade the substance of the answer, not its completeness — code that sets up flyTo options counts even if the snippet is cut off. FAILS only if the response is derailed by irrelevant cartographic-styling topics (label colors, font stacks, glyphs, sprite configuration) presented as if they mattered for camera animation."
