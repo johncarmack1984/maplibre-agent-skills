@@ -4,6 +4,7 @@ settings.local.json
 *.xcuserstate
 *.xcuserdatad
 .swiftpm/xcode/
+CLAUDE.md
 
 # Local research and maintainer artifacts
 archive/

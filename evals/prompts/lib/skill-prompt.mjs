@@ -15,7 +15,9 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 export default function ({ vars }) {
   const messages = [];
-  if (vars.injectSkill !== 'false') {
+  // Compares case-insensitively: `--var injectSkill=False` on the CLI is a
+  // one-character typo away from silently injecting the skill anyway.
+  if (String(vars.injectSkill).toLowerCase() !== 'false') {
     const skillContent = readFileSync(join(repoRoot, vars.skillFile), 'utf8');
     messages.push({ role: 'system', content: skillContent });
   }
