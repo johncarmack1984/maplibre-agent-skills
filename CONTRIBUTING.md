@@ -10,6 +10,26 @@ We welcome:
 - **Documentation** — Clearer code samples or in-skill examples
 - **Questions** — Open an issue or contact the maintainers as appropriate
 
+## Three ways to contribute (pick your lane)
+
+You do **not** need to learn our eval setup to help. Choose the lane that fits:
+
+| Lane                            | You provide                                     | You need                                       | Effort       |
+| ------------------------------- | ----------------------------------------------- | ---------------------------------------------- | ------------ |
+| **1. Report a failure**         | A wrong AI answer + (if you know) the right one | A GitHub account                               | 2 minutes    |
+| **2. Write a scaffolded skill** | The skill _content_, against a rubric we wrote  | A GitHub account; willingness to edit Markdown | An afternoon |
+| **3. Full skill + evals**       | Content _and_ the eval prompts/rubric           | Local setup + API keys (see below)             | A day+       |
+
+Most contributors should start at Lane 1 or 2. Eval rigor still applies — we just run it for
+you (a maintainer, at weekly triage) or write the tests for you (scaffolded issues). Lane 3 is
+for when you want to own the whole thing.
+
+- **Lane 1:** open an [AI failure report](.github/ISSUE_TEMPLATE/ai-failure-report.md) — no code, no evals.
+- **Lane 2:** claim an open [good first skill](https://github.com/maplibre/maplibre-agent-skills/labels/good-first-issue) issue — the eval prompts and rubric are already written; you write `SKILL.md`.
+- **Lane 3:** follow the full workflow below, starting with [Contribute a Skill](#contribute-a-skill).
+
+Have valuable knowledge but don't want to write evals right now? See [Provisional skills](#provisional-skills) — you can land content first, and a maintainer adds the evals later.
+
 ## Contribute a Skill
 
 We’d love your help expanding this collection. Whether you’re a student still learning or a seasoned professional building with MapLibre every day — **your experience can help AI assistants guide developers better**.
@@ -175,6 +195,7 @@ Every SKILL.md must have YAML frontmatter followed by markdown:
 ---
 name: maplibre-example-skill
 description: Expert guidance on [domain] for MapLibre applications
+status: verified
 ---
 
 # MapLibre [Domain] Skill
@@ -196,6 +217,7 @@ Use this skill when:
 
 - `name` must match the directory name exactly (e.g. `maplibre-tile-sources`).
 - `description` should be concise (1–2 sentences).
+- `status` is `verified` (evals pass in CI) or `provisional` (content lands before evals — see [Provisional skills](#provisional-skills)).
 - Content must include actionable guidance, not just reference text.
 
 ### 4. Content Guidelines
@@ -224,6 +246,20 @@ Before publishing your PR:
 1. **Run all checks:** `npm run check` (fix any issues before continuing)
 2. **Run evals** and confirm all assertions pass — see [Running evals locally](#running-evals-locally)
 3. **Test with an AI assistant:** `npx skills add . -a claude-code`, then ask questions the skill should answer
+
+## Provisional skills
+
+Have valuable knowledge but don't want to write evals? Submit it as a **provisional** skill: set
+`status: provisional` in the frontmatter and open a PR with just the content. It can merge without
+passing evals, and it'll be clearly badged as unverified in the [Available Skills](README.md#available-skills)
+table. A maintainer or another contributor adds the evals later to graduate it to `verified`. This
+is the fastest way to share a hard-won pattern.
+
+A provisional contribution still needs to cite a demonstrated AI failure — link an [AI failure
+report](.github/ISSUE_TEMPLATE/ai-failure-report.md), a mining note, or a baseline-failing prompt.
+`provisional` means _correctness not yet CI-verified_, not _necessity unknown_. It graduates to
+`verified` once eval prompts covering the skill's gaps pass in CI — not merely when the one cited
+failure passes.
 
 ## Note on AI usage
 
