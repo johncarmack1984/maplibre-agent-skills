@@ -7,7 +7,4 @@ settings.local.json
 CLAUDE.md
 
 # Local research and maintainer artifacts
-archive/
-
-# Local eval output — CI-committed results live in evals/results/ as CSV
-evals/results/*.csv
+evals/results/local/
