@@ -136,31 +136,16 @@ map.on('load', () => {
 
 Most real-world apps combine source types — a hosted basemap for the reference layer and your own data as a separate source. You rarely need to build a custom tile pipeline just for your data.
 
-| Scenario                                                        | Recommended source setup                                                                                                   |
-| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| < ~5,000 features, need click/hover interaction or live updates | GeoJSON — no tile server needed                                                                                            |
-| 5,000–100,000 features                                          | GeoJSON if you can simplify and accept 1–3s load delay; otherwise vector tiles                                             |
-| > 100,000 features or > 50 MB (your own data)                   | Vector tiles — generate with tippecanoe (see [Generating vector tiles](#generating-vector-tiles-planetiler-vs-tippecanoe)) |
-| Street, terrain, or place basemap                               | Hosted tile service (OpenFreeMap, MapTiler) or self-hosted (Martin)                                                        |
-| Your own data over any basemap                                  | Hosted basemap style URL + your data as a separate GeoJSON or vector tile source                                           |
-| Satellite/aerial imagery + labels                               | Raster tile source for imagery + vector source for roads and labels                                                        |
+| Scenario                                                        | Recommended source setup                                                         |
+| --------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| < ~5,000 features, need click/hover interaction or live updates | GeoJSON — no tile server needed                                                  |
+| 5,000–100,000 features                                          | GeoJSON if you can simplify and accept 1–3s load delay; otherwise vector tiles   |
+| > 100,000 features or > 50 MB                                   | Vector tiles — generate with tippecanoe or Planetiler                            |
+| Street, terrain, or place basemap                               | Hosted tile service (OpenFreeMap, MapTiler) or self-hosted (Martin)              |
+| Your own data over any basemap                                  | Hosted basemap style URL + your data as a separate GeoJSON or vector tile source |
+| Satellite/aerial imagery + labels                               | Raster tile source for imagery + vector source for roads and labels              |
 
 The key distinction: the basemap and your data are almost always separate sources, even if both are vector tiles. The basemap provides context; your sources provide your application's data. Mixing them into a single custom tile source is rarely the right approach unless you are building a self-hosted map with full control of the tile pipeline.
-
-### Generating vector tiles: Planetiler vs. tippecanoe
-
-When you do need to generate your own vector tiles, two open-source tools dominate — and they are **not interchangeable**. Choose by your input data and goal:
-
-| Your input                           | Goal                                                | Tool           |
-| ------------------------------------ | --------------------------------------------------- | -------------- |
-| OpenStreetMap extract (`.osm.pbf`)   | Build a **basemap** (roads, water, landuse, places) | **Planetiler** |
-| Your own GeoJSON, FlatGeobuf, or CSV | Tile **your own data** as an overlay                | **tippecanoe** |
-
-**[Planetiler](https://github.com/onthegomap/planetiler)** turns OpenStreetMap data into a basemap tileset — planet-scale in a few hours on a workstation, smaller extracts in minutes, with no database to run. It emits a **known schema**: a bundled OpenMapTiles-compatible profile (the `planetiler-openmaptiles` module) or [Shortbread](https://shortbread-tiles.org/make-vectortiles/planetiler/) (a built-in `shortbread.yml` sample config). Reach for it when you want to host your own basemap instead of depending on a provider. You can also define a **custom schema** with Planetiler's YAML config language — the same mechanism the Shortbread sample uses.
-
-**[tippecanoe](https://github.com/felt/tippecanoe)** turns _your_ feature data (GeoJSON, FlatGeobuf, CSV) into vector tiles, with fine-grained control over zoom-dependent simplification, feature dropping, and clustering. You define the `source-layer` names yourself. Reach for it when a dataset exceeds GeoJSON's practical limits (see above) and you want to serve it as zoomable vector tiles.
-
-Both write MBTiles or PMTiles with TileJSON metadata embedded (see [TileJSON](#tilejson)). The third common schema, Protomaps, is produced by [Protomaps' own basemaps build](https://docs.protomaps.com/), not Planetiler.
 
 ## Hosting Tile Sources
 
@@ -194,11 +179,9 @@ For a no-key starting point, [OpenFreeMap](https://openfreemap.org/) provides fr
 
 Store API keys in environment variables; never commit to source control.
 
-**Historical and archived tile services:** Some tile services host archived or legacy data that is no longer being updated or regenerated. A notable example is [Stamen Watercolor](https://watercolormaps.collection.cooperhewitt.org/) tiles archived by Cooper Hewitt (Smithsonian) at `https://watercolormaps.collection.cooperhewitt.org/tile/watercolor/{z}/{x}/{y}.jpg`. These tiles are served from a demand-driven cache: tiles for areas or zoom levels that have never been requested are permanently absent and cannot be generated or backfilled. If you are building an offline PMTiles archive from such a source, verify tile completeness before assuming full coverage.
-
 ### Self-hosted tile server
 
-Run your own server for full control over data, cost, and deployment. See [Tile Servers in awesome-maplibre](https://github.com/maplibre/awesome-maplibre#tile-servers) for options, including the MapLibre-maintained 💙 [Martin](https://maplibre.org/martin/). Use an existing tile schema, or generate the tiles to serve with Planetiler (for OpenStreetMap basemaps) or tippecanoe (for your own data) — see [Generating vector tiles](#generating-vector-tiles-planetiler-vs-tippecanoe).
+Run your own server for full control over data, cost, and deployment. See [Tile Servers in awesome-maplibre](https://github.com/maplibre/awesome-maplibre#tile-servers) for options, including the MapLibre-maintained 💙 [Martin](https://maplibre.org/martin/). Use an existing tile schema or generate custom tiles with [Planetiler](https://github.com/onthegomap/planetiler) or [tippecanoe](https://github.com/felt/tippecanoe).
 
 - ✅ Full control; no per-request cost at scale
 - ✅ Can serve dynamic data and convert to tiles on the fly
@@ -224,8 +207,6 @@ Common schemas:
 - **OpenMapTiles** — the most widely adopted schema, based on OpenStreetMap data. Rich and detailed, with source-layers like `transportation`, `water`, `landuse`, `poi`. The largest ecosystem of community styles targets this schema.
 - **Shortbread** — an open standard designed to be minimal and interoperable, not tied to any single vendor. Simpler structure than OpenMapTiles; a clean foundation if you're building styles from scratch.
 - **Protomaps** — purpose-built for the Protomaps PMTiles basemap ecosystem. Flat, simple structure with source-layers like `land`, `water`, `roads`, `places`; optimized for serverless delivery.
-
-If you generate your own basemap tiles, [Planetiler](https://github.com/onthegomap/planetiler) produces both OpenMapTiles and Shortbread schemas from OpenStreetMap data; the Protomaps schema comes from Protomaps' own build. See [Generating vector tiles](#generating-vector-tiles-planetiler-vs-tippecanoe).
 
 If you use a provider's pre-built style URL, the schema is already matched.
 
@@ -273,8 +254,6 @@ When no TileJSON endpoint exists — for example, a raw raster tile service that
   "url": "https://example.com/tiles.json"
 }
 ```
-
-**Zoom range and overzoom.** A source's `maxzoom` is the highest zoom at which tiles actually exist — not the highest zoom the user can navigate to. When the map zooms past it, MapLibre _overzooms_: it reuses the deepest available tile and scales it, rather than requesting tiles that were never generated. For vector tiles this stays crisp (geometry is resolution-independent; only feature detail and label density are frozen at `maxzoom`). For raster tiles the scaled pixels get progressively blurry. This lets you cap tile generation at a sane level (smaller files, faster builds) while keeping the map interactive at street zoom. Set `maxzoom` to the tileset's real maximum: if you omit it on a `tiles` array source, MapLibre assumes `22` and requests high-zoom tiles that 404 or render blank instead of overzooming. With a `url`/TileJSON source the zoom range comes from the document, so this is handled for you.
 
 ### TileJSON and custom styles
 
