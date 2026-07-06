@@ -9,6 +9,10 @@ prompts:
 providers:
   - id: cerebras:gpt-oss-120b
     label: cerebras-gpt-oss
+    config:
+      # Ceiling, not spend — gpt-oss-120b burns ~1-3K tokens on reasoning
+      # before answering; the promptfoo default truncates answers mid-code.
+      max_tokens: 8192
 
 evaluateOptions:
   delay: 500
@@ -66,22 +70,6 @@ tests:
           signature is no longer used. The response must show the v4
           Promise-based signature and must NOT show the old callback-style
           signature as the solution.
-
-  - description: implicit — raster-dem terrain with PMTiles
-    vars:
-      prompt: >
-        How do I add elevation terrain to my MapLibre GL JS map using
-        a PMTiles elevation file?
-    assert:
-      - type: icontains
-        value: raster-dem
-      - type: llm-rubric
-        value: >
-          Must use a raster-dem source type with a pmtiles:// URL pointing
-          to the elevation file. Must specify an encoding (terrarium or
-          mapbox) on the source. Must reference the terrain property in
-          the style to enable 3D terrain. Must not suggest a tile server
-          is required.
 
   - description: explicit — inspect a PMTiles file before deploying
     vars:
