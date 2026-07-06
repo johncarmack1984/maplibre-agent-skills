@@ -15,4 +15,4 @@ Baseline run: 2026-07-03. With-skill run: re-verified 2026-07-04 after two fixes
 
 **Result: baseline 4 FAIL + 1 correct negative / with-skill 6/6 PASS — launch bar cleared.**
 
-A seventh test (raster-dem terrain with PMTiles) was dropped: it passed at baseline (the model already knows this pattern), so it wasn't testing a real gap under this repo's "target demonstrated gaps only" rule — same governance call as the terrain skill's Mapterhorn-test drop. See `eval-run-log-group-b.md` for the original run.
+A seventh test (raster-dem terrain with PMTiles) was dropped: it passed at baseline (the model already knows this pattern), so it wasn't testing a real gap under this repo's "target demonstrated gaps only" rule — same governance call as the terrain skill's Mapterhorn-test drop.
