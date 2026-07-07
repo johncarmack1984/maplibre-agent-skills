@@ -1,8 +1,8 @@
 # Eval Results: maplibre-pmtiles-patterns
 
-Canonical results table for this skill. One row per eval test; baseline is the model's answer with the skill omitted (`--var injectSkill=false`), with-skill is the same prompt with the skill injected. See `evals/prompts/maplibre-pmtiles-patterns.yaml`.
+Canonical results table for `evals/prompts/maplibre-pmtiles-patterns.yaml`.
 
-Baseline run: 2026-07-03. With-skill run: re-verified 2026-07-04 after two fixes made while confirming this table — `config.max_tokens: 8192` added to the provider (matching `maplibre-cartography`; its absence was truncating answers ~3,800-4,200 chars in, causing a false FAIL on test 4), and the non-gap raster-dem/PMTiles test dropped (see below). Model `cerebras:gpt-oss-120b` · judge `google:gemini-2.5-flash-lite`, hand-judged from raw output where noted (†) — the grader still 503's intermittently; no reruns per repo convention, contaminated rows were read and judged by a human instead of retried.
+Baseline run: 2026-07-03. With-skill run: re-verified 2026-07-04 after two fixes made while confirming this table — `config.max_tokens: 8192` added to the provider. Without it, answers were truncated ~3,800-4,200 chars in, causing a false FAIL on test 4. Model `cerebras:gpt-oss-120b` · judge `google:gemini-2.5-flash-lite`, hand-judged from raw output where noted (†) — the grader still 503's intermittently; contaminated rows were read and judged by a human instead of retried.
 
 | #   | Test                                           | Type         | Baseline (no skill)                                                                                       | With skill                                                                 |
 | --- | ---------------------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
@@ -15,4 +15,4 @@ Baseline run: 2026-07-03. With-skill run: re-verified 2026-07-04 after two fixes
 
 **Result: baseline 4 FAIL + 1 correct negative / with-skill 6/6 PASS — launch bar cleared.**
 
-A seventh test (raster-dem terrain with PMTiles) was dropped: it passed at baseline (the model already knows this pattern), so it wasn't testing a real gap under this repo's "target demonstrated gaps only" rule — same governance call as the terrain skill's Mapterhorn-test drop.
+A seventh test (raster-dem terrain with PMTiles) was dropped: it passed at baseline (the model already knows this pattern), so it wasn't testing a real gap under this repo's "target demonstrated gaps only" rule.
