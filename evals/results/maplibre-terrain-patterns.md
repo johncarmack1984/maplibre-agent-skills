@@ -6,12 +6,12 @@ with the skill injected. See `evals/prompts/maplibre-terrain-patterns.yaml`.
 
 Run: 2026-07-03 · model `cerebras:gpt-oss-120b` · judge `cerebras:gpt-oss-120b` (CI default).
 
-| # | Test | Type | Baseline (no skill) | With skill |
-| --- | --- | --- | --- | --- |
-| 1 | Client-side hypsometric tint | Explicit | FAIL — hallucinates a generic `raster` layer with invented `raster-color`/`raster-value` properties | PASS — `color-relief` layer + `color-relief-color` on `["elevation"]` (GL JS 5.6) |
-| 2 | Runtime contour generation, off-the-shelf vs DIY | Implicit | FAIL — recommends a from-scratch marching-squares + Web Worker pipeline as the primary approach | PASS — protocol-registered runtime contour generation from a raster-dem source |
-| 3 | Stacking hillshade layers for soft shading | Anti-pattern | FAIL — discusses stacking drawbacks but never surfaces `hillshade-method` | PASS — single layer with `hillshade-method: "multidirectional"` (GL JS 5.5) |
-| 4 | Out-of-scope vector tile source question | Negative | PASS | PASS |
+| #   | Test                                             | Type         | Baseline (no skill)                                                                                 | With skill                                                                        |
+| --- | ------------------------------------------------ | ------------ | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| 1   | Client-side hypsometric tint                     | Explicit     | FAIL — hallucinates a generic `raster` layer with invented `raster-color`/`raster-value` properties | PASS — `color-relief` layer + `color-relief-color` on `["elevation"]` (GL JS 5.6) |
+| 2   | Runtime contour generation, off-the-shelf vs DIY | Implicit     | FAIL — recommends a from-scratch marching-squares + Web Worker pipeline as the primary approach     | PASS — protocol-registered runtime contour generation from a raster-dem source    |
+| 3   | Stacking hillshade layers for soft shading       | Anti-pattern | FAIL — discusses stacking drawbacks but never surfaces `hillshade-method`                           | PASS — single layer with `hillshade-method: "multidirectional"` (GL JS 5.5)       |
+| 4   | Out-of-scope vector tile source question         | Negative     | PASS                                                                                                | PASS                                                                              |
 
 **Result: baseline 3 FAIL + 1 correct negative / with-skill 4/4 PASS — launch bar cleared.**
 
