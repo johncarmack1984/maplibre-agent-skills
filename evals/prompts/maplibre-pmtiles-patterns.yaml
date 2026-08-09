@@ -9,6 +9,10 @@ prompts:
 providers:
   - id: cerebras:gpt-oss-120b
     label: cerebras-gpt-oss
+    config:
+      # Ceiling, not spend — gpt-oss-120b burns ~1-3K tokens on reasoning
+      # before answering; the promptfoo default truncates answers mid-code.
+      max_tokens: 8192
 
 evaluateOptions:
   delay: 500
@@ -67,22 +71,6 @@ tests:
           Promise-based signature and must NOT show the old callback-style
           signature as the solution.
 
-  - description: implicit — raster-dem terrain with PMTiles
-    vars:
-      prompt: >
-        How do I add elevation terrain to my MapLibre GL JS map using
-        a PMTiles elevation file?
-    assert:
-      - type: icontains
-        value: raster-dem
-      - type: llm-rubric
-        value: >
-          Must use a raster-dem source type with a pmtiles:// URL pointing
-          to the elevation file. Must specify an encoding (terrarium or
-          mapbox) on the source. Must reference the terrain property in
-          the style to enable 3D terrain. Must not suggest a tile server
-          is required.
-
   - description: explicit — inspect a PMTiles file before deploying
     vars:
       prompt: >
@@ -112,3 +100,27 @@ tests:
           server (such as Martin or tileserver-gl) or a live GeoJSON
           source instead. Must not suggest PMTiles as a viable approach
           for 30-second update intervals.
+
+  - description: anti-pattern — tiles array template bypasses PMTiles header zoom range
+    vars:
+      prompt: >
+        I wired my PMTiles source with a tiles array
+        (pmtiles://.../{z}/{x}/{y}) instead of url, and past a certain
+        zoom the tiles go blank. The file is fine in pmtiles show. Why?
+    assert:
+      - type: icontains
+        value: url
+      - type: llm-rubric
+        value: >
+          Must identify the real cause: with a tiles array, MapLibre never
+          receives the archive's zoom range, so it assumes a default
+          maxzoom (22) and requests zoom levels the archive does not
+          contain — which is why tiles go blank only past a certain zoom.
+          Must give the fix: use url: 'pmtiles://...' so the protocol reads
+          minzoom/maxzoom from the archive header and supplies the correct
+          zoom range. Must NOT attribute the blank tiles to an HTTP 404,
+          nor claim that the pmtiles protocol fails to intercept or handle
+          a templated pmtiles://.../{z}/{x}/{y} request — the protocol does
+          handle per-tile requests; the problem is only the missing zoom
+          metadata. Must NOT recommend regenerating the file at higher zoom
+          as the primary fix.
