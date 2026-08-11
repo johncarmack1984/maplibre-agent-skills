@@ -8,3 +8,7 @@ CLAUDE.md
 
 # Local research and maintainer artifacts
 evals/results/local/
+
+# Local eval runs write CSVs here; keep them out of the tree. The scheduled
+# eval.yml run is the one exception and commits its dated CSVs with `git add -f`.
+evals/results/*.csv
