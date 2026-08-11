@@ -18,12 +18,7 @@ prompts:
   - file://lib/skill-prompt.mjs
 
 providers:
-  - id: cerebras:gpt-oss-120b
-    label: cerebras-gpt-oss
-    config:
-      # Ceiling, not spend — gpt-oss-120b burns ~1-3K tokens on reasoning
-      # before answering; the promptfoo default truncates answers mid-code.
-      max_tokens: 8192
+  - file://lib/providers.yaml
 
 evaluateOptions:
   delay: 500

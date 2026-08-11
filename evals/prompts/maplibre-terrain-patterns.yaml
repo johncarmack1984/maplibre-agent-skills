@@ -6,8 +6,7 @@ prompts:
   - file://lib/skill-prompt.mjs
 
 providers:
-  - id: cerebras:gpt-oss-120b
-    label: cerebras-gpt-oss
+  - file://lib/providers.yaml
 
 evaluateOptions:
   delay: 500
