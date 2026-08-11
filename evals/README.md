@@ -162,15 +162,28 @@ what "failing without the skill" means in practice.
 
 ## CI
 
-<!-- TODO: set up CI workflows, including setup, environment variables, and troubleshooting steps. -->
+Two workflows run in CI, and only one of them gates a merge:
 
-Two workflows run evals automatically:
+- **`check.yml`** — the deterministic gate: formatting, spelling, markdown lint,
+  terminology, model pins, and skill validation. It runs on every PR including forks,
+  needs no secrets, and is the only workflow that blocks merge.
+- **`eval.yml`** — the judge-graded eval. Runs on a weekly cron against the default
+  branch, committing its dated CSVs to `evals/results/`, and on `workflow_dispatch`
+  for a maintainer validating a specific branch or PR (inputs: `ref`, `configs`,
+  `baseline`).
 
-- **`eval-pr.yml`** — Triggered on PRs that modify `skills/**` or `evals/prompts/**`.
-  Runs only the eval configs for the modified skills. All assertions must pass to merge.
-- **`eval-scheduled.yml`** — Runs every Monday against all skills on `main`. Results are
-  committed to `evals/results/` after every run (pass or fail). Opens a GitHub issue
-  tagged `eval-regression` if any skill fails.
+**Judge-graded evals deliberately do not run on `pull_request`.** GitHub withholds
+repository secrets from a `pull_request` triggered by a fork, so an eval job there
+cannot reach the generator or the judge. Rather than a workflow that silently skips
+for exactly the contributors who most need review, the eval lives off the PR path and
+a maintainer dispatches it.
 
-Both workflows use the provider configured in each eval YAML as both generator and
-judge. Requires the corresponding API key in repository secrets.
+Dispatching against a contributor ref checks out untrusted code in a job that holds
+secrets. The workflow definition always comes from the default branch and the install
+uses `--ignore-scripts`, but read the diff before dispatching, and treat any change to
+`package.json` or the eval harness as a red flag.
+
+Both the generator and the judge come from the pins described in [Setup](#setup):
+the generator from `evals/prompts/lib/providers.yaml`, the judge from the
+`eval:graded` script in `package.json`. `npm run lint:model-pins` fails on any
+provider id that drifts from them.

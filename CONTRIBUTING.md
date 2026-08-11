@@ -53,7 +53,7 @@ Two automated systems enforce quality in this repository:
 - **`npm run check`** — formatting, spelling, markdown lint, and terminology. Runs as a pre-push hook. See [Check format and spelling](#check-format-and-spelling).
 - **Evals** — [Promptfoo](https://promptfoo.dev/) test prompts and rubrics that verify a skill answers questions correctly. They serve two purposes:
   1. **Requirements** — Written before the skill, reviewed by a qualified reviewer. The rubric defines what a correct answer must include, independent of the skill's phrasing.
-  2. **Regression gate** — CI runs evals on every PR that touches a skill. All assertions must pass before the PR can merge.
+  2. **Regression gate** — a weekly CI run evaluates every skill on `main`, and a maintainer can dispatch the eval against a specific branch or PR. Judge-graded evals cannot run on a PR from a fork, because GitHub withholds the API keys there, so `npm run check` is the only workflow that blocks merge. Run the evals locally and include the results in your PR. See [CI](evals/README.md#ci).
 
 When modifying an existing skill: update or add eval tests to cover the change, [run evals locally](#running-evals-locally) to confirm nothing breaks, and do not remove tests to make a PR pass — update them with reviewer sign-off instead.
 
