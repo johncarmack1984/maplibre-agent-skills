@@ -1,0 +1,145 @@
+name: Eval
+
+## This script runs the evals in evals/prompts/*.yaml against the default branch's code and the default branch's skill files. It is triggered by:
+#   - schedule: a drift check on the default branch.
+#   - workflow_dispatch: a maintainer validates a specific branch or PR.
+#       ref      – branch, or refs/pull/<N>/head for a fork PR. Blank = default branch.
+#       configs  – space-separated evals/prompts/*.yaml. Blank = all.
+#       baseline – run with the skill withheld (injectSkill=false). Gap-targeting
+#                  prompts are expected to FAIL here; a negative test should PASS.
+#
+# SECURITY: dispatching against a contributor ref checks out untrusted code in a
+# job that holds secrets. The workflow definition itself always comes from the
+# default branch, and we install with --ignore-scripts so a malicious lifecycle
+# script cannot run. Still: read the diff before you dispatch, and treat any change
+# to package.json or the eval harness as a red flag.
+
+on:
+  schedule:
+    - cron: '17 10 * * 0' # Sunday 10:17 UTC: low API traffic; off-:00 so GitHub doesn't drop it
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Ref to evaluate (blank = default branch; fork PR = refs/pull/<N>/head)'
+        required: false
+        default: ''
+      configs:
+        description: 'Space-separated evals/prompts/*.yaml paths (blank = all skills)'
+        required: false
+        default: ''
+      baseline:
+        description: 'Withhold the skill (baseline run) — targeting prompts should FAIL'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Select eval configs
+        id: configs
+        run: |
+          if [ -n "${{ inputs.configs }}" ]; then
+            CONFIGS="${{ inputs.configs }}"
+          else
+            # Every skill with an eval config. Globbing rather than a hardcoded list:
+            # a new skill is covered the moment its config lands.
+            CONFIGS=$(find evals/prompts -maxdepth 1 -name '*.yaml' ! -name 'TEMPLATE.yaml' | sort | xargs)
+          fi
+          if [ -z "$CONFIGS" ]; then
+            echo "No eval configs found." >&2
+            exit 1
+          fi
+          echo "configs=$CONFIGS" >> $GITHUB_OUTPUT
+          echo "Evaluating: $CONFIGS"
+
+      - name: Run evals
+        env:
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          PROMPTFOO_DISABLE_TELEMETRY: '1'
+        run: |
+          if [ "${{ inputs.baseline }}" = "true" ]; then
+            BASELINE_FLAG="--var injectSkill=false"
+            NAME="baseline-$(date +%Y-%m-%d)"
+          else
+            BASELINE_FLAG=""
+            NAME="$(date +%Y-%m-%d)"
+          fi
+          echo "name=$NAME" >> $GITHUB_ENV
+
+          # One promptfoo invocation per config — never combine them. Promptfoo
+          # merges the defaultTest blocks of combined configs (last one wins),
+          # which would inject a single skill's SKILL.md into every test.
+          mkdir -p evals/results
+          FAIL=0
+          for config in ${{ steps.configs.outputs.configs }}; do
+            skill=$(basename "$config" .yaml)
+            npm run eval:graded -- \
+              --config "$config" $BASELINE_FLAG \
+              --output "evals/results/${NAME}-${skill}.csv" || FAIL=1
+          done
+          exit $FAIL
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results-${{ github.run_id }}
+          path: evals/results/*.csv
+
+      # Only the scheduled run on the default branch writes to the repo.
+      - name: Commit results
+        if: always() && github.event_name == 'schedule'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          # evals/results/*.csv is gitignored to keep local runs out of the tree;
+          # the scheduled run's dated CSVs are the exception, hence -f.
+          git add -f evals/results/${{ env.name }}-*.csv
+          git diff --staged --quiet || git commit -m "chore: eval results ${{ env.name }}"
+          git push
+
+      # This run watches for drift — a provider silently updating a model behind a
+      # pinned ID. So the issue asks a question; it does not assert a cause.
+      - name: Open issue on failure
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const date = new Date().toISOString().slice(0, 10);
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Eval drift check failed — ${date} (investigate: infra, noise, or drift?)`,
+              body: [
+                `The eval drift check failed. **This is not yet a regression** — triage it before treating it as one.`,
+                ``,
+                `[Workflow run](${run})`,
+                ``,
+                `Rule these out, in order:`,
+                `1. **Infrastructure** — a \`503\`/\`UNAVAILABLE\` from the generator, or \`429\`/rate-limiting from the judge, fails a test for reasons that have nothing to do with content.`,
+                `2. **Sampling noise** — the generator is nondeterministic even at temperature 0, so a test near the rubric boundary can flip on its own. Re-run the affected config before concluding anything.`,
+                `3. **Drift** — if it reproduces, a provider may have silently updated a model behind its pinned ID. That is what this check exists to catch.`,
+                `4. **Actual regression** — only plausible if a skill or its prompts changed since the last green run.`,
+              ].join('\n'),
+              labels: ['eval-drift']
+            })
