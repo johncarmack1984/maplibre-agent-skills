@@ -1,6 +1,7 @@
 ---
 name: maplibre-tile-sources
 description: How to choose and configure data sources for MapLibre GL JS — rendering your own data without tiles, hosted tile services, serverless PMTiles, self-hosted tile servers, tile schemas, glyphs, and sprites.
+status: verified
 ---
 
 # MapLibre Tile Sources
