@@ -20,10 +20,9 @@ New skills are prioritized based on periodic demand mining — tracking document
 
 ## Development
 
-Each skill lives under `skills/<skill-name>/`:
+Each skill lives under `skills/<skill-name>/` as a single **SKILL.md**: YAML front-matter (`name`, `description`, `status`) plus markdown content.
 
-- **SKILL.md** — Required. YAML front-matter (`name`, `description`) plus markdown content.
-- **AGENTS.md** — Optional. Short reference for the LLM.
+The repo root carries one [**AGENTS.md**](AGENTS.md), the router that orients an AI agent working in a clone of this repo and points it at the right skill. Skills do not get their own; see [The AGENTS.md convention](CONTRIBUTING.md#the-agentsmd-convention).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) to add or improve a skill. All experience levels welcome, but please note, since we are trying to improve on genAI baseline contributions to MapLibre development, skills or contributions generated entirely by AI agents will likely be rejected.
 
