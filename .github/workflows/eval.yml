@@ -90,11 +90,17 @@ jobs:
           # which would inject a single skill's SKILL.md into every test.
           mkdir -p evals/results
           FAIL=0
+          : > /tmp/skill-verdicts.txt
           for config in ${{ steps.configs.outputs.configs }}; do
             skill=$(basename "$config" .yaml)
-            npm run eval:graded -- \
+            if npm run eval:graded -- \
               --config "$config" $BASELINE_FLAG \
-              --output "evals/results/${NAME}-${skill}.csv" || FAIL=1
+              --output "evals/results/${NAME}-${skill}.csv"; then
+              echo "${skill}:pass" >> /tmp/skill-verdicts.txt
+            else
+              echo "${skill}:fail" >> /tmp/skill-verdicts.txt
+              FAIL=1
+            fi
           done
           exit $FAIL
 
@@ -116,6 +122,63 @@ jobs:
           git add -f evals/results/${{ env.name }}-*.csv
           git diff --staged --quiet || git commit -m "chore: eval results ${{ env.name }}"
           git push
+
+      # Flips status: provisional -> verified on pass, status: verified -> provisional
+      # on fail, for whichever skills opted in with a status field. This is the
+      # weekly drift check's verdict, not a fresh baseline+with-skill pair — see
+      # scripts/sync-skill-status.js. Scheduled-only and single-run, same as the
+      # drift check itself; a bad run here gets the same "Open issue on failure"
+      # triage below, so a human still reviews it.
+      - name: Sync skill status from drift check
+        id: sync
+        if: always() && github.event_name == 'schedule'
+        run: node scripts/sync-skill-status.js /tmp/skill-verdicts.txt
+
+      - name: Commit status changes
+        if: always() && github.event_name == 'schedule'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add skills/*/SKILL.md
+          git diff --staged --quiet || git commit -m "chore: sync skill status from ${{ env.name }} drift check"
+          git push
+
+      # A status flip is expected-by-design behavior, not a failure — this is a
+      # "review this" notice, separate from the eval-drift issue below which
+      # means "something might be wrong."
+      - name: Open issue on status change
+        if: always() && github.event_name == 'schedule' && steps.sync.outputs.changed == 'true'
+        uses: actions/github-script@v7
+        env:
+          SUMMARY: ${{ steps.sync.outputs.summary }}
+        with:
+          script: |
+            const date = new Date().toISOString().slice(0, 10);
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const summary = process.env.SUMMARY;
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Skill status changed — ${date}`,
+              body: [
+                `The weekly drift check flipped one or more skills' \`status\` field.`,
+                ``,
+                '```',
+                summary,
+                '```',
+                ``,
+                `[Workflow run](${run})`,
+                ``,
+                `A **provisional -> verified** flip means the skill's with-skill run passed; the`,
+                `baseline (skill-withheld) evidence for the original launch bar isn't re-checked`,
+                `weekly, so confirm that still holds before treating this as a full verification.`,
+                ``,
+                `A **verified -> provisional** flip means a previously-passing skill just failed.`,
+                `Triage it the same way as an eval-drift issue: rule out infrastructure and`,
+                `sampling noise before treating it as a real regression.`,
+              ].join('\n'),
+              labels: ['skill-status-change']
+            })
 
       # This run watches for drift — a provider silently updating a model behind a
       # pinned ID. So the issue asks a question; it does not assert a cause.
