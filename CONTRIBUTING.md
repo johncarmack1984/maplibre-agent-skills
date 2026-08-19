@@ -7,8 +7,11 @@ We welcome:
 - **New skills** — Add expertise in areas not yet covered
 - **Skill improvements** — Better examples, patterns, or guidance for existing skills
 - **Bug fixes** — Correct errors in instructions or examples
+- **Eval rubrics** - Suggest rubrics to test whether the pinned LLM can answer a specific question completely and accurately
 - **Documentation** — Clearer code samples or in-skill examples
 - **Questions** — Open an issue or contact the maintainers as appropriate
+
+Providers, API keys, commands, and how to write prompts and rubrics all live in [`evals/README.md`](evals/README.md).
 
 ## Three ways to contribute (pick your lane)
 
@@ -69,14 +72,14 @@ If you spot an error, omission, or quality gap, open an issue or comment on an e
 
 ### What is checked, and by whom
 
-**`npm run check` is the only automated gate.** It runs on every pull request and as a pre-push hook, and it checks structure and style: formatting, spelling, markdown links, terminology, and that each `SKILL.md` has valid front-matter. **It does not check whether anything a skill says about MapLibre is true.**
+Correctness is established two ways, neither of them automatic on a pull request:
 
-Correctness is established two other ways, neither of them automatic on a pull request:
-
-- **Evals** — [Promptfoo](https://promptfoo.dev/) prompts and rubrics that test whether an AI assistant answers correctly with the skill loaded and incorrectly without it. The rubric is written before the skill and defines what a correct answer must contain, independent of the skill's phrasing. Judge-graded evals cannot run on a pull request from a fork, because GitHub withholds API keys from fork workflows. A maintainer runs them and commits the results to [`evals/results/`](evals/results).
+- **Evals** — [Promptfoo](https://promptfoo.dev/) prompts and rubrics that test whether an AI assistant answers correctly with the skill loaded and incorrectly without it. The rubric is written before the skill and defines what a correct answer must contain, independent of the skill's phrasing. Judge-graded evals showing prompt responses that fail without the skill and pass with the skill are stored in [`evals/results/`](evals/results). The prompts are re-run and skills are adjusted whenever there is turnover in the pinned model.
 - **Human review** — every merged claim is one a maintainer read and can defend. See [Note on AI usage](#note-on-ai-usage).
 
-`status: verified` in a skill's front-matter means precisely that: the eval was run and its results are committed. `status: provisional` means content has landed and that has not happened yet. See [Provisional skills](#provisional-skills).
+**`npm run check` is the only automated gate.** It runs on every pull request and as a pre-push hook, and it checks structure and style: formatting, spelling, markdown links, terminology, and that each `SKILL.md` has valid front-matter. **It does not check whether anything a skill says about MapLibre is true.**
+
+`status: verified` in a skill's front-matter means precisely that: the eval was run and its results are committed. `status: provisional` means content has landed and that has not happened yet. See [Provisional skills](#provisional-skills). `status: process` is reserved internally for skills pertaining only to maintaining `maplibre-agent-skills`.
 
 What that adds to each lane, on top of what [Three ways to contribute](#three-ways-to-contribute-pick-your-lane) already lists:
 
@@ -87,11 +90,9 @@ What that adds to each lane, on top of what [Three ways to contribute](#three-wa
 | Contributing content and evals (Lane 3) | `npm run check` passing, and both runs (with the skill and at baseline) saved to `evals/results/` |
 | A maintainer                            | The judge-graded run, and the `verified` or `provisional` call                                    |
 
-Providers, API keys, commands, and how to write prompts and rubrics all live in [`evals/README.md`](evals/README.md). Nothing about them is restated here.
-
 When modifying an existing skill: update or add eval tests to cover the change, and do not remove tests to make a PR pass. Update them with reviewer sign-off instead.
 
-Adding a section to an existing skill carries the same burden as writing a new one: probe it at baseline first, and drop it if the model already answers correctly without it. See [Cutting content the model already gets right](evals/README.md#cutting-content-the-model-already-gets-right) for a worked example from `maplibre-tile-sources`.
+Adding a section to an existing skill requires the same process: a probe at baseline to confirm the model fails to answer correctly without the addition. See [Cutting content the model already gets right](evals/README.md#cutting-content-the-model-already-gets-right) for a worked example from `maplibre-tile-sources`.
 
 ### Development Setup
 
@@ -109,7 +110,7 @@ npm install
 
 ### Running evals locally
 
-Lane 3 only. Providers, API keys, the commands, and guidance on writing prompts and rubrics all live in [`evals/README.md`](evals/README.md#setup), which is the single source for eval mechanics. This file does not duplicate it.
+Developing and testing against your own eval rubrics is recommended and encouraged. It is as simple as setting up your own free API keys. See [`evals/README.md`](evals/README.md#setup) for instructions.
 
 ### Check format and spelling
 
@@ -187,8 +188,6 @@ skills/maplibre-your-skill-name/
 └── SKILL.md              # Required: the whole skill
 ```
 
-One file per skill. Do not add an `AGENTS.md` here; see [The AGENTS.md convention](#the-agentsmd-convention).
-
 ### 3. SKILL.md Format
 
 Every SKILL.md must have YAML frontmatter followed by markdown:
@@ -197,7 +196,7 @@ Every SKILL.md must have YAML frontmatter followed by markdown:
 ---
 name: maplibre-example-skill
 description: Expert guidance on [domain] for MapLibre applications
-status: verified
+status: provisional
 ---
 
 # MapLibre [Domain] Skill
@@ -245,38 +244,9 @@ Use this skill when:
 
 Before publishing your PR:
 
-1. **Run all checks:** `npm run check` (fix any issues before continuing). Everyone does this.
-2. **Test with an AI assistant:** `npx skills add . -a claude-code`, then ask the questions the skill should answer. No API keys needed, and it is the fastest way to find out whether the skill actually changes an answer.
-3. **Lane 3 only: run the evals**, with the skill and at baseline, and commit both result files. See [Running evals locally](#running-evals-locally). If you are in Lane 1 or Lane 2, skip this. A maintainer runs it.
-
-## The AGENTS.md convention
-
-[`AGENTS.md`](AGENTS.md) is a cross-tool convention many coding agents read automatically: **one file, at the root of a repository**, orienting an agent that has just arrived. This repo has exactly one, and it is the only place the convention applies here.
-
-**What belongs in it:** what the repo is, how to run its checks, where to find things, and the procedure for adding or changing a skill.
-
-**What does not:** MapLibre guidance, and the list of skills. Skills carry the claims and are checked by evals; a second copy in `AGENTS.md` is untested and goes stale silently. A skills table there would go stale the first time one is renamed. The router points at [`skills/`](skills) and at [Available Skills](README.md#available-skills) in the README, which is the single list, and leaves each skill's scope to its own front-matter `description`. The router links; it does not restate.
-
-**Who maintains it:** maintainers, and only when the repo's own process changes. Because it carries no skills table, adding, renaming, or removing a skill does not touch it.
-
-**No per-skill `AGENTS.md`.** Earlier versions of this repo put a short digest of each `SKILL.md` beside it. That was a local invention rather than an ecosystem pattern. The [Agent Skills specification](https://agentskills.io/specification) requires only `SKILL.md`, and the optional directories it names as conventions are `scripts/`, `references/`, and `assets/`; a per-skill `AGENTS.md` is not among them, and no runtime loads one as a distinct artifact. Each was also a second copy of content kept in sync by hand. All three have been removed, and no claim was lost: every point they carried already appeared in the corresponding `SKILL.md`. If a skill needs supporting material too long for `SKILL.md`, put it in a `references/` file the agent loads on demand.
-
-**Using the convention in your own repo:** [`AGENTS.md`](AGENTS.md) closes with a short routing stub any MapLibre project can copy. It points agents at these skills and needs no maintenance.
-
-## Provisional skills
-
-Have valuable knowledge but don't want to write evals? Submit it as a **provisional** skill: set
-`status: provisional` in the frontmatter and open a PR with just the content. It can merge without
-passing evals, and it'll be clearly badged as unverified in the [Available Skills](README.md#available-skills)
-table. A maintainer or another contributor adds the evals later to graduate it to `verified`. This
-is the fastest way to share a hard-won pattern.
-
-A provisional contribution still needs to cite a demonstrated AI failure: link an [AI failure
-report](https://github.com/maplibre/maplibre-agent-skills/issues/new?template=ai-failure-report.md),
-a mining note, or a baseline-failing prompt.
-`provisional` means _correctness not yet established by evals_, not _necessity unknown_. It
-graduates to `verified` once a maintainer has run eval prompts covering the skill's gaps and
-committed the results, not merely when the one cited failure passes.
+1. **Test with an AI assistant:** confirm and document the AI failure or gap you are responding to, and then use `npx skills add .` to install your new skill or revision. Ask the questions the skill should answer, including from any existing eval rubric.
+2. Assuming you have the eval framework set up locally, **run the evals**, with the skill and at baseline, and commit both result files. See [Running evals locally](#running-evals-locally). If you are in Lane 1 or Lane 2, ok to skip this, a reviewer will do this for you.
+3. **Run all checks:** `npm run check` (fix any issues before continuing).
 
 ## Note on AI usage
 
@@ -319,9 +289,10 @@ Reference these sources in skill content wherever possible:
 - [Maputnik](https://maplibre.org/maputnik/) — visual style editor
 - [awesome-maplibre](https://github.com/maplibre/awesome-maplibre) — curated ecosystem list
 
-**Tile sources and basemaps:**
+**Tile sources and map data:**
 
 - [OpenFreeMap](https://openfreemap.org/quick_start/) — free hosted OpenStreetMap tiles with MapLibre-ready styles
+- [OpenStreetMap US Tileservice](https://tiles.openstreetmap.us/) - vector and raster tilesets and fonts for the OpenStreetMap community
 - [PMTiles / Protomaps](https://docs.protomaps.com/) — single-file tile archive format for serverless deployments
 - [Overture Maps](https://docs.overturemaps.org/) — open, structured map data
 
