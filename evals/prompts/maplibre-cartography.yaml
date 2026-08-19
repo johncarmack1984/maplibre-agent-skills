@@ -1,6 +1,6 @@
 # Evals for the maplibre-cartography skill.
 #
-# Run locally (Cerebras — set CEREBRAS_API_KEY):
+# Run locally (Groq — set GROQ_API_KEY):
 #   npx promptfoo@latest eval \
 #     --config evals/prompts/maplibre-cartography.yaml \
 #     --no-cache -j 1
@@ -26,8 +26,6 @@ evaluateOptions:
 defaultTest:
   vars:
     skillFile: skills/maplibre-cartography/SKILL.md
-  options:
-    provider: cerebras:gpt-oss-120b
 
 tests:
   - description: explicit — route shields missing badge on the open OpenMapTiles stack

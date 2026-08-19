@@ -53,7 +53,7 @@ Two automated systems enforce quality in this repository:
 - **`npm run check`** — formatting, spelling, markdown lint, and terminology. Runs as a pre-push hook. See [Check format and spelling](#check-format-and-spelling).
 - **Evals** — [Promptfoo](https://promptfoo.dev/) test prompts and rubrics that verify a skill answers questions correctly. They serve two purposes:
   1. **Requirements** — Written before the skill, reviewed by a qualified reviewer. The rubric defines what a correct answer must include, independent of the skill's phrasing.
-  2. **Regression gate** — a weekly CI run evaluates every skill on `main`, and a maintainer can dispatch the eval against a specific branch or PR. Judge-graded evals cannot run on a PR from a fork, because GitHub withholds the API keys there, so `npm run check` is the only workflow that blocks merge. Run the evals locally and include the results in your PR. See [CI](evals/README.md#ci).
+  2. **Regression gate** — a weekly CI run evaluates every skill on `main`, and a maintainer can dispatch the eval against a specific branch or PR. See [CI](evals/README.md#ci).
 
 When modifying an existing skill: update or add eval tests to cover the change, [run evals locally](#running-evals-locally) to confirm nothing breaks, and do not remove tests to make a PR pass — update them with reviewer sign-off instead.
 
@@ -84,7 +84,7 @@ npm run eval -- \
   --delay 2000 --no-cache -j 1
 ```
 
-Omit `--grader google:gemini-2.5-flash-lite` and `--delay 2000` if you don't have a `GOOGLE_API_KEY` — Cerebras will be used as judge instead, but note that Cerebras is more permissive and may pass tests that Gemini would flag. Use Gemini whenever possible for reliable results. See [evals/README.md](evals/README.md#setup) for provider details.
+Omit `--grader google:gemini-2.5-flash-lite` and `--delay 2000` if you don't want to set `GOOGLE_API_KEY` locally, use any local coding assistant as judge. What matters is that you use a different LLM to answer prompts and judge responses. Report the model you used, results, and judge's rationale in evals/results.
 
 Add `--output evals/results/output.csv \` before `--no-cache` to save results locally.
 

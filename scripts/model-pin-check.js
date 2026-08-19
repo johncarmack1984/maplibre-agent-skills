@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Scans tracked files for provider-id-shaped strings (e.g. `cerebras:gpt-oss-120b`)
- * and fails on any that isn't one of the two pinned models. Reads the pins from
- * their source of truth — evals/prompts/lib/providers.yaml (generator) and the
- * `eval:graded` script in package.json (judge) — so rotating a pin there is the
- * only edit; this script just finds what didn't get updated to match.
+ * Scans tracked files for provider-id-shaped strings and fails on any that isn't one
+ * of the two pinned models. Reads the pins from their source of truth —
+ * evals/prompts/lib/providers.yaml (generator) and the `eval:graded` script in
+ * package.json (judge) — so rotating a pin there is the only edit; this script
+ * just finds what didn't get updated to match.
  */
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';

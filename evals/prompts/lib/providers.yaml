@@ -4,8 +4,8 @@
 # temperature: 0 reduces variance.
 # max_tokens is a ceiling, not spend — gpt-oss-120b burns ~1-3K tokens on reasoning before it
 # answers, and the promptfoo default truncates mid-code, which grades as a content failure.
-id: cerebras:gpt-oss-120b
-label: cerebras-gpt-oss
+id: groq:openai/gpt-oss-120b
+label: groq-gpt-oss
 config:
   temperature: 0
   max_tokens: 8192

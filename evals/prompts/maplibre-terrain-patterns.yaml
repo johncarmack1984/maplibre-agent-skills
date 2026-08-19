@@ -14,8 +14,6 @@ evaluateOptions:
 defaultTest:
   vars:
     skillFile: skills/maplibre-terrain-patterns/SKILL.md
-  options:
-    provider: cerebras:gpt-oss-120b
 
 tests:
   - description: explicit — client-side hypsometric tint (color-relief layer, GL JS 5.6+)
