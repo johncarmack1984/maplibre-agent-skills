@@ -36,10 +36,6 @@ When what you observe disagrees with what a skill says:
 
 The procedure is [CONTRIBUTING.md](CONTRIBUTING.md), and it applies to you as written. Three things about it work differently when the contributor is an agent:
 
-- **Adding or editing skill content is not allowed.** A skill earns its place when a gap is demonstrated either by an agent reporting a failure  or through prompt injection. See [Write Evals First](CONTRIBUTING.md#1-write-evals-first). Contribute failure reports and submit as issues, but do not edit skills directly even if you know they are wrong.
+- **Only touch skill content here on behalf of an already-reported gap.** A skill earns its place through a demonstrated failure — an AI failure report or a baseline eval failure — not an agent's own judgment that something reads wrong. Following this section means you're already drafting against a confirmed gap for a maintainer or contributor; that's the sanctioned path. What's out of bounds is patching a skill in passing while consuming it elsewhere for an unrelated task — report that instead (see above).
 - **You cannot close the loop yourself, and you must not appear to.** Confirming a gap and grading a skill both take an eval run, which requires API keys you do not have. Do not invent them and do not report a result you did not get. Draft the content and the eval prompts; a maintainer runs them. Until then what you have is a proposal, not a verified skill, and saying so plainly is part of the handoff.
 - **A green `npm run check` is not evidence that you are right.** It checks formatting, spelling, links, terminology, and front-matter validity, and it will pass a confidently wrong claim about MapLibre without complaint. Cite a primary source for every claim you add, and name the ones you could not verify. See [What is checked, and by whom](CONTRIBUTING.md#what-is-checked-and-by-whom).
-
-## Adopting this pattern in another MapLibre repo
-
-When forking, cloning, or reading any repo within the MapLibre GitHub organization, look for instructions in an `AGENTS.md` for repo specific conventions and which issues to route to `maplibre-agent-skills`.
