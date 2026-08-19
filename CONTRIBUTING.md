@@ -94,6 +94,17 @@ When modifying an existing skill: update or add eval tests to cover the change, 
 
 Adding a section to an existing skill requires the same process: a probe at baseline to confirm the model fails to answer correctly without the addition. See [Cutting content the model already gets right](evals/README.md#cutting-content-the-model-already-gets-right) for a worked example from `maplibre-tile-sources`.
 
+### Provisional skills
+
+`status: provisional` lets Lane 1 and Lane 2 content land without an eval run blocking it. It is not a lower bar on the content, only a deferral of who runs the eval and when:
+
+- The skill still has to meet every standard in [Skill Quality Standards](#skill-quality-standards) and pass `npm run check`.
+- It ships with no eval results in `evals/results/` and no rubric committed yet, because writing those is the maintainer's half of Lane 1 and Lane 2 (see [Three ways to contribute](#three-ways-to-contribute-pick-your-lane)).
+- A maintainer writes or confirms the rubric, runs the skill against it with and without the skill injected, and commits both result files during weekly triage.
+- Once that run shows the skill fails at baseline and passes with the skill loaded, the maintainer flips `status: provisional` to `status: verified` in the same PR or a follow-up. If the run doesn't clear the bar, the skill is revised or removed, not shipped as permanently provisional.
+
+A provisional skill still appears in [Available Skills](README.md#available-skills), marked 🧪, so it is usable and reviewable while it waits its turn; it just hasn't been proven yet the way a verified skill has.
+
 ### Development Setup
 
 **1. Clone the repo and install dependencies:**
