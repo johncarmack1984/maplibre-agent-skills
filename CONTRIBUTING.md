@@ -50,7 +50,7 @@ If you spot an error, omission, or quality gap, open an issue or comment on an e
 
 Two automated systems enforce quality in this repository:
 
-- **`npm run check`** — formatting, spelling, markdown lint, and terminology. Runs as a pre-push hook. See [Check format and spelling](#check-format-and-spelling).
+- **`npm run check`** — formatting, spelling, markdown lint, terminology, and model pins. Runs as a pre-push hook. See [Check format and spelling](#check-format-and-spelling).
 - **Evals** — [Promptfoo](https://promptfoo.dev/) test prompts and rubrics that verify a skill answers questions correctly. They serve two purposes:
   1. **Requirements** — Written before the skill, reviewed by a qualified reviewer. The rubric defines what a correct answer must include, independent of the skill's phrasing.
   2. **Regression gate** — a weekly CI run evaluates every skill on `main`, and a maintainer can dispatch the eval against a specific branch or PR. See [CI](evals/README.md#ci).
@@ -75,20 +75,7 @@ npm install
 
 ### Running evals locally
 
-Evals are stored in `evals/prompts`. Run the eval for the skill you are working on:
-
-```bash
-npm run eval -- \
-  --config evals/prompts/<skill-name>.yaml \
-  --grader google:gemini-2.5-flash-lite \
-  --delay 2000 --no-cache -j 1
-```
-
-Omit `--grader google:gemini-2.5-flash-lite` and `--delay 2000` if you don't want to set `GOOGLE_API_KEY` locally, use any local coding assistant as judge. What matters is that you use a different LLM to answer prompts and judge responses. Report the model you used, results, and judge's rationale in evals/results.
-
-Add `--output evals/results/output.csv \` before `--no-cache` to save results locally.
-
-Results will show up in your terminal; optionally view and scroll through past results in your browser locally.
+Developing and testing against your own eval rubrics is recommended and encouraged. It is as simple as setting up your own free API keys. See [`evals/README.md`](evals/README.md#setup) for instructions.
 
 ### Check format and spelling
 
@@ -98,7 +85,8 @@ Run `npm run check` frequently while developing — it runs all checks and stops
 2. **Spelling** — cspell (markdown)
 3. **Markdown linting** — markdownlint
 4. **Terminology** — proper noun capitalization (e.g. `MapLibre` not `Maplibre`)
-5. **Skills validation** — YAML frontmatter and structure
+5. **Model pins** — generator/judge ids match `evals/prompts/lib/providers.yaml` and `package.json`
+6. **Skills validation** — YAML frontmatter and structure
 
 All checks pass when the output ends with:
 
