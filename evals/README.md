@@ -121,6 +121,31 @@ these pass, the prompt is not testing skill-specific knowledge and must be revis
 Negative tests require judgment: a negative test that passes without the skill may still
 be valid if it is close enough to the skill's topic to confirm the skill doesn't over-apply.
 
+## Cutting content the model already gets right
+
+The baseline check is not only for a new skill's prompts. It applies to content added to
+a skill that already exists. A section covering something the model already handles costs
+context on every load and has to be maintained as the library moves, but changes no
+answer. Probe candidate content at baseline before writing it up, and cut what passes.
+
+Worked example, `maplibre-tile-sources`. Three sections were drafted and added to the
+skill:
+
+- Planetiler vs. tippecanoe selection guidance
+- archived tile services served from a demand-driven cache, where tiles that were never
+  requested are permanently absent
+- zoom range and overzoom behavior past a source's `maxzoom`
+
+Probed separately at baseline, the model answered all three correctly with no skill
+injected. None was a demonstrated gap, so all three came back out before the skill
+shipped: added in `0bb2abd`, removed in `f4a4d67`. The eval suite was unchanged by the
+removal.
+
+Treat that as the rule working rather than a wasted pass. Which candidates the model
+already covers is a finding, and a baseline probe is a much cheaper place to learn it
+than a review. The same probe is what separates a skill that earns its context budget
+from one that merely reads well.
+
 ## Writing eval prompts
 
 When contributing a new skill, copy `evals/prompts/TEMPLATE.yaml` and rename it to

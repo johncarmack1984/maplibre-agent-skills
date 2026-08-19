@@ -61,6 +61,7 @@ Skills in this repo must be:
 
 - **Accurate** — Matches MapLibre and referenced APIs/docs
 - **Actionable** — Clear guidance, not just general, declarative descriptions
+- **Warranted** — Targets something the model gets wrong without the skill. Content that passes at baseline is cut, however well written (see [Cutting content the model already gets right](evals/README.md#cutting-content-the-model-already-gets-right))
 - **Attribution** — Reference primary sources wherever possible, and always preserve Mapbox copyright (see [A note about adapted content](#a-note-about-adapted-content))
 - **Consistent** — Format and style in line with existing skills
 
@@ -89,6 +90,8 @@ What that adds to each lane, on top of what [Three ways to contribute](#three-wa
 Providers, API keys, commands, and how to write prompts and rubrics all live in [`evals/README.md`](evals/README.md). Nothing about them is restated here.
 
 When modifying an existing skill: update or add eval tests to cover the change, and do not remove tests to make a PR pass. Update them with reviewer sign-off instead.
+
+Adding a section to an existing skill carries the same burden as writing a new one: probe it at baseline first, and drop it if the model already answers correctly without it. See [Cutting content the model already gets right](evals/README.md#cutting-content-the-model-already-gets-right) for a worked example from `maplibre-tile-sources`.
 
 ### Development Setup
 
