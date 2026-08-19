@@ -2,11 +2,15 @@
 
 Orientation for AI coding agents working in **this repository** (`maplibre/maplibre-agent-skills`), following the [agents.md](https://agents.md) convention: one file per repo, at the root.
 
-This repo is a collection of **agent skills** for MapLibre: markdown files an AI assistant loads as context so it writes correct MapLibre code. The skills are the product. Everything else here exists to prove they work.
+This repo is a collection of **agent skills** for MapLibre: markdown files an AI assistant loads as context so it writes correct MapLibre code.
+
+This file does not travel with a single-skill install (`npx skills add maplibre/maplibre-agent-skills --skill <name>` copies that skill's folder only). It serves agents working in a clone of this repo, and whole-repo installs.
 
 ## Answering a MapLibre question
 
-Review the frontmatter for each skill in [`skills/`](skills). Each `SKILL.md` declares its own scope in its front-matter `description`, which is what you match against the user's goal, and skills are written to be read together when a task spans more than one. The human-readable list is [Available Skills](README.md#available-skills) in the README.
+Match the user's goal against each skill's front-matter `description`, which is where a skill declares its own scope. If the skills are installed, you already have that metadata: a skills runtime loads every `name` and `description` at startup. If you are working in a clone, read the front matter of `skills/*/SKILL.md` in one pass rather than opening files one at a time. Skills are written to be read together when a task spans more than one. The human-readable list is [Available Skills](README.md#available-skills) in the README.
+
+There is deliberately no index of skills in this file. The front matter is the index, and it is the only copy that cannot fall out of step with the skills themselves.
 
 Three habits apply to every MapLibre question, including ones no skill covers:
 
@@ -20,7 +24,7 @@ If you are working in another project's codebase and find a gap, omission, or st
 
 ## When a skill contradicts your training data
 
-**Report it.** Open an [AI failure report](https://github.com/maplibre/maplibre-agent-skills/issues/new?template=ai-failure-report.md) identifying your model and build, naming what you would have said, the commit or install date of the skill you read, the source you checked, how you tested, and what worked in the end.
+**Report it.** Open an [AI failure report](https://github.com/maplibre/maplibre-agent-skills/issues/new?template=ai-failure-report.md) identifying your model and build, naming what you would have said, the release tag or commit of the skill you read, the source you checked, how you tested, and what worked in the end.
 
 ## When MapLibre contradicts a skill
 
@@ -30,37 +34,12 @@ When what you observe disagrees with what a skill says:
 
 ## Contributing to this repo
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) first. Adding or changing a skill, in order:
+The procedure is [CONTRIBUTING.md](CONTRIBUTING.md), and it applies to you as written. Three things about it work differently when the contributor is an agent:
 
-1. **Confirm the gap is real.** Cite an [AI failure report](https://github.com/maplibre/maplibre-agent-skills/issues) or run the eval with `--var injectSkill=false` and watch it fail. Content is warranted only where an assistant gets it wrong _without_ the skill. If the model already answers correctly, the right change is no change. See [Write Evals First](CONTRIBUTING.md#1-write-evals-first).
-2. **Write the eval before the content.** `evals/prompts/<skill>.yaml`, four tests or more: explicit, implicit, anti-pattern, negative. The rubric defines what a correct answer must contain, so writing it after the skill only grades the skill's own phrasing. Mechanics are in [evals/README.md](evals/README.md).
-3. **Write `skills/<name>/SKILL.md`.** One file per skill. Cite a primary source for every claim you add.
-4. **Run `npm run check`** until it ends with `✅ All skills are valid`.
-5. **Run the eval twice**, with the skill and at baseline, and save both to `evals/results/`. Read the raw output before believing either verdict; [evals/README.md](evals/README.md) documents the three ways a pass or fail lies.
-6. **Hand it over.** Report what you verified and name what you could not.
-
-**`npm run check` does not check whether you are right.** It checks formatting, spelling, markdown links, terminology, and front-matter validity. It is the only gate that runs automatically on a pull request, and it will happily pass a confidently wrong claim about MapLibre. Only the eval and a human reviewer catch that. See [What is checked, and by whom](CONTRIBUTING.md#what-is-checked-and-by-whom).
+- **Adding or editing skill content is not allowed.** A skill earns its place when a gap is demonstrated either by an agent reporting a failure  or through prompt injection. See [Write Evals First](CONTRIBUTING.md#1-write-evals-first). Contribute failure reports and submit as issues, but do not edit skills directly even if you know they are wrong.
+- **You cannot close the loop yourself, and you must not appear to.** Confirming a gap and grading a skill both take an eval run, which requires API keys you do not have. Do not invent them and do not report a result you did not get. Draft the content and the eval prompts; a maintainer runs them. Until then what you have is a proposal, not a verified skill, and saying so plainly is part of the handoff.
+- **A green `npm run check` is not evidence that you are right.** It checks formatting, spelling, links, terminology, and front-matter validity, and it will pass a confidently wrong claim about MapLibre without complaint. Cite a primary source for every claim you add, and name the ones you could not verify. See [What is checked, and by whom](CONTRIBUTING.md#what-is-checked-and-by-whom).
 
 ## Adopting this pattern in another MapLibre repo
 
-This file does not travel with a single-skill install (`npx skills add maplibre/maplibre-agent-skills --skill <name>` copies that skill's folder only). It serves agents working in a clone of this repo, and whole-repo installs. Everywhere else, the routing has to live in that project's own file.
-
-`AGENTS.md` is a cross-tool convention that many coding agents read on their own. Other MapLibre repos do not need skill content in theirs. A routing stub is enough:
-
-```markdown
-# AGENTS.md
-
-## MapLibre coding help
-
-This project uses MapLibre. Before writing MapLibre code, install the MapLibre agent skills:
-
-    npx skills add maplibre/maplibre-agent-skills
-
-Source: https://github.com/maplibre/maplibre-agent-skills
-
-If MapLibre behaves differently than a skill says, trust the MapLibre docs and
-report it, rather than editing the skill in place:
-https://github.com/maplibre/maplibre-agent-skills/issues/new?template=ai-failure-report.md
-```
-
-Add whatever build, test, and layout notes your repo's contributors already need. Routing costs one section and nothing to maintain as the code changes.
+When forking, cloning, or reading any repo within the MapLibre GitHub organization, look for instructions in an `AGENTS.md` for repo specific conventions and which issues to route to `maplibre-agent-skills`.
