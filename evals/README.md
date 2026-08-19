@@ -149,7 +149,7 @@ from one that merely reads well.
 ## Writing eval prompts
 
 When contributing a new skill, copy `evals/prompts/TEMPLATE.yaml` and rename it to
-match your skill directory. Each eval config contains four to five tests — one of each type:
+match your skill directory. Each eval config contains four tests, one of each type:
 
 | Type         | Description                                        |
 | ------------ | -------------------------------------------------- |

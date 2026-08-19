@@ -35,26 +35,18 @@ Have valuable knowledge but don't want to write evals right now? See [Provisiona
 
 ## Contribute a Skill
 
-We’d love your help expanding this collection. Whether you’re a student still learning or a seasoned professional building with MapLibre every day — **your experience can help AI assistants guide developers better**.
-
-**Why contribute?**
-
-- Share your hard-won knowledge with the open mapping community
-- Learn once and for all how to do that _thing_ by explaining it concisely with a code sample
-- Shape how AI assistants recommend MapLibre patterns and open-source tools
-- Small, focused contributions are welcome — even a single well-documented pattern helps
+We’d love your help expanding this collection — whether you’re a student still learning or a seasoned professional building with MapLibre every day. Small, focused contributions are welcome; even a single well-documented pattern helps.
 
 **How to get started:**
 
 1. **Check existing skills** — Review [skills/](./skills) to see what is already covered
 2. **Browse open issues** — Check [open issues](https://github.com/maplibre/maplibre-agent-skills/issues) for planned skills and comment with any requirements, resources or gotchas you think should also be covered
 3. **Open an issue** — Use the [issue template](https://github.com/maplibre/maplibre-agent-skills/issues/new?template=skill_request.md) if you have an idea not yet on the list — we’re happy to help refine scope and requirements
-4. **Understand the requirements** — Review this page for skill structure, format, and quality guidelines
-5. **Pick up a task** — Comment in the relevant issue — to confirm a maintainer is available to review, be explicit about how much of the outline you can cover
-6. **Review examples** — Use existing skills (e.g. [maplibre-tile-sources](skills/maplibre-tile-sources/SKILL.md)) as a reference for style and depth
-7. **Start with evals** _(Lane 3)_ — Get set up with an LLM API and write or revise prompts first, to demonstrate where AI agents are failing. In Lanes 1 and 2 a maintainer does this for you
+4. **Pick up a task** — Comment in the relevant issue — to confirm a maintainer is available to review, be explicit about how much of the outline you can cover
+5. **Review examples** — Use existing skills (e.g. [maplibre-tile-sources](skills/maplibre-tile-sources/SKILL.md)) as a reference for style and depth
+6. **Start with evals** _(Lane 3)_ — Get set up with an LLM API and write or revise prompts first, to demonstrate where AI agents are failing. In Lanes 1 and 2 a maintainer does this for you
 
-New to [Agent Skills](https://agentskills.io)? The [specification](https://agentskills.io/specification) describes the general format. See [SKILL.md format](#3-skillmd-format) for how skills are structured in this repo specifically.
+New to [Agent Skills](https://agentskills.io)? The [specification](https://agentskills.io/specification) covers the general format; see [SKILL.md format](#3-skillmd-format) for this repo's structure.
 
 ## Editing Skills
 
@@ -67,8 +59,6 @@ Skills in this repo must be:
 - **Warranted** — Targets something the model gets wrong without the skill. Content that passes at baseline is cut, however well written (see [Cutting content the model already gets right](evals/README.md#cutting-content-the-model-already-gets-right))
 - **Attribution** — Reference primary sources wherever possible, and always preserve Mapbox copyright (see [A note about adapted content](#a-note-about-adapted-content))
 - **Consistent** — Format and style in line with existing skills
-
-If you spot an error, omission, or quality gap, open an issue or comment on an existing one.
 
 ### What is checked, and by whom
 
@@ -170,11 +160,10 @@ For bug fixes, typos, and documentation edits:
 
 1. Create a branch: `git checkout -b fix-your-description`
 2. Make your edit.
-3. Run `npm run check` and fix any issues.
-4. If you edited skill content, run evals to confirm nothing regressed — see [Running evals locally](#running-evals-locally).
-5. Push and open a PR describing what you changed and why.
+3. Run `npm run check`, and evals too if you touched skill content (see [Running evals locally](#running-evals-locally)).
+4. Push and open a PR describing what you changed and why.
 
-For new skills, follow the full workflow in [Creating a New Skill](#creating-a-new-skill).
+For new skills, follow the full workflow in [Creating a New Skill](#creating-a-new-skill), which ends with the same check-and-eval pass plus a live test with an AI assistant.
 
 ## Creating a New Skill
 
@@ -185,7 +174,7 @@ Follow these steps to add a new skill to the collection.
 Before writing any skill content, write the eval prompts and rubric. Evals define what a correct answer must include — independently of what the skill says. This is the quality control mechanism.
 
 1. Copy `evals/prompts/TEMPLATE.yaml`, rename it to `evals/prompts/maplibre-your-skill-name.yaml`.
-2. Write a set of at least 4, up to 10 prompts. See [evals/README.md](evals/README.md#writing-eval-prompts) for test types and assertion guidance.
+2. Write four tests, one per type. See [evals/README.md](evals/README.md#writing-eval-prompts) for test types and assertion guidance.
 3. Create a branch: `git checkout -b add-maplibre-your-skill-name`
 4. Open a draft PR with only the eval and prompt files for reviewer sign-off.
 5. Run a baseline check — see [Proving tests fail without the skill](evals/README.md#proving-tests-fail-without-the-skill). Explicit, implicit, and anti-pattern tests must all fail; negative test results require judgment.
@@ -279,9 +268,9 @@ Reference these sources in skill content wherever possible:
 
 **MapLibre — core:**
 
-- [MapLibre GL JS](https://maplibre.org/maplibre-gl-js/docs/) — web maps JavaScript library. For MapLibre code patterns to reference while writing skills, see the [MapLibre GL JS examples](https://maplibre.org/maplibre-gl-js/docs/examples/).
+- [MapLibre GL JS](https://maplibre.org/maplibre-gl-js/docs/) — web maps JavaScript library; see the [examples](https://maplibre.org/maplibre-gl-js/docs/examples/) for code patterns to reference.
 - [MapLibre Style Spec](https://maplibre.org/maplibre-style-spec/) — JSON style schema for GL JS and Native
-- [MapLibre Native](https://maplibre.org/maplibre-native/docs/book/) — C++ library for Android, iOS, and desktop, see [main README on GitHub](https://github.com/maplibre/maplibre-native) for instructions on how to _use_ MapLibre Native.
+- [MapLibre Native](https://maplibre.org/maplibre-native/docs/book/) — C++ library for Android, iOS, and desktop; see the [GitHub README](https://github.com/maplibre/maplibre-native) for usage.
 - [Martin tile server](https://maplibre.org/martin/) — PostGIS, MBTiles, and PMTiles tile server
 - [MapLibre Tile Spec](https://maplibre.org/maplibre-tile-spec/) — next-generation vector tile format
 
