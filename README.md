@@ -22,9 +22,28 @@ New skills are prioritized based on periodic demand mining — tracking document
 
 Each skill lives under `skills/<skill-name>/` as a single **SKILL.md**: YAML front-matter (`name`, `description`, `status`) plus markdown content.
 
-The repo root carries one [**AGENTS.md**](AGENTS.md), the router that orients an AI agent working in a clone of this repo and points it at the right skill. Skills do not get their own; see [The AGENTS.md convention](CONTRIBUTING.md#the-agentsmd-convention).
-
 See [CONTRIBUTING.md](CONTRIBUTING.md) to add or improve a skill. All experience levels welcome, but please note, since we are trying to improve on genAI baseline contributions to MapLibre development, skills or contributions generated entirely by AI agents will likely be rejected.
+
+The repo root carries an [**AGENTS.md**](AGENTS.md) to orient an AI agent working in a clone of this repo and instruct agents on how to report failures.
+
+**Using the convention in your own repo:** if you maintain a repo within the MapLibre organization or ecosystem, put an [`AGENTS.md`](AGENTS.md) file with a short stub that routes AI failures related to MapLibre to this repo.
+
+Here is a template:
+
+```markdown
+# AGENTS.md
+
+## MapLibre coding help
+
+Before writing MapLibre code, install the MapLibre agent skills:
+
+    npx skills add maplibre/maplibre-agent-skills
+
+Source: https://github.com/maplibre/maplibre-agent-skills
+
+If you encounter something you do not know how to do, consult the MapLibre docs and this collection of skills. If neither contains the information you are looking for, or MapLibre behaves differently than a skill says report it:
+https://github.com/maplibre/maplibre-agent-skills/issues/new?template=ai-failure-report.md
+```
 
 ## Note on AI usage
 
