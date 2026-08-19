@@ -160,16 +160,18 @@ Two workflows run in CI, and only one of them gates a merge:
 - **`check.yml`** — the deterministic gate: formatting, spelling, markdown lint,
   terminology, model pins, and skill validation. It runs on every PR including forks,
   needs no secrets, and is the only workflow that blocks merge.
-- **`eval.yml`** — the judge-graded eval. Runs on a weekly cron against the default
-  branch, committing its dated CSVs to `evals/results/`, and on `workflow_dispatch`
-  for a maintainer validating a specific branch or PR (inputs: `ref`, `configs`,
-  `baseline`).
+- **`eval.yml`** — the judge-graded eval: a weekly drift check against the default
+  branch, plus `workflow_dispatch` (`ref`, `configs`, `baseline`) for a maintainer to
+  validate a branch or PR by hand, pre- or post-merge.
 
-**Judge-graded evals deliberately skip `pull_request`.** GitHub withholds secrets from
-fork-triggered PRs, so an eval job there can't reach the generator or judge — it only
-runs once merged to main.
+**It never runs automatically on `pull_request`.** GitHub withholds secrets from a
+fork's `pull_request`, so an automatic job there couldn't reach the generator or
+judge anyway — hence the manual dispatch, which runs in this repo's own Actions
+context with its secrets regardless of whose ref it checks out.
 
-Any change to `package.json` or the eval harness is treated as a security red flag and reviewed accordingly, since a dispatched run checks out that code in a job holding secrets.
+**Review before you dispatch.** Treat any change to `package.json` or the eval
+harness (`evals/prompts/lib/`) as a reason to look closer — `--ignore-scripts` blocks
+a malicious lifecycle script, not a modified `eval:graded` command.
 
 `npm run lint:model-pins` fails on any provider id that drifts from the [Setup](#setup)
 pins (the generator in `providers.yaml`, the judge in the `eval:graded` script).

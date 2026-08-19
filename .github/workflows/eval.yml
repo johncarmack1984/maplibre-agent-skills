@@ -1,18 +1,15 @@
 name: Eval
 
-## This script runs the evals in evals/prompts/*.yaml against the default branch's code and the default branch's skill files. It is triggered by:
-#   - schedule: a drift check on the default branch.
-#   - workflow_dispatch: a maintainer validates a specific branch or PR.
+## Runs the evals in evals/prompts/*.yaml. Triggered by:
+#   - schedule: a weekly drift check against the default branch.
+#   - workflow_dispatch: a maintainer validates a branch or PR, pre- or post-merge.
 #       ref      – branch, or refs/pull/<N>/head for a fork PR. Blank = default branch.
 #       configs  – space-separated evals/prompts/*.yaml. Blank = all.
 #       baseline – run with the skill withheld (injectSkill=false). Gap-targeting
 #                  prompts are expected to FAIL here; a negative test should PASS.
 #
-# SECURITY: dispatching against a contributor ref checks out untrusted code in a
-# job that holds secrets. The workflow definition itself always comes from the
-# default branch, and we install with --ignore-scripts so a malicious lifecycle
-# script cannot run. Still: read the diff before you dispatch, and treat any change
-# to package.json or the eval harness as a red flag.
+# Runs in this repo's own Actions context with its secrets regardless of ref —
+# see evals/README.md → CI before dispatching against an unreviewed ref.
 
 on:
   schedule:
