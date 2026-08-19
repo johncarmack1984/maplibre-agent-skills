@@ -29,4 +29,3 @@ against your branch during weekly triage and posts the results.
 1. Comment here to claim it.
 2. Write `skills/maplibre-<name>/SKILL.md` so the rubric is satisfied (see CONTRIBUTING → SKILL.md format).
 3. Open a PR. Deterministic checks (`npm run check`) run immediately; a maintainer triggers the eval run during weekly triage and posts the results. We'll iterate together if anything fails.
-4. No local eval setup or API keys required — that's on us.

@@ -11,7 +11,7 @@ Just tell us what happened.
 
 <!-- e.g. "Add a PMTiles source", "set up terrain", "filter features by a list of values" -->
 
-**Which AI tool, and what did it tell you?**
+**Which model, and what was the response?**
 
 <!-- e.g. ChatGPT / Claude / Copilot / Cursor. Paste the wrong answer or code if you have it. -->
 
