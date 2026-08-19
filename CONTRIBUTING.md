@@ -24,7 +24,7 @@ Most contributors should start at Lane 1 or 2. Eval rigor still applies — we j
 you (a maintainer, at weekly triage) or write the tests for you (scaffolded issues). Lane 3 is
 for when you want to own the whole thing.
 
-- **Lane 1:** open an [AI failure report](.github/ISSUE_TEMPLATE/ai-failure-report.md) — no code, no evals.
+- **Lane 1:** open an [AI failure report](https://github.com/maplibre/maplibre-agent-skills/issues/new?template=ai-failure-report.md) — no code, no evals.
 - **Lane 2:** claim an open [good first skill](https://github.com/maplibre/maplibre-agent-skills/labels/good-first-issue) issue — the eval prompts and rubric are already written; you write `SKILL.md`.
 - **Lane 3:** follow the full workflow below, starting with [Contribute a Skill](#contribute-a-skill).
 
@@ -45,7 +45,7 @@ We’d love your help expanding this collection. Whether you’re a student stil
 
 1. **Check existing skills** — Review [skills/](./skills) to see what is already covered
 2. **Browse open issues** — Check [open issues](https://github.com/maplibre/maplibre-agent-skills/issues) for planned skills and comment with any requirements, resources or gotchas you think should also be covered
-3. **Open an issue** — Use the [issue template](./.github/ISSUE_TEMPLATE/skill_request.md) if you have an idea not yet on the list — we’re happy to help refine scope and requirements
+3. **Open an issue** — Use the [issue template](https://github.com/maplibre/maplibre-agent-skills/issues/new?template=skill_request.md) if you have an idea not yet on the list — we’re happy to help refine scope and requirements
 4. **Understand the requirements** — Review this page for skill structure, format, and quality guidelines
 5. **Pick up a task** — Comment in the relevant issue — to confirm a maintainer is available to review, be explicit about how much of the outline you can cover
 6. **Review examples** — Use existing skills (e.g. [maplibre-tile-sources](skills/maplibre-tile-sources/SKILL.md)) as a reference for style and depth
@@ -272,7 +272,8 @@ table. A maintainer or another contributor adds the evals later to graduate it t
 is the fastest way to share a hard-won pattern.
 
 A provisional contribution still needs to cite a demonstrated AI failure: link an [AI failure
-report](.github/ISSUE_TEMPLATE/ai-failure-report.md), a mining note, or a baseline-failing prompt.
+report](https://github.com/maplibre/maplibre-agent-skills/issues/new?template=ai-failure-report.md),
+a mining note, or a baseline-failing prompt.
 `provisional` means _correctness not yet established by evals_, not _necessity unknown_. It
 graduates to `verified` once a maintainer has run eval prompts covering the skill's gaps and
 committed the results, not merely when the one cited failure passes.
