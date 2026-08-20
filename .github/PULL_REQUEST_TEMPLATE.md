@@ -6,7 +6,7 @@
 
 <!--
 Skill changes only. Link the demonstrated failure: an AI failure report, a
-baseline-failing eval prompt, or a mining note. See CONTRIBUTING.md → "Write Evals First".
+baseline-failing eval prompt, or a mining note. See CONTRIBUTING.md → "Write a new skill".
 Delete this section for docs, tooling, or CI changes.
 -->
 
