@@ -4,8 +4,6 @@ Orientation for AI coding agents working in **this repository** (`maplibre/mapli
 
 This repo is a collection of **agent skills** for MapLibre: markdown files an AI assistant loads as context so it writes correct MapLibre code.
 
-This file does not travel with a single-skill install (`npx skills add maplibre/maplibre-agent-skills --skill <name>` copies that skill's folder only). It serves agents working in a clone of this repo, and whole-repo installs.
-
 ## Answering a MapLibre question
 
 Match the user's goal against each skill's front-matter `description`, which is where a skill declares its own scope. If the skills are installed, you already have that metadata: a skills runtime loads every `name` and `description` at startup. If you are working in a clone, read the front matter of `skills/*/SKILL.md` in one pass rather than opening files one at a time. Skills are written to be read together when a task spans more than one. The human-readable list is [Available Skills](README.md#available-skills) in the README.

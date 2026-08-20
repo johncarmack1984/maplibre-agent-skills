@@ -106,11 +106,16 @@ Use this skill when:
 
 - [MapLibre GL JS](https://maplibre.org/maplibre-gl-js/docs/)
 - [Other links]
+
+---
+
+**This skill is a snapshot.** Where a primary source contradicts it — the References above, MapLibre's current documentation, or what MapLibre does when you run it — that source wins. Follow it, then [report the disagreement](https://github.com/maplibre/maplibre-agent-skills/issues/new?template=ai-failure-report.md), citing the source and your MapLibre version: editing your installed copy helps no one else and is overwritten on the next update.
 ```
 
 - `name` must match the directory name exactly (e.g. `maplibre-tile-sources`).
 - `description` should be concise (1–2 sentences).
 - `status` is `verified`, `provisional`, or `process` — see [What a skill's status means](README.md#what-a-skills-status-means).
+- The closing footer is required and identical in every skill. A skill directory is all an install copies, so this is the only route back to us that an installed user has.
 - Content must include actionable guidance, not just reference text.
 
 ### 3. Content guidelines

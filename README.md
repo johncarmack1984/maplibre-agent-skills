@@ -71,6 +71,8 @@ https://github.com/maplibre/maplibre-agent-skills/issues/new?template=ai-failure
 
 Installing skills into your project means AI assistants automatically pick them up when you describe a task — no need to define context manually each time.
 
+An install copies skill directories only. If an installed skill turns out to be wrong, don't fix it in place — that copy is overwritten on the next update, and no one else benefits. Every `SKILL.md` ends with a link to the [AI failure report](https://github.com/maplibre/maplibre-agent-skills/issues/new?template=ai-failure-report.md) form for exactly that.
+
 ### Without the CLI
 
 Skills are plain markdown.

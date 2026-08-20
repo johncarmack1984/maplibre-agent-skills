@@ -204,3 +204,7 @@ PMTiles supports **raster** tiles (PNG/JPEG, e.g. satellite or pre-rendered imag
 - [pmtiles CLI](https://docs.protomaps.com/pmtiles/cli) — Simplest way to create PMTiles (`convert`, `show`, `verify`, `extract`)
 - [Planetiler](https://github.com/onthegomap/planetiler) — OSM → PMTiles/MBTiles
 - [MapLibre GL JS](https://maplibre.org/maplibre-gl-js/docs/) — Style spec and API
+
+---
+
+**This skill is a snapshot.** Where a primary source contradicts it — the References above, MapLibre's current documentation, or what MapLibre does when you run it — that source wins. Follow it, then [report the disagreement](https://github.com/maplibre/maplibre-agent-skills/issues/new?template=ai-failure-report.md), citing the source and your MapLibre version: editing your installed copy helps no one else and is overwritten on the next update.
