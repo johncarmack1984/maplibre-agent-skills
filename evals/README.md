@@ -130,7 +130,7 @@ must include (specific enough for a judge to evaluate, e.g. "mentions `addProtoc
 by name" rather than "explains the API").
 
 **Negative tests:** The question should be adjacent to the skill's topic — close enough
-that an over-eager agent might wrongly push the new skill information, but where doing so 
+that an over-eager agent might wrongly push the new skill information, but where doing so
 would be unhelpful. A trivially unrelated question (e.g. a different library entirely) has
 no discriminating power. The rubric should assert that a correct answer answers the actual
 question and does NOT recommend the skill's solution where it doesn't apply.
