@@ -5,8 +5,9 @@
 #     --config evals/prompts/maplibre-cartography.yaml \
 #     --no-cache -j 1
 #
-# IMPORTANT: Never use --providers on the CLI — it bypasses lib/skill-prompt.mjs
-# and the skill will not be injected into the system prompt.
+# IMPORTANT: let lib/providers.yaml choose the provider on any recorded run. --providers
+# replaces the pinned generator and drops its config (temperature, max_tokens) unless the
+# value matches a configured id or label. Fine for ad-hoc probes: --providers echo.
 #
 # Suite redesigned 2026-07-02 (9 tests → 4, one per category). Baseline/
 # with-skill evidence and rationale per test are logged in the project plan
