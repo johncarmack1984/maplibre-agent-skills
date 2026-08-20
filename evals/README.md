@@ -123,13 +123,19 @@ be valid if it is close enough to the skill's topic to confirm the skill doesn't
 
 ## Cutting content the model already gets right
 
-The baseline check is not only for a new skill's prompts. It applies to content added to
-a skill that already exists. A section covering something the model already handles costs
-context on every load and has to be maintained as the library moves, but changes no
-answer. Probe candidate content at baseline before writing it up, and cut what passes.
+**The rule: content the model already gets right is a cost, not a benefit.** A section
+covering something the model already handles costs context on every load and has to be
+maintained as the library moves, without changing an answer. So whenever possible, probe
+candidate content at baseline before writing it up, and cut what passes.
 
-Worked example, `maplibre-tile-sources`. Three sections were drafted and added to the
-skill:
+It isn't a waste of time to write tests that pass. They refine and sharpen what the skill
+necessarily needs to carry, and which candidates the model already covers is a finding in
+its own right. A baseline probe is the cheapest way to establish that, and it is what
+separates a skill that earns its context budget from one that merely reads well.
+
+As an illustration of how this has gone in practice: three sections were drafted for
+`maplibre-tile-sources`, based on real indicators of what LLMs may not understand, and
+added to the skill:
 
 - Planetiler vs. tippecanoe selection guidance
 - archived tile services served from a demand-driven cache, where tiles that were never
@@ -137,14 +143,8 @@ skill:
 - zoom range and overzoom behavior past a source's `maxzoom`
 
 Probed separately at baseline, the model answered all three correctly with no skill
-injected. None was a demonstrated gap, so all three came back out before the skill
-shipped: added in `0bb2abd`, removed in `f4a4d67`. The eval suite was unchanged by the
-removal.
-
-Treat that as the rule working rather than a wasted pass. Which candidates the model
-already covers is a finding, and a baseline probe is a much cheaper place to learn it
-than a review. The same probe is what separates a skill that earns its context budget
-from one that merely reads well.
+injected. None was a demonstrated gap, so all three were removed before the skill
+shipped (added in `0bb2abd`, removed in `f4a4d67`). The eval suite was unchanged.
 
 ## Writing eval prompts
 
