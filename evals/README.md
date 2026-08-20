@@ -126,16 +126,16 @@ match your skill directory. Each eval config contains four tests, one of each ty
 | Negative     | An adjacent question the skill should not dominate |
 
 Write each `llm-rubric` assertion's `value` as a checklist of what a correct answer
-must include — specific enough for a judge to evaluate, e.g. "mentions `addProtocol`
-by name" rather than "explains the API."
+must include (specific enough for a judge to evaluate, e.g. "mentions `addProtocol`
+by name" rather than "explains the API").
 
 **Negative tests:** The question should be adjacent to the skill's topic — close enough
-that an over-eager skill might wrongly push its solution, but where doing so would be
-unhelpful. A trivially unrelated question (e.g. a different library entirely) has no
-discriminating power. The rubric should assert that a correct answer answers the actual
+that an over-eager agent might wrongly push the new skill information, but where doing so 
+would be unhelpful. A trivially unrelated question (e.g. a different library entirely) has
+no discriminating power. The rubric should assert that a correct answer answers the actual
 question and does NOT recommend the skill's solution where it doesn't apply.
 
-Write prompts based on real developer or AI confusion — evidenced in GitHub issues, Stack Overflow questions, or Slack threads where AI assistants are known to fail.
+Write prompts based on real developer or AI confusion: evidenced in GitHub issues, Stack Overflow questions, or Slack threads where AI assistants are known to fail.
 
 **Important:** Never use `--providers` on the CLI, even though Promptfoo documents it — it bypasses `lib/skill-prompt.mjs`, so the skill won't be injected. Configure the provider in the YAML instead.
 
