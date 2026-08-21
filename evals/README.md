@@ -121,35 +121,10 @@ these pass, the prompt is not testing skill-specific knowledge and must be revis
 Negative tests require judgment: a negative test that passes without the skill may still
 be valid if it is close enough to the skill's topic to confirm the skill doesn't over-apply.
 
-## Cutting content the model already gets right
-
-**The rule: content the model already gets right is a cost, not a benefit.** A section
-covering something the model already handles costs context on every load and has to be
-maintained as the library moves, without changing an answer. So whenever possible, probe
-candidate content at baseline before writing it up, and cut what passes.
-
-It isn't a waste of time to write tests that pass. They refine and sharpen what the skill
-necessarily needs to carry, and which candidates the model already covers is a finding in
-its own right. A baseline probe is the cheapest way to establish that, and it is what
-separates a skill that earns its context budget from one that merely reads well.
-
-As an illustration of how this has gone in practice: three sections were drafted for
-`maplibre-tile-sources`, based on real indicators of what LLMs may not understand, and
-added to the skill:
-
-- Planetiler vs. tippecanoe selection guidance
-- archived tile services served from a demand-driven cache, where tiles that were never
-  requested are permanently absent
-- zoom range and overzoom behavior past a source's `maxzoom`
-
-Probed separately at baseline, the model answered all three correctly with no skill
-injected. None was a demonstrated gap, so all three were removed before the skill
-shipped (added in `0bb2abd`, removed in `f4a4d67`). The eval suite was unchanged.
-
 ## Writing eval prompts
 
 When contributing a new skill, copy `evals/prompts/TEMPLATE.yaml` and rename it to
-match your skill directory. Each eval config contains four tests, one of each type:
+match your skill directory. Each eval config contains four to five tests — one of each type:
 
 | Type         | Description                                        |
 | ------------ | -------------------------------------------------- |

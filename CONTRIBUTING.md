@@ -15,7 +15,21 @@ Correctness is established two ways:
 - **Evals** — [Promptfoo](https://promptfoo.dev/) prompts and rubrics that test whether an AI assistant answers correctly with the skill loaded and incorrectly without it. The rubric is written before the skill and defines what a correct answer must contain, independent of the skill's phrasing. Judge-graded evals showing prompt responses that fail without the skill and pass with the skill are stored in [`evals/results/`](evals/results). See [`evals/README.md`](evals/README.md) for how to run these yourself.
 - **Human review** — every merged claim is one a maintainer read and can defend. See [Note on AI usage](#note-on-ai-usage).
 
-Content that passes an eval at baseline (i.e., the model already gets it right without the skill) is cut, however well written — see [Cutting content the model already gets right](evals/README.md#cutting-content-the-model-already-gets-right).
+Content that passes an eval at baseline (i.e., the model already gets it right without the skill) is cut, however well written — see [Cutting content the model already gets right](#cutting-content-the-model-already-gets-right).
+
+### Cutting content the model already gets right
+
+**The rule: content the model already gets right is a cost, not a benefit.** A section covering something the model already handles costs context on every load and has to be maintained as the library moves, without changing an answer. So whenever possible, probe candidate content at baseline before writing it up, and cut what passes.
+
+It isn't a waste of time to write tests that pass. They refine and sharpen what the skill necessarily needs to carry, and which candidates the model already covers is a finding in its own right. A baseline probe is the cheapest way to establish that, and it is what separates a skill that earns its context budget from one that merely reads well.
+
+As an illustration of how this has gone in practice: three sections were drafted for `maplibre-tile-sources`, based on real indicators of what LLMs may not understand, and added to the skill:
+
+- Planetiler vs. tippecanoe selection guidance
+- archived tile services served from a demand-driven cache, where tiles that were never requested are permanently absent
+- zoom range and overzoom behavior past a source's `maxzoom`
+
+Probed separately at baseline, the model answered all three correctly with no skill injected. None was a demonstrated gap, so all three were removed before the skill shipped (added in `0bb2abd`, removed in `f4a4d67`). The eval suite was unchanged.
 
 ## Ways to contribute
 
@@ -67,7 +81,7 @@ If the eval setup is onerous, ship as `status: provisional` instead — but acce
 
 Fixing a wrong example or clarifying existing content: no baseline probe needed, just update the eval tests that cover the change if the change affects what a correct answer looks like. Do not remove tests to make a PR pass; if a test is wrong, fix it with reviewer sign-off.
 
-Adding new content to an existing skill goes through the same gate a new skill does: probe the addition at baseline first, and cut it if the model already answers correctly without it. See [Cutting content the model already gets right](evals/README.md#cutting-content-the-model-already-gets-right) for a worked example from `maplibre-tile-sources`.
+Adding new content to an existing skill goes through the same gate a new skill does: probe the addition at baseline first, and cut it if the model already answers correctly without it. See [Cutting content the model already gets right](#cutting-content-the-model-already-gets-right) for a worked example from `maplibre-tile-sources`.
 
 ### Improve an eval rubric
 
