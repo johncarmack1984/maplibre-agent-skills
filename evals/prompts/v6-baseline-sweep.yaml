@@ -98,9 +98,14 @@ tests:
       - type: not-icontains
         value: 'maplibre-gl@latest'
 
-  # [deterministic] No dead-path tripwire here: the prompt itself quotes the v5
-  # script tag, and a correct answer legitimately echoes it back while saying to
-  # replace it. Only the positive assertion is safe on this one.
+  # [read-behind] MIS-TAGGED as [deterministic] in the first version of this file —
+  # corrected 2026-08-21 after re-reading raw completions. The icontains assertion
+  # below is NOT reliable: 4 of 5 baseline responses affirm "yes, your old tag will
+  # still work" and mention `<script type="module">` only as an optional aside for
+  # people who want "modern syntax," which still satisfies icontains while getting
+  # the actual question wrong. No known deterministic assertion catches "presents
+  # the broken pattern as still valid" vs. "presents it as broken." A FAIL here is
+  # trustworthy; a PASS is not — always read the raw completion before accepting one.
   - description: 'item1b — is my old CDN script tag still current'
     vars:
       prompt:
