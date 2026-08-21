@@ -8,12 +8,21 @@
 #
 # Run k=5 samples per prompt, generator only, no grader:
 #   npm run eval -- --config evals/prompts/v6-baseline-sweep.yaml \
-#     --repeat 5 --delay 2000 --no-cache -j 1 \
+#     --repeat 5 --delay 9000 --no-cache -j 1 \
 #     --output evals/results/v6-baseline-sweep.csv
 #
 # Budget: 12 prompts x 5 = 60 generator calls. Run it in one quiet window and do
 # NOT wrap it in an outer retry loop — promptfoo already retries ~4x, and an outer
 # loop compounds into a retry storm against the provider's per-minute token cap.
+#
+# --delay 9000, NOT 2000: measured 2026-08-21 run. This model spends ~900-1100
+# tokens per call even at temperature 0 (it always emits some reasoning tokens),
+# against Groq's 8000 TPM cap on openai/gpt-oss-120b for this account — a ceiling
+# of roughly 8 calls/minute, i.e. one call per ~7.5s. --delay 2000 (30 calls/min
+# attempted) fell far enough behind that the 4x retry budget couldn't recover:
+# eight consecutive requests each queued the full 300s promptfoo timeout before
+# failing. 9000ms leaves headroom under that ceiling; do not drop it without
+# re-deriving the token/TPM math above.
 #
 # IMPORTANT: never pass --providers on the CLI. It replaces the pinned generator
 # below and silently drops its config (temperature, max_tokens).
@@ -60,7 +69,7 @@ providers:
       max_tokens: 8192
 
 evaluateOptions:
-  delay: 2000
+  delay: 9000
 
 defaultTest:
   vars:
