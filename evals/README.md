@@ -82,11 +82,12 @@ npm run eval -- \
   --no-cache -j 1
 
 # Gemini judge (optional — stronger; requires GOOGLE_API_KEY):
-npm run eval -- \
-  --config evals/prompts/<skill-name>.yaml \
-  --grader google:gemini-2.5-flash-lite \
-  --delay 2000 --no-cache -j 1
+npm run eval:graded -- --config evals/prompts/<skill-name>.yaml
 ```
+
+`eval:graded` (see `package.json`) is the one place the grader, `--delay`, and
+concurrency are pinned — CI calls the same script. Don't hand-roll those flags in a
+second location; a value copied here would drift the moment `package.json` changes.
 
 All assertions must pass before pushing.
 

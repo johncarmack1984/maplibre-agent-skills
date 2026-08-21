@@ -13,7 +13,7 @@
     "fix:terminology": "node scripts/terminology-fix.js",
     "lint:model-pins": "node scripts/model-pin-check.js",
     "eval": "promptfoo eval",
-    "eval:graded": "promptfoo eval --grader google:gemini-2.5-flash-lite --delay 2000 --no-cache -j 1",
+    "eval:graded": "promptfoo eval --grader google:gemini-2.5-flash-lite --delay 8000 --no-cache -j 1",
     "check": "npm run format:check && npm run spellcheck && npm run lint:markdown && npm run lint:terminology && npm run lint:model-pins && npm run validate:skills",
     "setup": "node scripts/setup-hooks.js",
     "postinstall": "node scripts/setup-hooks.js"
