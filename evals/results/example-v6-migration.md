@@ -14,6 +14,15 @@ Eval config: [`evals/prompts/maplibre-v6-migration.yaml`](../prompts/maplibre-v6
 Raw CSVs: [`v6-migration-baseline.csv`](v6-migration-baseline.csv),
 [`v6-migration-with-skill.csv`](v6-migration-with-skill.csv)
 
+**Delay used:** these runs used `--delay 20000`, not `eval:graded`'s pinned `8000`. The
+8000ms floor was derived from baseline-only calls (~900-1100 tokens/call, no skill in the
+system prompt). Injecting this skill's full `SKILL.md` roughly triples that per-call cost
+(~3,300 tokens/call, measured from this run's token totals), which pushed Groq's 8000 TPM
+cap into timeouts at 8000-9000ms delay. Flagged for Stephanie, not fixed here: `eval:graded`'s
+delay is single-sourced in `package.json` and shared by every skill's CI run, so raising it
+belongs in its own change, not this PR. Below that, per-config `evaluateOptions.delay` is
+back to the repo default (`500`) to match every other skill's config.
+
 ## Summary
 
 | Test                                            | Type         | Baseline | With skill |

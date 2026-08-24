@@ -62,11 +62,7 @@ prompts:
   - file://lib/skill-prompt.mjs
 
 providers:
-  - id: groq:openai/gpt-oss-120b
-    label: groq-gpt-oss
-    config:
-      temperature: 0
-      max_tokens: 8192
+  - file://lib/providers.yaml
 
 evaluateOptions:
   delay: 9000

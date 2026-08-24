@@ -1,5 +1,14 @@
 # Evals for the maplibre-v6-migration skill.
 #
+# Run locally (Groq — set GROQ_API_KEY):
+#   npx promptfoo@latest eval \
+#     --config evals/prompts/maplibre-v6-migration.yaml \
+#     --no-cache -j 1
+#
+# IMPORTANT: let lib/providers.yaml choose the provider on any recorded run. --providers
+# replaces the pinned generator and drops its config (temperature, max_tokens) unless the
+# value matches a configured id or label. Fine for ad-hoc probes: --providers echo.
+#
 # Scope derives from evals/results/v6-baseline-sweep-findings.md — a prior
 # fail^5 baseline sweep against the raw generator (no skill injected) that
 # confirmed five gaps in maplibre-gl-js v6 (released 2026-07-22) knowledge.
@@ -15,14 +24,10 @@ prompts:
   - file://lib/skill-prompt.mjs
 
 providers:
-  - id: groq:openai/gpt-oss-120b
-    label: groq-gpt-oss
-    config:
-      temperature: 0
-      max_tokens: 8192
+  - file://lib/providers.yaml
 
 evaluateOptions:
-  delay: 9000
+  delay: 500
 
 defaultTest:
   vars:
