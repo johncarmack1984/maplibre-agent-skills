@@ -9,7 +9,9 @@ name: Eval
 #                  prompts are expected to FAIL here; a negative test should PASS.
 #
 # Runs in this repo's own Actions context with its secrets regardless of ref —
-# see evals/README.md → CI before dispatching against an unreviewed ref.
+# see evals/README.md → CI before dispatching against an unreviewed ref. The
+# dispatched ref runs in the read-only `eval` job; only the schedule-only
+# `publish` job, which checks out the default branch, holds a write token.
 
 on:
   schedule:
@@ -31,12 +33,19 @@ on:
         default: false
 
 permissions:
-  contents: write
-  issues: write
+  contents: read
 
 jobs:
   eval:
     runs-on: ubuntu-latest
+    # Read-only: this job checks out inputs.ref, which on dispatch can be any
+    # branch, and runs promptfoo's JS prompt function (lib/skill-prompt.mjs) from
+    # it. It holds the API secrets it needs to run, but not a token that can write
+    # to the repo. The repo writes live in the `publish` job below.
+    permissions:
+      contents: read
+    outputs:
+      name: ${{ steps.run.outputs.name }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -68,6 +77,7 @@ jobs:
           echo "Evaluating: $CONFIGS"
 
       - name: Run evals
+        id: run
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
@@ -80,7 +90,7 @@ jobs:
             BASELINE_FLAG=""
             NAME="$(date +%Y-%m-%d)"
           fi
-          echo "name=$NAME" >> $GITHUB_ENV
+          echo "name=$NAME" >> $GITHUB_OUTPUT
 
           # One promptfoo invocation per config — never combine them. Promptfoo
           # merges the defaultTest blocks of combined configs (last one wins),
@@ -108,9 +118,49 @@ jobs:
           name: eval-results-${{ github.run_id }}
           path: evals/results/*.csv
 
-      # Only the scheduled run on the default branch writes to the repo.
+      # Carries the pass/fail line per skill to the publish job, which runs the
+      # status sync on the trusted default branch.
+      - name: Upload verdicts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-verdicts-${{ github.run_id }}
+          path: /tmp/skill-verdicts.txt
+          if-no-files-found: ignore
+
+  # Everything that writes to the repo. Scheduled runs only, so it never sees a
+  # dispatched ref: it checks out the default branch and applies the results the
+  # eval job produced. `always()` so a failed drift check still opens its issue.
+  publish:
+    needs: eval
+    if: always() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+    env:
+      name: ${{ needs.eval.outputs.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Download results
+        uses: actions/download-artifact@v4
+        with:
+          name: eval-results-${{ github.run_id }}
+          path: evals/results
+
+      - name: Download verdicts
+        uses: actions/download-artifact@v4
+        with:
+          name: eval-verdicts-${{ github.run_id }}
+          path: /tmp
+
       - name: Commit results
-        if: always() && github.event_name == 'schedule'
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
@@ -123,16 +173,12 @@ jobs:
       # Flips status: provisional -> verified on pass, status: verified -> provisional
       # on fail, for whichever skills opted in with a status field. This is the
       # weekly drift check's verdict, not a fresh baseline+with-skill pair — see
-      # scripts/sync-skill-status.js. Scheduled-only and single-run, same as the
-      # drift check itself; a bad run here gets the same "Open issue on failure"
-      # triage below, so a human still reviews it.
+      # scripts/sync-skill-status.js.
       - name: Sync skill status from drift check
         id: sync
-        if: always() && github.event_name == 'schedule'
         run: node scripts/sync-skill-status.js /tmp/skill-verdicts.txt
 
       - name: Commit status changes
-        if: always() && github.event_name == 'schedule'
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
@@ -144,7 +190,7 @@ jobs:
       # "review this" notice, separate from the eval-drift issue below which
       # means "something might be wrong."
       - name: Open issue on status change
-        if: always() && github.event_name == 'schedule' && steps.sync.outputs.changed == 'true'
+        if: steps.sync.outputs.changed == 'true'
         uses: actions/github-script@v7
         env:
           SUMMARY: ${{ steps.sync.outputs.summary }}
@@ -180,7 +226,7 @@ jobs:
       # This run watches for drift — a provider silently updating a model behind a
       # pinned ID. So the issue asks a question; it does not assert a cause.
       - name: Open issue on failure
-        if: failure() && github.event_name == 'schedule'
+        if: needs.eval.result == 'failure'
         uses: actions/github-script@v7
         with:
           script: |
