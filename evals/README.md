@@ -142,10 +142,10 @@ Write prompts based on real developer or AI confusion: evidenced in GitHub issue
 
 ## Example results
 
-`evals/results/` holds the committed baseline/with-skill evidence for each skill. The
-current convention is a compact canonical table — one row per test, the failure mode
-compressed into the cell, a `Run:` header line (date, model, judge), closing with a
-bold pass/fail tally — for example
+`evals/results/` holds the committed baseline/with-skill evidence for each skill. When
+adding a new skill, add eval results along with it as a compact canonical table — one
+row per test, the failure mode compressed into the cell, a `Run:` header line (date,
+model, judge), closing with a bold pass/fail tally — for example
 [`maplibre-cartography.md`](results/maplibre-cartography.md),
 [`maplibre-pmtiles-patterns.md`](results/maplibre-pmtiles-patterns.md), or
 [`maplibre-v6-migration.md`](results/maplibre-v6-migration.md).
@@ -154,10 +154,8 @@ Three older skills instead carry a full-transcript format (an expandable `<detai
 block per test with the verbatim baseline/with-skill responses):
 [`example-mapbox-migration.md`](results/example-mapbox-migration.md),
 [`example-pmtiles-patterns.md`](results/example-pmtiles-patterns.md), and
-[`example-tile-sources.md`](results/example-tile-sources.md). Kept as-is for reference,
-not the pattern to copy.
-
-When submitting eval results for a new skill, follow the compact table structure.
+[`example-tile-sources.md`](results/example-tile-sources.md). Useful for seeing what
+discriminating power looks like in practice, but not the pattern to copy.
 
 ## CI
 
