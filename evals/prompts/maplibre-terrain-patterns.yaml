@@ -6,8 +6,7 @@ prompts:
   - file://lib/skill-prompt.mjs
 
 providers:
-  - id: cerebras:gpt-oss-120b
-    label: cerebras-gpt-oss
+  - file://lib/providers.yaml
 
 evaluateOptions:
   delay: 500
@@ -15,8 +14,6 @@ evaluateOptions:
 defaultTest:
   vars:
     skillFile: skills/maplibre-terrain-patterns/SKILL.md
-  options:
-    provider: cerebras:gpt-oss-120b
 
 tests:
   - description: explicit — client-side hypsometric tint (color-relief layer, GL JS 5.6+)

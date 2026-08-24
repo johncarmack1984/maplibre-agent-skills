@@ -1,15 +1,4 @@
 # Evals for the maplibre-tile-sources skill.
-#
-# Skill content is injected as the system prompt via lib/skill-prompt.mjs.
-#
-# Tests selected by baseline methodology: each question was run without the
-# skill and confirmed to fail before being added here.
-#
-# NOTE: Test 1 (GeoJSON vs tiles tradeoff reasoning) requires Gemini as judge
-# for meaningful baseline validation — Cerebras passes responses that do not
-# demonstrate the required reasoning quality. Use --grader google:gemini-2.5-flash-lite
-# with --delay 2000 for baseline checks.
-#
 # See evals/README.md for run commands and provider setup.
 
 description: Evals for the maplibre-tile-sources skill
@@ -18,8 +7,7 @@ prompts:
   - file://lib/skill-prompt.mjs
 
 providers:
-  - id: cerebras:gpt-oss-120b
-    label: cerebras-gpt-oss
+  - file://lib/providers.yaml
 
 evaluateOptions:
   delay: 500
@@ -27,8 +15,6 @@ evaluateOptions:
 defaultTest:
   vars:
     skillFile: skills/maplibre-tile-sources/SKILL.md
-  options:
-    provider: cerebras:gpt-oss-120b
 
 tests:
   - description: explicit — GeoJSON vs tiles decision for a real scenario

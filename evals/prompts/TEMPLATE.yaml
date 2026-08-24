@@ -3,18 +3,6 @@
 # Rename this file to match your skill directory name:
 #   evals/prompts/maplibre-your-skill-name.yaml
 #
-# Write these prompts BEFORE writing the skill content.
-# Open a draft PR with this file and the rubric for reviewer sign-off,
-# then write the skill to make these tests pass.
-#
-# Run locally (Cerebras — set CEREBRAS_API_KEY):
-#   npx promptfoo@latest eval \
-#     --config evals/prompts/maplibre-your-skill-name.yaml \
-#     --no-cache -j 1
-#
-# IMPORTANT: Never use --providers on the CLI — it bypasses lib/skill-prompt.mjs
-# and the skill will not be injected into the system prompt.
-# Provider must be configured in this file.
 
 description: Evals for the maplibre-your-skill-name skill
 
@@ -22,9 +10,7 @@ prompts:
   - file://lib/skill-prompt.mjs
 
 providers:
-  # See evals/README.md for current recommended model IDs and setup instructions.
-  - id:
-    label:
+  - file://lib/providers.yaml
 
 evaluateOptions:
   delay: 500
@@ -32,8 +18,6 @@ evaluateOptions:
 defaultTest:
   vars:
     skillFile: skills/maplibre-your-skill-name/SKILL.md
-  options:
-    provider: cerebras:gpt-oss-120b
 
 # Write exactly 4 tests per skill — one of each type:
 #   1. Explicit   — names the topic directly
