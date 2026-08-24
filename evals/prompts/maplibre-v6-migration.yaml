@@ -97,6 +97,25 @@ tests:
           required, is fine — the fail case is recommending `map.transform`
           as something to read from today.
 
+  - description: implicit — type-safe handler for the data event, narrowed on sourceDataType
+    vars:
+      prompt: >
+        Write a type-safe TypeScript handler for MapLibre GL JS's 'data' event
+        that narrows on `sourceDataType`, importing whatever event type
+        MapLibre GL JS exports for it.
+    assert:
+      - type: icontains
+        value: 'MapSourceDataEvent'
+      - type: llm-rubric
+        value: >
+          Does not present `MapDataEvent` as a type that still exists or can
+          be imported from maplibre-gl today. v6 removed `MapDataEvent`; the
+          data/dataloading/dataabort events are now typed as
+          `MapSourceDataEvent | MapStyleDataEvent`. A correct answer
+          imports/uses one or both of those instead. Mentioning
+          `MapDataEvent` is fine ONLY as an explicitly-labeled removed/old
+          type, never as the working import.
+
   - description: negative — vector tile source setup, unrelated to v6 breaking changes
     vars:
       prompt: >

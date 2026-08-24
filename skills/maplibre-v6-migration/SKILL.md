@@ -1,22 +1,22 @@
 ---
 name: maplibre-v6-migration
-description: Upgrading a MapLibre GL JS app from v5 to v6 — the ESM-only build, the removed default export, CommonJS require() breakage, the styleimagemissing/setMissingStyleImageResolver change, and the removal of the internal map.transform. Use when a v5 app breaks after upgrading to v6, or before pinning a v6 install.
+description: Upgrading a MapLibre GL JS app from v5 to v6 — the ESM-only build, the removed default export, CommonJS require() breakage, the styleimagemissing/setMissingStyleImageResolver change, the removal of the internal map.transform, and the MapDataEvent → MapSourceDataEvent/MapStyleDataEvent split. Use when a v5 app breaks after upgrading to v6, or before pinning a v6 install.
 ---
 
 # MapLibre GL JS v5 → v6 Migration
 
-MapLibre GL JS v6 (released 2026-07-22) removed several things v5 code relied on: the UMD/CSP browser bundles, the default export, CommonJS support, and the internal `map.transform`. Training data for most models predates v6, so the natural-sounding answer to "how do I do X in MapLibre GL JS" is frequently the v5 answer, and it silently breaks.
+MapLibre GL JS v6 (released 2026-07-22) removed several things v5 code relied on: the UMD/CSP browser bundles, the default export, CommonJS support, the internal `map.transform`, and the `MapDataEvent` type. Training data for most models predates v6, so the natural-sounding answer to "how do I do X in MapLibre GL JS" is likely the v5 answer, whereas a new implementation using that answer on v6 will break.
 
-**Primary reference:** [MapLibre GL JS v5→v6 migration guide](https://maplibre.org/maplibre-gl-js/docs/guides/v5-to-v6-migration-guide/). This skill covers the same ground the guide does not (yet) state as plainly, or covers gaps a model tends to fill in with v5-era defaults regardless of what the guide says. Where the guide already covers something correctly, defer to it.
+**Primary reference:** [MapLibre GL JS v5→v6 migration guide](https://maplibre.org/maplibre-gl-js/docs/guides/v5-to-v6-migration-guide/). This skill covers the same ground the guide does, or covers gaps a model tends to fill in with v5-era defaults regardless of what the guide says. Where the guide and this skill disagree, follow the guide and [report it](https://github.com/maplibre/maplibre-agent-skills/issues/new?template=ai-failure-report.md).
 
 ## When to Use This Skill
 
 - Upgrading an existing MapLibre GL JS v5 app to v6
 - A user reports a MapLibre map that "used to work" breaking after a dependency update
-- Writing a `<script>` tag, an import statement, a `require()` call, a `styleimagemissing` handler, or code that reads `map.transform` — the five specific patterns below
-- Debugging errors like `ERR_PACKAGE_PATH_NOT_EXPORTED`, a blank map after a CDN update, or a sprite icon that never appears
+- Writing a `<script>` tag, an import statement, a `require()` call, a `styleimagemissing` handler, code that reads `map.transform`, or a typed handler for the `data`/`dataloading`/`dataabort` events — the six specific patterns below
+- Debugging errors like `ERR_PACKAGE_PATH_NOT_EXPORTED`, a blank map after a CDN update, a sprite icon that never appears, or a TypeScript error naming `MapDataEvent`
 
-**Do not use this skill to pad an unrelated answer.** It covers five narrow breaking changes, not general MapLibre v6 best practice. A question about sources, layers, styling, terrain, or anything else that doesn't touch one of the five patterns below should get a normal, focused answer with no migration reminders attached.
+**Do not use this skill to pad an unrelated answer.** It covers six narrow breaking changes, not general MapLibre v6 best practice. A question about sources, layers, styling, terrain, or anything else that doesn't touch one of the six patterns below should get a normal, focused answer with no migration reminders attached.
 
 ## 1. CDN script tag: ESM-only now
 
@@ -104,6 +104,30 @@ const center = map.getCenter();
 ```
 
 **There is no general public replacement for the raw projection/view matrix.** It was never exposed on `Map` itself, in v5 or v6 — it only ever lived on the internal `map.transform`. The one place a matrix is still available is inside a custom layer's `render()` callback: MapLibre passes it as part of the callback's arguments (`CustomRenderMethodInput.getProjectionData()` / `defaultProjectionData`, see the [custom layers API](https://maplibre.org/maplibre-gl-js/docs/API/interfaces/CustomLayerInterface/)). Outside a custom layer, use the public getters above; if you need something else that isn't exposed by the public API at all, that's a real gap — MapLibre's changelog invites opening an issue or PR for it rather than reintroducing a private accessor.
+
+## 6. `MapDataEvent` removed — use `MapSourceDataEvent` / `MapStyleDataEvent`
+
+v6 made every fired event a real class instantiated per event. The old catch-all `MapDataEvent` type is gone; the `data`, `dataloading`, and `dataabort` events are now typed as `MapSourceDataEvent | MapStyleDataEvent`, so a source data event carries its full source info (`sourceId`, `tile`, `sourceDataType`, ...) directly on its own type instead of a generic shared shape.
+
+```ts
+// ❌ v5 — MapDataEvent no longer exists in v6
+import type { MapDataEvent } from 'maplibre-gl';
+map.on('data', (e: MapDataEvent) => {
+  /* ... */
+});
+
+// ✅ v6 — narrow on the union MapLibre now exports
+import type { MapSourceDataEvent, MapStyleDataEvent } from 'maplibre-gl';
+map.on('data', (e: MapSourceDataEvent | MapStyleDataEvent) => {
+  if ('sourceId' in e) {
+    // e is MapSourceDataEvent — e.sourceId, e.sourceDataType, e.tile are available
+  } else {
+    // e is MapStyleDataEvent
+  }
+});
+```
+
+Applies equally to `dataloading` and `dataabort` handlers — anywhere a type import or annotation names `MapDataEvent`.
 
 ## Reference
 
