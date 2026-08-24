@@ -72,8 +72,9 @@ Then:
 
 1. **Rubric first.** [Set up providers](evals/README.md#setup) and [write the rubric](evals/README.md#writing-eval-prompts) — the standard is four tests (explicit, implicit, anti-pattern, negative), more if the skill's scope calls for it. Favor documented AI failure reports as test cases. [Confirm the rubric fails without the skill](evals/README.md#proving-tests-fail-without-the-skill), then open a draft PR with just the eval and prompt files for reviewer sign-off before writing content.
 2. **Write the skill** to cover the topic as described in the issue, not just make the evals pass — see [SKILL.md format](#skillmd-format).
-3. **Confirm the eval passes** [with the skill loaded](evals/README.md#running-evals), then commit both result files to `evals/results/` and set `status: verified` in the front matter.
-4. **Test with an AI assistant** before marking the PR ready: `npx skills add .` to install the skill locally, then ask it the questions from your rubric to confirm the fix holds.
+3. **Confirm the eval passes** [with the skill loaded](evals/README.md#running-evals), then commit the raw CSVs to `evals/results/` and set `status: verified` in the front matter.
+4. **Write the results doc**: `evals/results/maplibre-<name>.md`, one row per test — baseline and with-skill outcome, failure mode compressed into the cell — a `Run:` header line (date, model, judge), closing with a bold pass/fail tally. [`maplibre-cartography.md`](evals/results/maplibre-cartography.md) and [`maplibre-v6-migration.md`](evals/results/maplibre-v6-migration.md) are the pattern to copy. (A handful of older results docs use a longer full-transcript format instead — left as-is, not something to replicate.)
+5. **Test with an AI assistant** before marking the PR ready: `npx skills add .` to install the skill locally, then ask it the questions from your rubric to confirm the fix holds.
 
 If the eval setup is onerous, ship as `status: provisional` instead — but accept that your content may be edited or dropped if it later turns out not to match a verified gap. See [What a skill's status means](README.md#what-a-skills-status-means).
 
