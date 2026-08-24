@@ -1,0 +1,126 @@
+# Evals for the maplibre-v6-migration skill.
+#
+# Scope derives from evals/results/v6-baseline-sweep-findings.md — a prior
+# fail^5 baseline sweep against the raw generator (no skill injected) that
+# confirmed five gaps in maplibre-gl-js v6 (released 2026-07-22) knowledge.
+# Tests 1-5 below reuse or closely paraphrase those proven-failing prompts;
+# see the findings doc for the k=5 baseline tallies that justify each one.
+# Cleared items (nested GeoJSON properties, "why does require() throw") are
+# NOT retested here — the baseline sweep showed the model already gets them
+# right, so per CONTRIBUTING.md's "warranted" bar they are out of scope.
+
+description: Evals for the maplibre-v6-migration skill
+
+prompts:
+  - file://lib/skill-prompt.mjs
+
+providers:
+  - id: groq:openai/gpt-oss-120b
+    label: groq-gpt-oss
+    config:
+      temperature: 0
+      max_tokens: 8192
+
+evaluateOptions:
+  delay: 9000
+
+defaultTest:
+  vars:
+    skillFile: skills/maplibre-v6-migration/SKILL.md
+
+tests:
+  - description: explicit — CDN script tag, no bundler (ESM-only, UMD/CSP removed)
+    vars:
+      prompt: >
+        Show me the simplest way to add a MapLibre GL JS map to a plain HTML
+        page using a CDN, no build tools or npm.
+    assert:
+      - type: icontains
+        value: '<script type="module"'
+      - type: not-icontains
+        value: '/dist/maplibre-gl.js'
+      - type: llm-rubric
+        value: >
+          States or implies that v6 dropped the UMD bundle and the CSP build,
+          so a plain `<script src=".../dist/maplibre-gl.js">` tag no longer
+          works. The working example loads the ESM build
+          (dist/maplibre-gl.mjs) from a `<script type="module">` and pins an
+          explicit major version rather than @latest.
+
+  - description: implicit — convert a Mapbox import to MapLibre (default export removed)
+    vars:
+      prompt: >
+        Convert this Mapbox snippet to MapLibre GL JS: `import mapboxgl from
+        'mapbox-gl';`
+    assert:
+      - type: llm-rubric
+        value: >
+          The final recommended import is a named or namespace import for
+          maplibre-gl (e.g. `import { Map } from 'maplibre-gl'` or
+          `import * as maplibregl from 'maplibre-gl'`), not a default import.
+          A mention of `import maplibregl from 'maplibre-gl'` is fine ONLY as
+          an explicitly-labeled broken/old example, never as the working
+          answer.
+
+  - description: anti-pattern — write a CommonJS script that loads maplibre-gl
+    vars:
+      prompt: >
+        Write a Node.js script using CommonJS that loads the maplibre-gl
+        package and prints its version.
+    assert:
+      - type: llm-rubric
+        value: >
+          Does not present `require('maplibre-gl')` as a working call.
+          maplibre-gl's package.json only exposes an ESM ("import") export
+          condition in v6, so a bare `require('maplibre-gl')` throws
+          ERR_PACKAGE_PATH_NOT_EXPORTED with no bundler involved. A correct
+          answer uses `import`/dynamic `import()` (or explicitly warns that
+          require() of the package itself is unsupported), and does not tell
+          the user their script will work as written.
+
+  - description: explicit — dynamically supply a missing sprite icon at runtime
+    vars:
+      prompt: >
+        How do I dynamically supply an icon at runtime when MapLibre GL JS
+        can't find it in the style's sprite?
+    assert:
+      - type: icontains
+        value: 'setMissingStyleImageResolver'
+      - type: llm-rubric
+        value: >
+          Recommends `map.setMissingStyleImageResolver()` as the mechanism.
+          Does not present listening for `styleimagemissing` and calling
+          `map.addImage()` synchronously from inside the handler as sufficient
+          on its own — in v6 that event is notify-only and no longer resolves
+          the pending request.
+
+  - description: implicit — read camera state for custom rendering math
+    vars:
+      prompt: >
+        In MapLibre GL JS, I need the map camera state (center, zoom, bearing,
+        pitch, and the projection matrix) to do some custom math. Show me how
+        to get it.
+    assert:
+      - type: llm-rubric
+        value: >
+          Uses public Map accessors (getCenter, getZoom, getBearing,
+          getPitch) for camera state, not the internal `map.transform`
+          property. For the projection/view matrix, points to the
+          CustomLayerInterface render callback's arguments (e.g.
+          getProjectionData), not `map.transform`. Mentioning that
+          `map.transform` was removed, as context for why the getters are now
+          required, is fine — the fail case is recommending `map.transform`
+          as something to read from today.
+
+  - description: negative — vector tile source setup, unrelated to v6 breaking changes
+    vars:
+      prompt: >
+        How do I add a vector tile source from a PMTiles file to a MapLibre GL
+        JS map and style a line layer from it?
+    assert:
+      - type: llm-rubric
+        value: >
+          Answers the PMTiles vector source question directly (protocol
+          registration, source/layer JSON) without pivoting to v6 migration
+          topics like ESM imports, setMissingStyleImageResolver, or
+          map.transform, none of which are relevant to this question.
