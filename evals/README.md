@@ -142,17 +142,22 @@ Write prompts based on real developer or AI confusion: evidenced in GitHub issue
 
 ## Example results
 
-`evals/results/` contains example before/after responses showing each skill's effect on
-model output — useful for seeing what discriminating power looks like in practice.
+`evals/results/` holds the committed baseline/with-skill evidence for each skill. The
+current convention is a compact canonical table — one row per test, the failure mode
+compressed into the cell, a `Run:` header line (date, model, judge), closing with a
+bold pass/fail tally — for example
+[`maplibre-cartography.md`](results/maplibre-cartography.md),
+[`maplibre-pmtiles-patterns.md`](results/maplibre-pmtiles-patterns.md), or
+[`maplibre-v6-migration.md`](results/maplibre-v6-migration.md).
 
-- [`example-mapbox-migration.md`](results/example-mapbox-migration.md) — full questions
-  and responses for the maplibre-mapbox-migration skill
-- [`example-pmtiles-patterns.md`](results/example-pmtiles-patterns.md) — full questions
-  and responses for the maplibre-pmtiles-patterns skill
-- [`example-tile-sources.md`](results/example-tile-sources.md) — full questions
-  and responses for the maplibre-tile-sources skill
+Three older skills instead carry a full-transcript format (an expandable `<details>`
+block per test with the verbatim baseline/with-skill responses):
+[`example-mapbox-migration.md`](results/example-mapbox-migration.md),
+[`example-pmtiles-patterns.md`](results/example-pmtiles-patterns.md), and
+[`example-tile-sources.md`](results/example-tile-sources.md). Kept as-is for reference,
+not the pattern to copy.
 
-When submitting eval results for a new skill, please follow the same structure.
+When submitting eval results for a new skill, follow the compact table structure.
 
 ## CI
 

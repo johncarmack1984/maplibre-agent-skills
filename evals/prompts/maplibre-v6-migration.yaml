@@ -9,14 +9,8 @@
 # replaces the pinned generator and drops its config (temperature, max_tokens) unless the
 # value matches a configured id or label. Fine for ad-hoc probes: --providers echo.
 #
-# Scope derives from evals/results/v6-baseline-sweep-findings.md — a prior
-# fail^5 baseline sweep against the raw generator (no skill injected) that
-# confirmed five gaps in maplibre-gl-js v6 (released 2026-07-22) knowledge.
-# Tests 1-5 below reuse or closely paraphrase those proven-failing prompts;
-# see the findings doc for the k=5 baseline tallies that justify each one.
-# Cleared items (nested GeoJSON properties, "why does require() throw") are
-# NOT retested here — the baseline sweep showed the model already gets them
-# right, so per CONTRIBUTING.md's "warranted" bar they are out of scope.
+# Baseline/with-skill evidence and rationale per test are logged in
+# evals/results/maplibre-v6-migration.md.
 
 description: Evals for the maplibre-v6-migration skill
 
