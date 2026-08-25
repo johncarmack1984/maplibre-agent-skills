@@ -142,17 +142,9 @@ Write prompts based on real developer or AI confusion: evidenced in GitHub issue
 
 ## Example results
 
-`evals/results/` contains example before/after responses showing each skill's effect on
-model output — useful for seeing what discriminating power looks like in practice.
+`evals/results/` holds the current committed baseline/with-skill evidence for each skill.
 
-- [`example-mapbox-migration.md`](results/example-mapbox-migration.md) — full questions
-  and responses for the maplibre-mapbox-migration skill
-- [`example-pmtiles-patterns.md`](results/example-pmtiles-patterns.md) — full questions
-  and responses for the maplibre-pmtiles-patterns skill
-- [`example-tile-sources.md`](results/example-tile-sources.md) — full questions
-  and responses for the maplibre-tile-sources skill
-
-When submitting eval results for a new skill, please follow the same structure.
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for how to structure a new results doc.
 
 ## CI
 

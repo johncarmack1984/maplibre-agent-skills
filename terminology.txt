@@ -31,12 +31,15 @@ Promptfoo
 Protomaps
 QGIS
 Raqm
+Rsbuild
+Rspack
 Shapefile
 Shortbread
 Spreet
 SwiftUI
 Temaki
 Tilezen
+Turbopack
 UNDP
 WCAG
 WMTS

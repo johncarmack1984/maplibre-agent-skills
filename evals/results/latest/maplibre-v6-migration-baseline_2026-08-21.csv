@@ -1,0 +1,1001 @@
+Description,skillFile,injectSkill,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+"explicit — CDN script tag, no bundler (ESM-only, UMD/CSP removed)",skills/maplibre-v6-migration/SKILL.md,false,"Show me the simplest way to add a MapLibre GL JS map to a plain HTML page using a CDN, no build tools or npm.
+","Thinking: The user wants a simple example of adding a MapLibre GL JS map to a plain HTML page using a CDN, no build tools or npm. Provide HTML code with script tags linking to MapLibre GL JS and CSS from CDN (e.g., unpkg.com or jsdelivr). Show a div container, initialize map with style (e.g., OSM tiles via MapLibre style). Provide minimal instructions. Also mention that you need an access token if using a style that requires it, but can use open-source style like OSM. Provide a simple style JSON URL (e.g., https://demotiles.maplibre.org/style.json). Provide full HTML. Also maybe show how to set width/height. Provide explanation. Ensure no disallowed content. Provide final answer.
+
+Below is a **complete, copy‑and‑paste HTML file** that shows the absolute minimum you need to get a MapLibre GL JS map on a plain web page.  
+All assets are loaded from public CDNs, so you don’t need npm, a bundler, or any build step.
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"">
+  <title>MapLibre GL JS – Simple CDN Example</title>
+
+  <!-- 1️⃣ MapLibre GL CSS (required for the canvas & controls) -->
+  <link
+    href=""https://cdn.jsdelivr.net/npm/maplibre-gl@4.4.0/dist/maplibre-gl.css""
+    rel=""stylesheet""
+  />
+
+  <style>
+    /* Make the page fill the viewport and give the map a size */
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+    }
+    #map {
+      width: 100%;
+      height: 100%;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- 2️⃣ The container where the map will be rendered -->
+  <div id=""map""></div>
+
+  <!-- 3️⃣ MapLibre GL JS library -->
+  <script src=""https://cdn.jsdelivr.net/npm/maplibre-gl@4.4.0/dist/maplibre-gl.js""></script>
+
+  <script>
+    // 4️⃣ Initialise the map
+    const map = new maplibregl.Map({
+      container: 'map',                     // id of the div above
+      style: 'https://demotiles.maplibre.org/style.json', // a free OSM‑based style
+      center: [0, 0],                       // [lng, lat] – start over the Gulf of Guinea
+      zoom: 2                               // initial zoom level
+    });
+
+    // Optional: add a navigation control (zoom buttons + compass)
+    map.addControl(new maplibregl.NavigationControl());
+  </script>
+</body>
+</html>
+```
+
+### What each part does
+
+| # | Code snippet | Purpose |
+|---|--------------|---------|
+| 1️⃣ | `<link href=""…/maplibre-gl.css"" …>` | Loads the required CSS (fonts, default UI, canvas sizing). |
+| 2️⃣ | `<div id=""map""></div>` | Empty element that MapLibre will replace with its WebGL canvas. |
+| 3️⃣ | `<script src=""…/maplibre-gl.js""></script>` | Pulls the JavaScript library from a CDN (jsDelivr in this case). |
+| 4️⃣ | `new maplibregl.Map({ … })` | Creates the map instance, points it at the container, tells it which style to use, and sets the initial view. |
+| — | `map.addControl(new maplibregl.NavigationControl());` | (Optional) Adds the familiar zoom‑in/zoom‑out buttons and a compass. |
+
+### Why this works without any build tools
+
+* **CDN URLs** (`jsdelivr.net` or `unpkg.com`) serve the compiled, minified JavaScript and CSS directly to the browser.
+* The style URL (`https://demotiles.maplibre.org/style.json`) is a ready‑made MapLibre style that uses free OpenStreetMap tiles, so you don’t need an API key or token.
+* All code lives in a single HTML file, so you can open it in any modern browser and see the map instantly.
+
+### Quick test
+
+1. Save the snippet above as `map.html` (or any name you like).  
+2. Open the file in a browser (`file:///…/map.html`).  
+3. You should see a world map centered at longitude 0°, latitude 0° with zoom level 2.
+
+That’s it—no npm, no bundler, just a plain HTML page and a couple of CDN links! 🎉",FAIL,0.00,,"The output states that `maplibre-gl.js` is used, which is no longer the case for MapLibre GL JS v6 and later. The correct approach is to use `maplibre-gl.mjs` with a `<script type=""module"">` tag. The output also does not explicitly pin a major version, but rather uses a specific version (4.4.0). However, the core issue is the use of the UMD bundle (maplibre-gl.js) instead of the ESM build (maplibre-gl.mjs).",
+implicit — convert a Mapbox import to MapLibre (default export removed),skills/maplibre-v6-migration/SKILL.md,false,"Convert this Mapbox snippet to MapLibre GL JS: `import mapboxgl from 'mapbox-gl';`
+","Thinking: The user asks: ""Convert this Mapbox snippet to MapLibre GL JS: `import mapboxgl from 'mapbox-gl';`"". They want to know how to import MapLibre GL JS instead of Mapbox GL JS. Provide equivalent import statement, maybe also note that MapLibre GL JS is a fork and can be imported from 'maplibre-gl'. Also mention any differences like token handling, style URLs, etc. Provide code snippet.
+
+We should respond with the conversion. Also maybe show usage. Ensure no disallowed content. It's fine.
+
+**Mapbox GL JS → MapLibre GL JS**
+
+The one‑to‑one replacement for the import line is simply to pull the library from the `maplibre-gl` package instead of `mapbox-gl`.
+
+```js
+// Mapbox GL JS
+import mapboxgl from 'mapbox-gl';
+
+// -------------------------------------------------
+// MapLibre GL JS (drop‑in replacement)
+import maplibregl from 'maplibre-gl';
+```
+
+### Quick usage checklist
+
+| Feature | Mapbox GL JS | MapLibre GL JS | What to change |
+|---------|--------------|----------------|----------------|
+| **Import** | `import mapboxgl from 'mapbox-gl';` | `import maplibregl from 'maplibre-gl';` | Use the line above. |
+| **Namespace** | `mapboxgl` | `maplibregl` | Update any references (`new mapboxgl.Map` → `new maplibregl.Map`). |
+| **Access token** | `mapboxgl.accessToken = 'YOUR_TOKEN'` | **Not required** for the core library (MapLibre is token‑agnostic). If you’re using a Mapbox‑hosted style that still requires a token, keep the line; otherwise you can omit it. |
+| **Style URL** | `style: 'mapbox://styles/username/style-id'` | Use a compatible style URL (e.g., a self‑hosted style JSON or a Mapbox style with a token). |
+| **Plugins** | Many Mapbox‑specific plugins (e.g., `mapbox-gl-draw`) | Most work unchanged, but some that rely on Mapbox‑only APIs may need a fork or alternative. |
+| **CSS** | `import 'mapbox-gl/dist/mapbox-gl.css';` | `import 'maplibre-gl/dist/maplibre-gl.css';` | Update the CSS import accordingly. |
+
+### Minimal example with MapLibre GL JS
+
+```js
+// Import the library and its CSS
+import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+
+// Optional: if you still need a Mapbox token for a hosted style
+// maplibregl.accessToken = 'YOUR_MAPBOX_TOKEN';
+
+const map = new maplibregl.Map({
+  container: 'map',               // HTML element id
+  style: 'https://demotiles.maplibre.org/style.json', // any valid style URL
+  center: [-74.5, 40],            // [lng, lat]
+  zoom: 9
+});
+
+// Add navigation controls (same API as Mapbox GL JS)
+map.addControl(new maplibregl.NavigationControl());
+```
+
+### Installing the package
+
+```bash
+# Using npm
+npm install maplibre-gl
+
+# Or with Yarn
+yarn add maplibre-gl
+```
+
+That’s all you need to swap the import and get a working MapLibre GL JS map! 🎉",FAIL,0.00,,"The output shows the correct way to import MapLibre GL JS as `import maplibregl from 'maplibre-gl';` which is a default import. The rubric states that the final recommended import should be a named or namespace import, and a default import is only acceptable as an explicitly-labeled broken/old example. Therefore, the output does not follow the rubric's requirement for the recommended import.",
+anti-pattern — write a CommonJS script that loads maplibre-gl,skills/maplibre-v6-migration/SKILL.md,false,"Write a Node.js script using CommonJS that loads the maplibre-gl package and prints its version.
+","Thinking: The user wants a Node.js script using CommonJS that loads the maplibre-gl package and prints its version. Provide a simple script. Also maybe mention installing maplibre-gl via npm. Provide code. Ensure CommonJS require syntax. Provide instructions.
+
+Below is a minimal **CommonJS**‑style Node.js script that loads the **`maplibre-gl`** package and prints the version that is installed.
+
+```js
+// print-maplibre-version.js
+// -------------------------------------------------
+// This script uses CommonJS (`require`) to load the
+// maplibre-gl library and then logs its version.
+//
+// Usage:
+//   1. Install the library (if you haven't already):
+//        npm install maplibre-gl
+//   2. Run the script:
+//        node print-maplibre-version.js
+// -------------------------------------------------
+
+// Load the package
+const maplibre = require('maplibre-gl');
+
+// The version is exposed via the package's `package.json`
+// which is re‑exported as `VERSION` (or you can read it
+// directly from the module's `package.json`).
+// Both approaches work; the first is the simplest.
+const version = maplibre.VERSION || require('maplibre-gl/package.json').version;
+
+// Print the version
+console.log(`maplibre-gl version: ${version}`);
+```
+
+### How it works
+1. **`require('maplibre-gl')`** loads the library using the CommonJS module system.
+2. `maplibre.VERSION` is a static property that the library sets to the version string (this is the most straightforward way).
+3. As a fallback, the script also reads the version directly from the library’s `package.json` (`require('maplibre-gl/package.json').version`). This guarantees you get the correct version even if the `VERSION` export ever changes.
+4. The version string is printed to the console.
+
+### Quick test
+
+```bash
+# Install the library (if needed)
+npm install maplibre-gl
+
+# Run the script
+node print-maplibre-version.js
+```
+
+You should see something like:
+
+```
+maplibre-gl version: 4.2.0
+```
+
+*(The exact version number will match whatever you have installed.)*",FAIL,0.00,,"The output incorrectly states that `require('maplibre-gl')` will work. As of maplibre-gl v6, the package primarily supports ESM and a bare `require()` call will fail with an `ERR_PACKAGE_PATH_NOT_EXPORTED` error without a bundler. The provided script would not execute as described.",
+explicit — dynamically supply a missing sprite icon at runtime,skills/maplibre-v6-migration/SKILL.md,false,"How do I dynamically supply an icon at runtime when MapLibre GL JS can't find it in the style's sprite?
+","Thinking: The user asks: ""How do I dynamically supply an icon at runtime when MapLibre GL JS can't find it in the style's sprite?"" They want to know how to add icons dynamically at runtime if the style's sprite doesn't have the icon. This is about MapLibre GL JS (open-source fork of Mapbox GL JS). The solution involves using addImage, addSource, using image data (URL, HTMLCanvasElement, ImageBitmap, etc.), handling async loading, using map.loadImage, map.addImage, using style's sprite fallback, using setLayoutProperty with 'icon-image' referencing the added image, possibly using 'icon-allow-overlap', etc. Also mention using map.addImage with options like sdf, pixelRatio, stretchX/Y. If you need to load from external URL, use map.loadImage then addImage. Or use a canvas to generate dynamic icons. Also mention using 'icon-image' property with a string referencing the image name. If you need to use a data-driven icon, you can use 'icon-image': ['case', ['==', ['get', 'type'], 'foo'], 'icon-foo', 'icon-default'] etc. Also mention that you can use map.addImage with a unique ID each time, maybe using a hash of the URL. Also mention that you can use map.updateImage to replace an existing image.
+
+Potential pitfalls: need to wait for map's style to load before adding images; use map.on('style.load', ...) or map.once('idle').
+
+Also mention that you can use map.addSource with type: 'geojson' and use 'icon-image' referencing the image.
+
+If you need to use a sprite fallback, you can use map.setStyle with a custom sprite that includes the icons.
+
+Also mention that you can use map.addImage with a Promise to load image.
+
+Provide code examples.
+
+Also mention that you can use map.addImage with an HTMLImageElement or ImageBitmap.
+
+Potentially mention that you can use map.addImage with a canvas to generate icons on the fly.
+
+Also mention that you can use map.addImage with a data URL.
+
+Also mention that you can use map.addImage with a custom SDF for color changes.
+
+Also mention that you can use map.addImage with a 'pixelRatio' option.
+
+Also mention that you can use map.addImage with 'sdf: true' for recoloring.
+
+Also mention that you can use map.addImage with 'stretchX' and 'stretchY' for 9-slice scaling.
+
+Also mention that you can use map.addImage with 'content' property for icons.
+
+Also mention that you can use map.addImage with 'icon-allow-overlap'.
+
+Also mention that you can use map.addImage with 'icon-ignore-placement'.
+
+Also mention that you can use map.addImage with 'icon-optional'.
+
+Also mention that you can use map.addImage with 'icon-size'.
+
+Also mention that you can use map.addImage with 'icon-rotate'.
+
+But the core answer: Use map.loadImage to load external image, then map.addImage to add it to the style, then reference it in the layer's layout property.
+
+If you need to handle missing icons, you can use a fallback: check if map.hasImage('icon-id'), if not, load and add.
+
+Also mention that you can use map.addImage with a Promise that resolves when the image is loaded.
+
+Also mention that you can use map.addImage with a canvas to generate icons based on data.
+
+Also mention that you can use map.addImage with a data URL.
+
+Also mention that you can use map.addImage with a custom function to generate icons.
+
+Also mention that you can use map.addImage with a unique ID.
+
+Also mention that you can use map.addImage with a 'sdf' option to recolor.
+
+Also mention that you can use map.addImage with 'pixelRatio' to support retina.
+
+Also mention that you can use map.addImage with 'stretchX' and 'stretchY' for scaling.
+
+Also mention that you can use map.addImage with 'content' property for 9-slice.
+
+Also mention that you can use map.addImage with 'content' property for icons.
+
+Also mention that you can use map.addImage with 'content' property for icons.
+
+Ok.
+
+Now produce final answer: explanation, steps, code snippets, handling errors, fallback, dynamic generation, performance considerations.
+
+Let's write a thorough answer.
+
+Below is a complete, step‑by‑step recipe for **adding an icon at runtime** when the style’s sprite does not already contain it.  
+It works with any recent version of **MapLibre GL JS** (and, because the API is identical, with Mapbox GL JS as well).
+
+---
+
+## 1. Why the “missing sprite” error happens
+
+When a layer’s `layout[""icon-image""]` (or `layout[""symbol-placement""]` etc.) refers to a name that is **not** present in the style’s sprite, MapLibre throws:
+
+```
+Error: Image ""my‑icon"" not found in style sprite.
+```
+
+The sprite is a static collection of PNGs (or a JSON‑packed sprite sheet) that is loaded once when the style is applied.  
+If you need an icon that wasn’t baked into that sprite, you have to **inject the image into the style’s image registry yourself**.
+
+---
+
+## 2. The two‑step runtime workflow
+
+1. **Load the image data** (from a URL, a data‑URI, a `<canvas>`, an `ImageBitmap`, etc.).  
+2. **Register it with the map** via `map.addImage(imageId, image, options)`.
+
+After the image is registered you can reference it in any layer just like a sprite‑based icon:
+
+```js
+layout: {
+  ""icon-image"": ""my‑dynamic‑icon"",   // <-- the same id you used in addImage()
+  ""icon-size"": 1.2,
+  // …other layout properties
+}
+```
+
+If you try to add the same id twice you’ll get an error, so either:
+
+* **Check first** with `map.hasImage(id)` and skip the add, **or**
+* **Replace** an existing image with `map.updateImage(id, newImage)` (available in MapLibre ≥ 2.4).
+
+---
+
+## 3. Loading the image – the most common patterns
+
+### 3.1. From a remote PNG/JPG (the simplest case)
+
+```js
+function addRemoteIcon(map, id, url, options = {}) {
+  // 1️⃣ Wait until the style is ready (otherwise addImage will throw)
+  if (!map.isStyleLoaded()) {
+    map.once('styledata', () => addRemoteIcon(map, id, url, options));
+    return;
+  }
+
+  // 2️⃣ Load the image (MapLibre provides a helper that returns an HTMLImageElement)
+  map.loadImage(url, (err, image) => {
+    if (err) {
+      console.error(`Failed to load ${url}:`, err);
+      return;
+    }
+
+    // 3️⃣ Register it – `options` can contain {sdf, pixelRatio, stretchX, stretchY, content}
+    if (!map.hasImage(id)) {
+      map.addImage(id, image, options);
+      console.log(`✅ Added icon ""${id}""`);
+    } else {
+      // optional: replace the existing image (useful for live‑updates)
+      map.updateImage(id, image);
+    }
+  });
+}
+```
+
+**Usage**
+
+```js
+addRemoteIcon(map, 'my-dynamic-icon', 'https://example.com/icons/rocket.png', {
+  // Example: make it a signed‑distance‑field so you can recolor it with `icon-color`
+  sdf: true,
+  // If you need retina support, set pixelRatio to window.devicePixelRatio
+  pixelRatio: window.devicePixelRatio
+});
+```
+
+### 3.2. From a **data‑URI** (inline SVG, base64 PNG, etc.)
+
+```js
+function addDataUriIcon(map, id, dataUri, options = {}) {
+  const img = new Image();
+  img.onload = () => {
+    if (!map.hasImage(id)) map.addImage(id, img, options);
+  };
+  img.onerror = (e) => console.error('Data‑URI image failed to load', e);
+  img.src = dataUri;   // triggers the load
+}
+```
+
+### 3.3. From a **Canvas** (perfect for programmatic icons)
+
+```js
+function addCanvasIcon(map, id, drawFn, options = {}) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;   // choose a size that matches your design
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  drawFn(ctx, canvas); // <-- you draw whatever you want here
+
+  // Convert to ImageBitmap (faster for the GPU) – optional but recommended
+  if ('createImageBitmap' in window) {
+    createImageBitmap(canvas).then((bitmap) => {
+      if (!map.hasImage(id)) map.addImage(id, bitmap, options);
+    });
+  } else {
+    // Fallback: use the canvas element directly
+    if (!map.hasImage(id)) map.addImage(id, canvas, options);
+  }
+}
+```
+
+**Example draw function**
+
+```js
+function drawStar(ctx, canvas) {
+  const r = canvas.width / 2;
+  ctx.translate(r, r);
+  ctx.beginPath();
+  for (let i = 0; i < 5; i++) {
+    ctx.lineTo(0, -r);
+    ctx.translate(0, -r);
+    ctx.rotate((Math.PI * 2) / 10);
+    ctx.lineTo(0, r);
+    ctx.translate(0, r);
+    ctx.rotate(-(Math.PI * 6) / 10);
+  }
+  ctx.closePath();
+  ctx.fillStyle = '#ff6600';
+  ctx.fill();
+}
+```
+
+```js
+addCanvasIcon(map, 'star-icon', drawStar, { sdf: false });
+```
+
+### 3.4. From an **ImageBitmap** you already have (e.g., fetched via `fetch` + `createImageBitmap`)
+
+```js
+async function addBitmapIcon(map, id, bitmap, options = {}) {
+  if (!map.hasImage(id)) map.addImage(id, bitmap, options);
+}
+
+// Example usage:
+fetch('https://example.com/icons/plane.png')
+  .then(r => r.blob())
+  .then(blob => createImageBitmap(blob))
+  .then(bitmap => addBitmapIcon(map, 'plane-icon', bitmap, { sdf: false }));
+```
+
+---
+
+## 4. Hooking the icon into a layer
+
+### 4.1. Simple point‑layer that uses the dynamic icon
+
+```js
+map.addLayer({
+  id: 'my-points',
+  type: 'symbol',
+  source: {
+    type: 'geojson',
+    data: {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [-122.45, 37.78] },
+          properties: { name: 'Dynamic Rocket' }
+        }
+      ]
+    }
+  },
+  layout: {
+    // The id you passed to addImage()
+    'icon-image': 'my-dynamic-icon',
+    // Optional: allow overlap so the icon never gets hidden
+    'icon-allow-overlap': true,
+    // Optional: scale the icon
+    'icon-size': 1.0
+  },
+  paint: {
+    // If you added the icon as an SDF you can recolor it here
+    'icon-color': '#ff6600'
+  }
+});
+```
+
+### 4.2. Data‑driven icons (different icons per feature)
+
+If you have a property that tells you which icon to use, you can reference **any** image that has been added at runtime:
+
+```js
+// Assume each feature has a property `iconId` that matches an image you added earlier
+map.addLayer({
+  id: 'dynamic-icons',
+  type: 'symbol',
+  source: 'my-geojson-source',
+  layout: {
+    'icon-image': ['get', 'iconId'],   // data‑driven
+    'icon-allow-overlap': true,
+    'icon-size': 0.8
+  }
+});
+```
+
+**Tip:** Before you set the `icon-image` expression, make sure *all* possible values have been added with `addImage`. If a feature references a missing id, the layer will simply not draw that point (no error is thrown).
+
+---
+
+## 5. Handling “missing‑icon” gracefully
+
+You can intercept the error that MapLibre throws when a layer tries to use an unknown image and fall back to a default icon:
+
+```js
+map.on('error', (e) => {
+  // Only react to the specific “image not found” error
+  if (e.error && e.error.message?.includes('Image') && e.error.message?.includes('not found')) {
+    const missingId = e.error.message.match(/Image ""([^""]+)""/)[1];
+    console.warn(`Icon ""${missingId}"" missing – swapping to fallback`);
+
+    // If we already have a fallback, just replace the reference in the layer
+    const fallbackId = 'fallback-icon';
+    if (!map.hasImage(fallbackId)) {
+      // Load the fallback once (you could also have added it at init time)
+      addRemoteIcon(map, fallbackId, '/assets/fallback.png');
+    }
+
+    // Find every layer that uses the missing id and replace it
+    map.getStyle().layers.forEach((layer) => {
+      const layout = map.getLayoutProperty(layer.id, 'icon-image');
+      if (layout === missingId) {
+        map.setLayoutProperty(layer.id, 'icon-image', fallbackId);
+      }
+    });
+  }
+});
+```
+
+This pattern is handy when you are **driving the icon name from a remote dataset** that may contain values you haven’t pre‑loaded.
+
+---
+
+## 6. Performance & best‑practice checklist
+
+| ✅ What to do | ❌ What to avoid |
+|--------------|-----------------|
+| **Batch add images** – if you know you’ll need 20 icons, load them all up front (e.g., in `map.on('styledata')`). | Adding a new image on every `move`/`zoom` event – that forces the GPU to re‑upload textures constantly. |
+| **Reuse the same `imageId`** for identical icons. | Adding duplicate IDs (`map.addImage('foo",FAIL,0.00,,"The output does not mention `map.setMissingStyleImageResolver()` nor does it address the v6 behavior change where `styleimagemissing` is notify-only and doesn't resolve pending requests. The solution provided involves listening to the `error` event, which is a workaround and not the recommended API for this specific problem in newer versions of MapLibre GL JS.",
+implicit — read camera state for custom rendering math,skills/maplibre-v6-migration/SKILL.md,false,"In MapLibre GL JS, I need the map camera state (center, zoom, bearing, pitch, and the projection matrix) to do some custom math. Show me how to get it.
+","Thinking: The user asks: ""In MapLibre GL JS, I need the map camera state (center, zoom, bearing, pitch, and the projection matrix) to do some custom math. Show me how to get it.""
+
+We need to provide code snippets showing how to retrieve these properties from a MapLibre GL JS map instance. Also show how to get the projection matrix (maybe via map.transform). Provide explanation. Possibly mention map.getCenter(), getZoom(), getBearing(), getPitch(), and map.transform._projMatrix or map.transform.projMatrix? In MapLibre GL JS, the internal transform object has a matrix property: map.transform.projMatrix? Actually Mapbox GL JS has map.transform.projMatrix (a Float32Array 4x4). In MapLibre, similar. Provide example: const matrix = map.transform.projMatrix; Or use map.getProjection()? But projection matrix is internal. Show how to compute custom projection matrix using map.transform.calculateCameraMatrix? Might need to use map.transform.getProjectionMatrix? Let's check: In Mapbox GL JS v2, there is map.transform.projMatrix (private). In MapLibre, same. So we can access map._render? Actually map.transform is public? It's not documented but accessible. Provide caution about internal API.
+
+Also show how to listen to move events to update state.
+
+Provide a function that returns an object with center (as [lng, lat]), zoom, bearing, pitch, and projectionMatrix (as array). Show usage.
+
+Also mention that you can use map.getFreeCameraOptions() for center, zoom, bearing, pitch? Actually MapLibre has map.getFreeCameraOptions() returning CameraOptions: center, zoom, bearing, pitch, padding. Could use that.
+
+But projection matrix is not part of public API; you can get it via map.transform.projMatrix.
+
+Provide example:
+
+function getCameraState(map) {
+  const center = map.getCenter();
+  const zoom = map.getZoom();
+  const bearing = map.getBearing();
+  const pitch = map.getPitch();
+  const projMatrix = map.transform.projMatrix; // Float32Array(16)
+  return {
+    center: [center.lng, center.lat],
+    zoom,
+    bearing,
+    pitch,
+    projectionMatrix: Array.from(projMatrix)
+  };
+}
+
+Also show how to compute world matrix: map.transform.getWorldMatrix? Actually there is map.transform.getWorldMatrix().
+
+Explain that projection matrix transforms from world coordinates to clip space; you can combine with view matrix.
+
+Provide example of using it for custom shader.
+
+Also show how to get the matrix for a custom layer: In custom layer's render method, you receive gl and matrix (the combined projection and view matrix). That matrix is passed as argument.
+
+But the user wants to get it manually.
+
+Thus answer: show code, explanation, event handling.
+
+Let's produce final answer.
+
+Below is a **complete, ready‑to‑copy** example that shows how to pull every piece of the camera state you asked for from a MapLibre GL JS map:
+
+* **center** – longitude / latitude (`LngLat` object)  
+* **zoom** – numeric zoom level  
+* **bearing** – rotation around the vertical axis (degrees)  
+* **pitch** – tilt of the camera (degrees)  
+* **projection matrix** – the 4 × 4 matrix that MapLibre uses to turn world‑space coordinates into clip‑space (the same matrix you get in a custom layer’s `render` callback)
+
+---
+
+## 1️⃣  Minimal HTML page
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"">
+  <title>MapLibre – Get Camera State</title>
+  <meta name=""viewport"" content=""width=device-width, initial-scale=1"">
+  <style>
+    body, html { margin:0; padding:0; height:100%; }
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+    #info { position:absolute; top:10px; left:10px; background:#fff;
+            padding:8px; font-family:monospace; font-size:13px;
+            max-height:90%; overflow:auto; border-radius:4px; }
+  </style>
+  <link href=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.css"" rel=""stylesheet""/>
+</head>
+<body>
+<div id=""map""></div>
+<div id=""info""></div>
+
+<script type=""module"">
+  import maplibregl from 'https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.js';
+
+  // --------------------------------------------------------------
+  // 1️⃣  Create the map
+  // --------------------------------------------------------------
+  const map = new maplibregl.Map({
+    container: 'map',
+    style:    'https://demotiles.maplibre.org/style.json', // any valid style URL
+    center:   [0, 0],
+    zoom:     2,
+    pitch:    45,
+    bearing:  30,
+    antialias: true               // needed if you later use a custom WebGL layer
+  });
+
+  // --------------------------------------------------------------
+  // 2️⃣  Helper – read the full camera state
+  // --------------------------------------------------------------
+  /**
+   * Returns an object with the current camera state.
+   *
+   * @param {maplibregl.Map} map  The MapLibre map instance
+   * @returns {{
+   *   center: [number, number],
+   *   zoom: number,
+   *   bearing: number,
+   *   pitch: number,
+   *   projectionMatrix: number[]
+   * }}
+   */
+  function getCameraState(map) {
+    // Public getters (documented API)
+    const center  = map.getCenter();          // LngLat object
+    const zoom    = map.getZoom();
+    const bearing = map.getBearing();         // degrees
+    const pitch   = map.getPitch();           // degrees
+
+    // The projection matrix lives on the internal `transform` object.
+    // It is a Float32Array(16) in column‑major order (the same layout WebGL expects).
+    // ⚠️  This is **not** part of the public API, but it is stable across
+    //      MapLibre releases and is the only way to read the matrix directly.
+    const projMatrix = map.transform.projMatrix;   // Float32Array
+
+    // If you need a plain JS array (e.g. for console.log or JSON.stringify)
+    const projMatrixArray = Array.from(projMatrix);
+
+    return {
+      center: [center.lng, center.lat],
+      zoom,
+      bearing,
+      pitch,
+      projectionMatrix: projMatrixArray
+    };
+  }
+
+  // --------------------------------------------------------------
+  // 3️⃣  Show the state in the UI (updates on every move)
+  // --------------------------------------------------------------
+  const infoDiv = document.getElementById('info');
+
+  function updateInfo() {
+    const state = getCameraState(map);
+    infoDiv.innerHTML = `
+      <strong>Camera state</strong><br>
+      center   : ${state.center.map(v => v.toFixed(5)).join(', ')}<br>
+      zoom     : ${state.zoom.toFixed(3)}<br>
+      bearing  : ${state.bearing.toFixed(2)}°<br>
+      pitch    : ${state.pitch.toFixed(2)}°<br>
+      <strong>Projection matrix (first 4 rows)</strong><br>
+      ${state.projectionMatrix.slice(0, 16).map(v => v.toExponential(3)).join('<br>')}
+    `;
+  }
+
+  // Update once the map is ready
+  map.once('load', updateInfo);
+
+  // And on every interaction that changes the camera
+  map.on('move', updateInfo);
+  map.on('zoom', updateInfo);
+  map.on('rotate', updateInfo);
+  map.on('pitch', updateInfo);
+</script>
+</body>
+</html>
+```
+
+### What the code does
+
+| Step | What you see | How it works |
+|------|--------------|--------------|
+| **Create the map** | `new maplibregl.Map({...})` | Standard MapLibre initialization. |
+| **Read the state** | `getCameraState(map)` | Uses the **public** getters (`getCenter()`, `getZoom()`, …) and the **internal** `map.transform.projMatrix`. |
+| **Show it** | UI updates in the top‑left corner | Listens to `move`, `zoom`, `rotate`, and `pitch` events so the display stays in sync with the map. |
+
+---
+
+## 2️⃣  Accessing the matrix in a **custom WebGL layer**
+
+If you are already writing a custom layer, MapLibre passes the combined **projection × view** matrix to you on every frame:
+
+```js
+const myCustomLayer = {
+  id: 'my-layer',
+  type: 'custom',
+  renderingMode: '3d',          // or '2d' if you only need 2‑D
+  onAdd: function (map, gl) {
+    // initialise shaders, buffers, etc.
+  },
+  render: function (gl, matrix) {
+    // `matrix` is a Float32Array(16) = projection * view
+    // You can use it directly in your shader:
+    //   gl.uniformMatrix4fv(u_matrixLocation, false, matrix);
+  }
+};
+
+map.addLayer(myCustomLayer);
+```
+
+If you need the **projection‑only** matrix (without the view transform) you can still read it from `map.transform.projMatrix` as shown above, or you can extract it from the combined matrix:
+
+```js
+// In the render() callback:
+const projMatrix = map.transform.projMatrix; // same object that MapLibre uses internally
+```
+
+---
+
+## 3️⃣  Why the matrix lives on `map.transform`
+
+* `map.transform` is the low‑level engine that handles all camera math (pan, zoom, pitch, bearing, globe vs. mercator, etc.).
+* `projMatrix` is a 4 × 4 column‑major matrix (`Float32Array(16)`) that MapLibre builds each frame from:
+  * the **projection** (perspective or orthographic, depending on the style’s `projection` property)
+  * the **viewport size**
+  * the **camera altitude** derived from the zoom level
+* It is the exact matrix you would feed to a vertex shader if you want to render your own geometry in the same coordinate system as the map.
+
+> **⚠️  Note:** `map.transform` is not part of the official public API. It is, however, stable across MapLibre releases and is the only way to read the raw matrix. If you ever upgrade to a future major version and the property disappears, you can fall back to the matrix that MapLibre hands to you in a custom layer’s `render` callback (the `matrix` argument).
+
+---
+
+## 4️⃣  Quick “one‑liner” for the most common case
+
+If you just need the four *named* camera values (center, zoom, bearing, pitch) you can also use the **FreeCameraOptions** helper that MapLibre ships with:
+
+```js
+const opts = map.getFreeCameraOptions();   // {center, zoom, bearing, pitch, padding}
+console.log('center  :', opts.center.toArray()); // [lng, lat]
+console.log('zoom    :', opts.zoom);
+console.log('bearing :', opts.bearing);
+console.log('pitch   :', opts.pitch);
+```
+
+But **`getFreeCameraOptions()` does not expose the projection matrix**, so you still need the `map.transform.projMatrix` trick shown earlier.
+
+---
+
+## 5️⃣  TL;DR – The minimal code you need
+
+```js
+// Assuming `map` is your maplibregl.Map instance:
+const cam = {
+  center: map.getCenter().toArray(),   // [lng, lat]
+  zoom:   map.getZoom(),
+  bearing: map.getBearing(),
+  pitch:   map.getPitch(),
+  // 4×4 projection matrix (Float32Array) – internal but widely used
+  projectionMatrix: map.transform.projMatrix
+};
+
+console.log(cam);
+```
+
+That `cam` object now contains everything you asked for, ready for any custom math you want to perform (e.g., converting geographic coordinates to clip‑space, intersecting rays with 3‑D objects, etc.). Happy coding! 🚀",FAIL,0.00,,"The output recommends accessing the projection matrix via `map.transform.projMatrix`, which is explicitly stated as not being part of the public API and potentially unstable. The rubric requires using public accessors for camera state and suggests alternative methods like the custom layer's render callback for matrices, rather than relying on internal properties like `map.transform`.",
+"negative — vector tile source setup, unrelated to v6 breaking changes",skills/maplibre-v6-migration/SKILL.md,false,"How do I add a vector tile source from a PMTiles file to a MapLibre GL JS map and style a line layer from it?
+","Thinking: The user asks: ""How do I add a vector tile source from a PMTiles file to a MapLibre GL JS map and style a line layer from it?"" They want instructions. Provide steps: include maplibre-gl, pmtiles library, load PMTiles, create source with type 'vector', url: 'pmtiles://...'? Actually PMTiles is a format for storing tiled data in a single file. There is a JS library pmtiles that registers a protocol handler. Use `import { PMTiles } from 'pmtiles'` and then `const pmtiles = new PMTiles('path/to/file.pmtiles')` and `maplibregl.addProtocol('pmtiles', (request) => pmtiles.get(request))` or use `map.addSource('my-source', { type: 'vector', url: 'pmtiles://myfile.pmtiles' })`. Then add a line layer referencing the source and source-layer name. Provide example code, HTML, CSS, JS. Also mention building with bundler or using CDN. Provide steps for styling: line-color, line-width, line-opacity, etc. Also mention handling CORS, using `maplibregl.Map` with container, style, center, zoom. Provide notes on retrieving source-layer name via `map.getSource('my-source').vectorLayers` after load. Provide full example.
+
+Let's craft answer.
+
+Below is a **complete, copy‑and‑paste‑ready example** that shows how to:
+
+1. Load a **PMTiles** file (a single‑file container for vector tiles) in the browser.  
+2. Register the `pmtiles://` protocol that MapLibre GL JS understands.  
+3. Add the PMTiles file as a **vector source**.  
+4. Create a **line layer** that draws one of the source’s layers and style it (color, width, dash, etc.).
+
+You can run the example as a single HTML file or split it into separate files if you prefer a build system (Webpack, Vite, etc.). All the libraries are loaded from public CDNs, so no local installation is required.
+
+---
+
+## 1️⃣  HTML skeleton
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"">
+  <title>MapLibre GL + PMTiles – line layer demo</title>
+  <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
+
+  <!-- MapLibre GL CSS -->
+  <link href=""https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css"" rel=""stylesheet"">
+
+  <style>
+    body, html { margin:0; padding:0; height:100%; }
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+  </style>
+</head>
+
+<body>
+<div id=""map""></div>
+
+<!-- --------------------------------------------------- -->
+<!-- 2️⃣  Load the required JS libraries from CDNs          -->
+<!-- --------------------------------------------------- -->
+<script src=""https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js""></script>
+<script src=""https://unpkg.com/pmtiles@2.7.0/dist/pmtiles.min.js""></script>
+
+<script>
+/* -------------------------------------------------------
+   3️⃣  Register the pmtiles:// protocol
+   ------------------------------------------------------- */
+const { PMTiles } = window.PMTiles;   // the library puts itself on window
+
+// Replace this URL with the location of your own .pmtiles file.
+// It can be a relative path, an absolute URL, or a data‑uri.
+const PMTILES_URL = ""https://raw.githubusercontent.com/visgl/deck.gl-data/master/geojson/earthquakes/earthquakes.pmtiles"";
+
+/* Create a PMTiles object that knows how to fetch the file */
+const pmtiles = new PMTiles(PMTILES_URL);
+
+/* Tell MapLibre how to resolve a request that starts with ""pmtiles://"" */
+maplibregl.addProtocol(""pmtiles"", (request) => {
+  // request.url looks like ""pmtiles://myfile.pmtiles/12/3456/7890.pbf""
+  // The PMTiles library expects just the path after the protocol.
+  const url = request.url.replace(/^pmtiles:\/\//, """");
+  return pmtiles.get(url);
+});
+
+/* -------------------------------------------------------
+   4️⃣  Initialise the MapLibre map
+   ------------------------------------------------------- */
+const map = new maplibregl.Map({
+  container: ""map"",
+  style: {
+    version: 8,
+    sources: {
+      // A simple raster basemap (OpenStreetMap tiles) – you can replace it.
+      ""osm"": {
+        type: ""raster"",
+        tiles: [""https://a.tile.openstreetmap.org/{z}/{x}/{y}.png""],
+        tileSize: 256,
+        attribution: ""© OpenStreetMap contributors""
+      }
+    },
+    layers: [
+      {
+        id: ""osm"",
+        type: ""raster"",
+        source: ""osm""
+      }
+    ]
+  },
+  center: [0, 0],   // lon, lat
+  zoom: 2
+});
+
+/* -------------------------------------------------------
+   5️⃣  When the map is ready, add the PMTiles vector source
+   ------------------------------------------------------- */
+map.on(""load"", () => {
+  // 5a️⃣  Add the vector source that points to the PMTiles file.
+  map.addSource(""my-pmtiles-source"", {
+    type: ""vector"",
+    // The URL must start with the protocol we just registered.
+    url: ""pmtiles://"" + PMTILES_URL
+    // If you are using a relative path you could also write:
+    // url: ""pmtiles://./data/my-data.pmtiles""
+  });
+
+  // 5b️⃣  Find out which source‑layers exist inside the PMTiles.
+  // This is optional but handy for debugging.  It prints the list
+  // of layer names to the console.
+  const source = map.getSource(""my-pmtiles-source"");
+  source.on(""data"", (e) => {
+    if (e.sourceDataType === ""metadata"") {
+      console.log(""Available source‑layers:"", source.vectorLayers);
+      // Example output: [{ id: ""roads"", ... }, { id: ""water"", ... }]
+    }
+  });
+
+  // -------------------------------------------------------
+  // 6️⃣  Add a line layer that draws one of the source layers.
+  // -------------------------------------------------------
+  // Replace ""roads"" with the actual name of the layer you want to draw.
+  // You can see the correct name in the console output from step 5b.
+  const SOURCE_LAYER_NAME = ""roads"";   // <-- change this if needed
+
+  map.addLayer({
+    id: ""my-line-layer"",
+    type: ""line"",
+    source: ""my-pmtiles-source"",
+    ""source-layer"": SOURCE_LAYER_NAME,   // <-- the vector layer inside the PMTiles
+    layout: {
+      // Optional: make lines join smoothly
+      ""line-join"": ""round"",
+      ""line-cap"": ""round""
+    },
+    paint: {
+      // ---- Basic styling -------------------------------------------------
+      ""line-color"": ""#ff6600"",          // orange
+      ""line-width"": [
+        ""interpolate"",
+        [""linear""],
+        [""zoom""],
+        5, 0.5,   // at zoom 5 → 0.5 px
+        12, 2,   // at zoom 12 → 2 px
+        18, 8    // at zoom 18 → 8 px
+      ],
+      ""line-opacity"": 0.9,
+
+      // ---- Optional extra effects ----------------------------------------
+      // Dashed line (you can comment this out if you want a solid line)
+      ""line-dasharray"": [2, 4],
+
+      // Glow effect (requires MapLibre GL JS ≥ 4.0)
+      // ""line-blur"": 1,
+      // ""line-color"": ""rgba(255, 102, 0, 0.6)""
+    }
+  });
+});
+</script>
+</body>
+</html>
+```
+
+---
+
+## 📚 What each part does
+
+| Section | Purpose |
+|---------|---------|
+| **HTML head** | Loads MapLibre GL CSS (so the map canvas gets the right size) and defines a full‑screen `<div id=""map"">`. |
+| **CDN scripts** | `maplibre-gl` (the map engine) and `pmtiles` (the tiny library that knows how to read a `.pmtiles` file in the browser). |
+| **Protocol registration** | `maplibregl.addProtocol('pmtiles', …)` tells MapLibre how to fetch a tile when the URL starts with `pmtiles://`. The `PMTiles` object does the heavy lifting (byte‑range requests, caching, etc.). |
+| **Map creation** | A minimal style with an OSM raster basemap. You can replace the basemap with any other raster or vector style you like. |
+| **Adding the vector source** | `type: ""vector""` + `url: ""pmtiles://<your‑file>""`. The source now points to the PMTiles container. |
+| **Discovering source‑layers** | `source.vectorLayers` (available after the `metadata` event) lists the names of the layers stored inside the PMTiles file. Use the console output to pick the correct name for the next step. |
+| **Line layer** | `type: ""line""` draws the geometry. The `paint` object controls colour, width, opacity, dash pattern, etc. The width is interpolated with zoom so the line stays visible at all scales. |
+| **Layout** | `line-join` and `line-cap` make the line look smooth at corners and ends. |
+
+---
+
+## 🛠️ How to adapt this to **your own** PMTiles file
+
+1. **Host the `.pmtiles` file** where the browser can fetch it (same origin, a CDN, or a public URL).  
+   - If you serve it from the same folder as the HTML, you can use a relative URL: `url: ""pmtiles://./my-data.pmtiles""`.  
+   - If you need authentication, you can add the appropriate `Authorization` header inside the protocol handler (see the `pmtiles` docs for `pmtiles.setHeaders`).  
+
+2. **Find the correct `source-layer` name**:  
+   - Open the page, open the browser console, and look for the line `Available source‑layers:`.  
+   - Pick the `id` you want (e.g., `""roads""`, `""railways""`, `""contours""`).  
+
+3. **Style the line** the way you like:  
+   - `line-color`: any CSS colour string (`""#ff6600""`, `""rgb(0,120,255)""`, `""hsl(120,50%,50%)""`).  
+   - `line-width`: can be a constant number or a zoom‑dependent expression (as shown).  
+   - `line-dasharray`: an array of numbers `[dash, gap, dash, …]`.  
+   - `line-opacity`, `line-blur`, `line-gradient`, etc., are also available.  
+
+4. **Add more layers** (e.g., a fill layer for polygons, a symbol layer for labels) by repeating the `map.addLayer` call with a different `type` and `paint`/`layout` properties.
+
+---
+
+## 📦 Using a bundler (Webpack / Vite / Rollup)
+
+If you prefer an ES‑module workflow instead of CDN scripts, the same code looks like this:
+
+```js
+// main.js
+import maplibregl from 'maplibre-gl';
+import { PMTiles } from 'pmtiles';
+
+// 1️⃣ Register protocol
+const pmtiles = new PMTiles('data/my-data.pmtiles');
+maplibregl.addProtocol('pmtiles', (req) => pmtiles.get(req.url.replace(/^pmtiles:\/\//, '')));
+
+// 2️⃣ Initialise map (same as above)
+const map = new maplibregl.Map({ ... });
+
+// 3️⃣ Add source & layer (same as above)
+```
+
+Then bundle with your favourite tool and serve the resulting `dist/` folder.
+
+---
+
+## 🎉 Quick sanity‑check checklist
+
+- [ ] The PMTiles file is reachable (check network tab → 200 OK for the file).  
+- [ ] The `metadata` event fires and you see the list of source‑layers in the console.  
+- [ ] The line layer appears on the map; if not, open the console and look for errors like “source‑layer not found”.  
+- [ ] Adjust `line-width`/`line-color` until the visual result matches your design.
+
+That’s it! You now have a MapLibre GL JS map that reads vector tiles directly from a **PMTiles** container and draws a nicely styled line layer. Happy mapping! 🚀",PASS,1.00,,All assertions passed,
