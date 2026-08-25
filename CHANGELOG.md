@@ -4,6 +4,12 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ## [Unreleased]
 
+<!-- bump: minor -->
+
+### Added
+
+- `maplibre-rehearsal` skill (throwaway, fork only) ([#1](https://github.com/johncarmack1984/maplibre-agent-skills/pull/1))
+
 ## [0.1.0] - 2026-08-25
 
 First tagged release. The collection is versioned as a whole via this release tag, since the Agent Skills spec has no per-skill version field.
