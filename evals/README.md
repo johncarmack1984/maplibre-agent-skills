@@ -11,29 +11,26 @@ evals/
 
 ## How evals work
 
-Each skill has a Promptfoo eval config in `evals/prompts/`. When run, Promptfoo
-injects the skill's `SKILL.md` as the system prompt, runs the test prompts against
-the model, and checks responses against assertions.
+Each skill has a Promptfoo eval config in `evals/prompts/`. Promptfoo injects the
+skill's `SKILL.md` as the system prompt, runs the test prompts, and checks
+responses against assertions.
 
 ### Skill injection
 
-`lib/skill-prompt.mjs` is a shared Promptfoo prompt function used by every eval config.
-It reads the skill file specified by `vars.skillFile` and constructs the messages array —
-system message containing the skill content, followed by the user prompt. Each skill
-YAML sets `vars.skillFile` to the path of its `SKILL.md`.
+`lib/skill-prompt.mjs` is the shared Promptfoo prompt function every eval config uses.
+It reads the skill file at `vars.skillFile` — each skill YAML points this at its own
+`SKILL.md` — and builds the messages array: a system message with the skill content,
+then the user prompt.
 
 Passing `--var injectSkill=false` on the CLI omits the system message, leaving the model
 to answer from training data alone. This is used for the baseline check.
 
 Two assertion types are used:
 
-- **`icontains`** — deterministic substring check; verifies a required term appears in the response. Use this for non-negotiable specific terms where the response is wrong if the term is absent — a required API name, CLI command, or configuration key. Pair with `llm-rubric` for the broader correctness check.
+- **`icontains`** — deterministic substring check for a required term (an API name, CLI command, or config key) whose absence makes the response wrong. Pair with `llm-rubric` for the broader correctness check.
 - **`llm-rubric`** — qualitative check evaluated by a judge model; the `value` field
   describes what a correct answer must include — keep items specific and checkable,
   not "gives good advice"
-
-**Important:** Never use `--providers` on the CLI — it bypasses `lib/skill-prompt.mjs`,
-so the skill will not be injected. The provider must be configured in the YAML.
 
 ## Setup
 
@@ -44,28 +41,27 @@ Current models:
 
 | Role          | When                        | Provider                                      | Model ID                       |
 | ------------- | --------------------------- | --------------------------------------------- | ------------------------------ |
-| Generator     | All runs                    | [Cerebras](https://inference.cerebras.ai/)    | `cerebras:gpt-oss-120b`        |
-| Judge (CI)    | CI only                     | [Cerebras](https://inference.cerebras.ai/)    | `cerebras:gpt-oss-120b`        |
+| Generator     | All runs                    | [Groq](https://console.groq.com/)             | `groq:openai/gpt-oss-120b`     |
+| Judge (CI)    | CI only                     | [Google Gemini](https://aistudio.google.com/) | `google:gemini-2.5-flash-lite` |
 | Judge (local) | Optional — stronger quality | [Google Gemini](https://aistudio.google.com/) | `google:gemini-2.5-flash-lite` |
 
-Skill eval YAMLs reference these IDs directly. When models change, update this table
-and the model IDs in the YAML files and CI workflows.
+Update `providers.yaml` and this table together when the model changes; see [CI](#ci) for how the pin is enforced.
 
-**Cerebras** (required for all runs):
+**Groq** (required for all runs):
 
-1. Sign up at [inference.cerebras.ai](https://inference.cerebras.ai/) (free, requires account).
+1. Sign up at [console.groq.com](https://console.groq.com/) (free, no credit card).
 2. Create an API key and add it to your shell:
 
 ```bash
-export CEREBRAS_API_KEY=your_key_here
-echo 'export CEREBRAS_API_KEY=your_key_here' >> ~/.zshrc
+export GROQ_API_KEY=your_key_here
+echo 'export GROQ_API_KEY=your_key_here' >> ~/.zshrc
 ```
 
 **Google Gemini** (optional — recommended for baseline validation):
 
-Gemini is a stricter judge and is better at catching responses that satisfy the
-letter of a rubric without the required reasoning. Use it when validating that new
-tests have discriminating power.
+Gemini is a stricter judge, better at catching responses that satisfy a rubric's
+letter without the required reasoning — use it when validating that new tests
+discriminate.
 
 1. Get a free API key at [aistudio.google.com](https://aistudio.google.com/).
 2. Add it to your shell:
@@ -80,17 +76,18 @@ echo 'export GOOGLE_API_KEY=your_key_here' >> ~/.zshrc
 Run the eval for the skill you are working on:
 
 ```bash
-# Cerebras judge (default — uses CEREBRAS_API_KEY only):
+# Groq judge (default — uses GROQ_API_KEY only):
 npm run eval -- \
   --config evals/prompts/<skill-name>.yaml \
   --no-cache -j 1
 
 # Gemini judge (optional — stronger; requires GOOGLE_API_KEY):
-npm run eval -- \
-  --config evals/prompts/<skill-name>.yaml \
-  --grader google:gemini-2.5-flash-lite \
-  --delay 2000 --no-cache -j 1
+npm run eval:graded -- --config evals/prompts/<skill-name>.yaml
 ```
+
+`eval:graded` (see `package.json`) is the one place the grader, `--delay`, and
+concurrency are pinned — CI calls the same script. Don't hand-roll those flags in a
+second location; a value copied here would drift the moment `package.json` changes.
 
 All assertions must pass before pushing.
 
@@ -105,26 +102,22 @@ Local results are ephemeral — terminal output and `promptfoo view` are suffici
 ## Proving tests fail without the skill
 
 Before writing skill content, verify your eval prompts have discriminating power —
-they should fail without the skill and pass with it. Run the baseline check with
-`--var injectSkill=false` to omit the skill from the system prompt:
-
-```bash
-npm run eval -- \
-  --config evals/prompts/<skill-name>.yaml \
-  --var injectSkill=false \
-  --grader google:gemini-2.5-flash-lite \
-  --delay 2000 --no-cache -j 1
-```
+they should fail without the skill and pass with it. Add `--var injectSkill=false`
+to the [Gemini-judge command above](#running-evals) to omit the skill from the
+system prompt and run the baseline check.
 
 Explicit, implicit, and anti-pattern tests must all fail without the skill — if any of
 these pass, the prompt is not testing skill-specific knowledge and must be revised.
 Negative tests require judgment: a negative test that passes without the skill may still
 be valid if it is close enough to the skill's topic to confirm the skill doesn't over-apply.
 
+Once the skill is written, re-run the same command with `--var injectSkill=true` (or
+omit the flag — that's the default) to confirm every test now passes.
+
 ## Writing eval prompts
 
 When contributing a new skill, copy `evals/prompts/TEMPLATE.yaml` and rename it to
-match your skill directory. Each eval config contains four to five tests — one of each type:
+match your skill directory. Each eval config contains four tests, one of each type:
 
 | Type         | Description                                        |
 | ------------ | -------------------------------------------------- |
@@ -133,25 +126,24 @@ match your skill directory. Each eval config contains four to five tests — one
 | Anti-pattern | A wrong approach the skill should correct          |
 | Negative     | An adjacent question the skill should not dominate |
 
-Write the `value` field of each `llm-rubric` assertion as a checklist of what a correct
-answer must include. Make items specific enough for a judge model to evaluate — "mentions
-`addProtocol` by name" rather than "explains the API."
+Write each `llm-rubric` assertion's `value` as a checklist of what a correct answer
+must include (specific enough for a judge to evaluate, e.g. "mentions `addProtocol`
+by name" rather than "explains the API").
 
 **Negative tests:** The question should be adjacent to the skill's topic — close enough
-that an over-eager skill might incorrectly push the user toward the skill's solution, but
-where doing so would be wrong or unhelpful. A trivially unrelated question (e.g. asking
-about a completely different library) has no discriminating power. The rubric should
-assert what a correct answer does: answers the actual question asked, and does NOT
-recommend the skill's solution where it doesn't apply.
+that an over-eager agent might wrongly push the new skill information, but where doing so
+would be unhelpful. A trivially unrelated question (e.g. a different library entirely) has
+no discriminating power. The rubric should assert that a correct answer answers the actual
+question and does NOT recommend the skill's solution where it doesn't apply.
 
-Write prompts based on real developer confusion — GitHub issues, Stack Overflow questions,
-or Slack threads where AI assistants are known to fail.
+Write prompts based on real developer or AI confusion: evidenced in GitHub issues, Stack Overflow questions, or Slack threads where AI assistants are known to fail.
+
+**Important:** Let the YAML choose the provider on any run you record or cite. Passing `--providers` replaces the pinned generator, and unless the value matches a configured provider's `id` or `label`, Promptfoo builds a bare provider with none of `providers.yaml`'s config — no `temperature`, no `max_tokens`, no label — which brings back mid-answer truncation and mislabels the results. Ad-hoc probes are a different matter and the flag is useful there: `--providers echo` renders the prompts back to you without touching a key or spending a token.
 
 ## Example results
 
 `evals/results/` contains example before/after responses showing each skill's effect on
-model output. These are useful for understanding what discriminating power looks like and
-what "failing without the skill" means in practice.
+model output — useful for seeing what discriminating power looks like in practice.
 
 - [`example-mapbox-migration.md`](results/example-mapbox-migration.md) — full questions
   and responses for the maplibre-mapbox-migration skill
@@ -160,17 +152,27 @@ what "failing without the skill" means in practice.
 - [`example-tile-sources.md`](results/example-tile-sources.md) — full questions
   and responses for the maplibre-tile-sources skill
 
+When submitting eval results for a new skill, please follow the same structure.
+
 ## CI
 
-<!-- TODO: set up CI workflows, including setup, environment variables, and troubleshooting steps. -->
+Two workflows run in CI, and only one of them gates a merge:
 
-Two workflows run evals automatically:
+- **`check.yml`** — the deterministic gate: formatting, spelling, markdown lint,
+  terminology, model pins, and skill validation. It runs on every PR including forks,
+  needs no secrets, and is the only workflow that blocks merge.
+- **`eval.yml`** — the judge-graded eval: a weekly drift check against the default
+  branch, plus `workflow_dispatch` (`ref`, `configs`, `baseline`) for a maintainer to
+  validate a branch or PR by hand, pre- or post-merge.
 
-- **`eval-pr.yml`** — Triggered on PRs that modify `skills/**` or `evals/prompts/**`.
-  Runs only the eval configs for the modified skills. All assertions must pass to merge.
-- **`eval-scheduled.yml`** — Runs every Monday against all skills on `main`. Results are
-  committed to `evals/results/` after every run (pass or fail). Opens a GitHub issue
-  tagged `eval-regression` if any skill fails.
+**It never runs automatically on `pull_request`.** GitHub withholds secrets from a
+fork's `pull_request`, so an automatic job there couldn't reach the generator or
+judge anyway — hence the manual dispatch, which runs in this repo's own Actions
+context with its secrets regardless of whose ref it checks out.
 
-Both workflows use the provider configured in each eval YAML as both generator and
-judge. Requires the corresponding API key in repository secrets.
+**Review before you dispatch.** Treat any change to `package.json` or the eval
+harness (`evals/prompts/lib/`) as a reason to look closer — `--ignore-scripts` blocks
+a malicious lifecycle script, not a modified `eval:graded` command.
+
+`npm run lint:model-pins` fails on any provider id that drifts from the [Setup](#setup)
+pins (the generator in `providers.yaml`, the judge in the `eval:graded` script).

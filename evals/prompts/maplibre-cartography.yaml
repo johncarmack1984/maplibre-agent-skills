@@ -1,12 +1,13 @@
 # Evals for the maplibre-cartography skill.
 #
-# Run locally (Cerebras — set CEREBRAS_API_KEY):
+# Run locally (Groq — set GROQ_API_KEY):
 #   npx promptfoo@latest eval \
 #     --config evals/prompts/maplibre-cartography.yaml \
 #     --no-cache -j 1
 #
-# IMPORTANT: Never use --providers on the CLI — it bypasses lib/skill-prompt.mjs
-# and the skill will not be injected into the system prompt.
+# IMPORTANT: let lib/providers.yaml choose the provider on any recorded run. --providers
+# replaces the pinned generator and drops its config (temperature, max_tokens) unless the
+# value matches a configured id or label. Fine for ad-hoc probes: --providers echo.
 #
 # Suite redesigned 2026-07-02 (9 tests → 4, one per category). Baseline/
 # with-skill evidence and rationale per test are logged in the project plan
@@ -18,12 +19,7 @@ prompts:
   - file://lib/skill-prompt.mjs
 
 providers:
-  - id: cerebras:gpt-oss-120b
-    label: cerebras-gpt-oss
-    config:
-      # Ceiling, not spend — gpt-oss-120b burns ~1-3K tokens on reasoning
-      # before answering; the promptfoo default truncates answers mid-code.
-      max_tokens: 8192
+  - file://lib/providers.yaml
 
 evaluateOptions:
   delay: 500
@@ -31,8 +27,6 @@ evaluateOptions:
 defaultTest:
   vars:
     skillFile: skills/maplibre-cartography/SKILL.md
-  options:
-    provider: cerebras:gpt-oss-120b
 
 tests:
   - description: explicit — route shields missing badge on the open OpenMapTiles stack

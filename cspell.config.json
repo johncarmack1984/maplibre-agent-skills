@@ -65,6 +65,7 @@
     "node_modules",
     "package-lock.json",
     ".git",
-    ".textlintrc.json"
+    ".textlintrc.json",
+    "evals/results/local/"
   ]
 }
