@@ -10,6 +10,16 @@ baseline-failing eval prompt, or a mining note. See CONTRIBUTING.md → "Write a
 Delete this section for docs, tooling, or CI changes.
 -->
 
+## How to review
+
+<!--
+Skill changes only. Delete for docs, tooling, or CI changes.
+-->
+
+Read `SKILL.md` to check for factual errors. Skim the corresponding prompt in
+`evals/prompts/` and the summary in `evals/results`
+(the individual CSVs are raw LLM output — only worth it if you want the details).
+
 ## Checks
 
 - [ ] `npm run check` passes
