@@ -2,179 +2,108 @@
 
 Thank you for your interest in contributing! This repository helps AI assistants build better MapLibre applications with open tile sources and open-source tooling through structured domain expertise.
 
-We welcome:
+We welcome new skills, improvements to existing ones, bug fixes, eval rubrics, and documentation fixes — see [Ways to contribute](#ways-to-contribute) below for entry points. Questions: open an issue or contact the maintainers.
 
-- **New skills** — Add expertise in areas not yet covered
-- **Skill improvements** — Better examples, patterns, or guidance for existing skills
-- **Bug fixes** — Correct errors in instructions or examples
-- **Documentation** — Clearer code samples or in-skill examples
-- **Questions** — Open an issue or contact the maintainers as appropriate
+Providers, API keys, commands, and how to write prompts and rubrics all live in [`evals/README.md`](evals/README.md).
 
-## Contribute a Skill
+## Correctness Validation
 
-We’d love your help expanding this collection. Whether you’re a student still learning or a seasoned professional building with MapLibre every day — **your experience can help AI assistants guide developers better**.
+Please review [What a skill's status means](README.md#what-a-skills-status-means) in the README. Everything below is how a contribution actually gets to `status: verified`, and how that's maintained.
 
-**Why contribute?**
+Correctness is established two ways:
 
-- Share your hard-won knowledge with the open mapping community
-- Learn once and for all how to do that _thing_ by explaining it concisely with a code sample
-- Shape how AI assistants recommend MapLibre patterns and open-source tools
-- Small, focused contributions are welcome — even a single well-documented pattern helps
+- **Evals** — [Promptfoo](https://promptfoo.dev/) prompts and rubrics that test whether an AI assistant answers correctly with the skill loaded and incorrectly without it. The rubric is written before the skill and defines what a correct answer must contain, independent of the skill's phrasing. Judge-graded evals showing prompt responses that fail without the skill and pass with the skill are stored in [`evals/results/`](evals/results). See [`evals/README.md`](evals/README.md) for how to run these yourself.
+- **Human review** — every merged claim is one a maintainer read and can defend. See [Note on AI usage](#note-on-ai-usage).
 
-**How to get started:**
+Content that passes an eval at baseline (i.e., the model already gets it right without the skill) is cut, however well written — see [Cutting content the model already gets right](#cutting-content-the-model-already-gets-right).
 
-1. **Check existing skills** — Review [skills/](./skills) to see what is already covered
-2. **Browse open issues** — Check [open issues](https://github.com/maplibre/maplibre-agent-skills/issues) for planned skills and comment with any requirements, resources or gotchas you think should also be covered
-3. **Open an issue** — Use the [issue template](./.github/ISSUE_TEMPLATE/skill_request.md) if you have an idea not yet on the list — we’re happy to help refine scope and requirements
-4. **Understand the requirements** — Review this page for skill structure, format, and quality guidelines
-5. **Pick up a task** — Comment in the relevant issue — to confirm a maintainer is available to review, be explicit about how much of the outline you can cover
-6. **Review examples** — Use existing skills (e.g. [maplibre-tile-sources](skills/maplibre-tile-sources/SKILL.md)) as a reference for style and depth
-7. **Start with evals** — Get set up with an LLM API and write or revise prompts first to demonstrate where AI agents are failing
+### Cutting content the model already gets right
 
-New to [Agent Skills](https://agentskills.io)? The [skills specification](https://github.com/anthropics/skills) describes the general format. See [SKILL.md format](#3-skillmd-format) for how skills are structured in this repo specifically.
+**The rule: content the model already gets right is a cost, not a benefit.** A section covering something the model already handles costs context on every load and has to be maintained as the library moves, without changing an answer. So whenever possible, probe candidate content at baseline before writing it up, and cut what passes.
 
-## Editing Skills
+It isn't a waste of time to write tests that pass. They refine and sharpen what the skill necessarily needs to carry, and which candidates the model already covers is a finding in its own right. A baseline probe is the cheapest way to establish that, and it is what separates a skill that earns its context budget from one that merely reads well.
 
-### Skill Quality Standards
+As an illustration of how this has gone in practice: three sections were drafted for `maplibre-tile-sources`, based on real indicators of what LLMs may not understand, and added to the skill:
 
-Skills in this repo must be:
+- Planetiler vs. tippecanoe selection guidance
+- archived tile services served from a demand-driven cache, where tiles that were never requested are permanently absent
+- zoom range and overzoom behavior past a source's `maxzoom`
 
-- **Accurate** — Matches MapLibre and referenced APIs/docs
-- **Actionable** — Clear guidance, not just general, declarative descriptions
-- **Attribution** — Reference primary sources wherever possible, and always preserve Mapbox copyright (see [A note about adapted content](#a-note-about-adapted-content))
-- **Consistent** — Format and style in line with existing skills
+Probed separately at baseline, the model answered all three correctly with no skill injected. None was a demonstrated gap, so all three were removed before the skill shipped (added in `0bb2abd`, removed in `f4a4d67`). The eval suite was unchanged.
 
-If you spot an error, omission, or quality gap, open an issue or comment on an existing one.
+## Ways to contribute
 
-### Quality assurance mechanisms
+There are many ways to contribute. We're glad to have you:
 
-Two automated systems enforce quality in this repository:
+| Path                                                  | You provide                                          | A maintainer covers                       |
+| ----------------------------------------------------- | ---------------------------------------------------- | ----------------------------------------- |
+| [Report a failure](#report-a-failure)                 | A wrong AI answer, and the right one if you know it  | Verifying it and folding it into a skill  |
+| [Request a skill](#request-a-skill)                   | An idea for a skill, and why it's missing            | Scoping it into an issue                  |
+| [Write a scaffolded skill](#write-a-scaffolded-skill) | Skill content, against a rubric already written      | Running the eval and confirming it passes |
+| [Write a new skill](#write-a-new-skill)               | Content and the eval rubric                          | Review                                    |
+| [Edit an existing skill](#edit-an-existing-skill)     | The change, plus a baseline probe if it adds content | Review                                    |
+| [Improve an eval rubric](#improve-an-eval-rubric)     | A sharper prompt, assertion, or new rubric           | Confirming it against the pinned model    |
 
-- **`npm run check`** — formatting, spelling, markdown lint, and terminology. Runs as a pre-push hook. See [Check format and spelling](#check-format-and-spelling).
-- **Evals** — [Promptfoo](https://promptfoo.dev/) test prompts and rubrics that verify a skill answers questions correctly. They serve two purposes:
-  1. **Requirements** — Written before the skill, reviewed by a qualified reviewer. The rubric defines what a correct answer must include, independent of the skill's phrasing.
-  2. **Regression gate** — CI runs evals on every PR that touches a skill. All assertions must pass before the PR can merge.
+### Report a failure
 
-When modifying an existing skill: update or add eval tests to cover the change, [run evals locally](#running-evals-locally) to confirm nothing breaks, and do not remove tests to make a PR pass — update them with reviewer sign-off instead.
+AI agents fail to provide good reasoning about MapLibre for a variety of reasons: they lack domain depth or reliable code samples to draw on, the public APIs have changed since training, or they conflate MapLibre with Mapbox. These failures range from subtle to obvious.
 
-See [`evals/README.md`](evals/README.md) for full guidance on writing prompts and rubrics.
+If you hit one, open an [AI failure report](https://github.com/maplibre/maplibre-agent-skills/issues/new?template=ai-failure-report.md). AI agents working in this repo are encouraged to file these too; see [AGENTS.md](AGENTS.md#when-a-skill-contradicts-your-training-data).
 
-### Development Setup
+A maintainer verifies the report against the model currently pinned for this purpose (see [evals/README.md](evals/README.md#setup)) and folds it into an existing skill or a new one.
 
-**1. Clone the repo and install dependencies:**
+### Request a skill
 
-```bash
-git clone https://github.com/maplibre/maplibre-agent-skills.git
-cd maplibre-agent-skills
-npm install
-```
+Have an idea for a skill but not ready to write it yourself? Open an [issue](https://github.com/maplibre/maplibre-agent-skills/issues) if it isn't already listed — use the [skill request template](https://github.com/maplibre/maplibre-agent-skills/issues/new?template=skill_request.md).
 
-`npm install` installs a pre-push git hook that runs checks before every push.
+A maintainer verifies relevance and that it isn't already covered by an existing skill or open issue, then scopes it into an issue someone can pick up as [a scaffolded skill](#write-a-scaffolded-skill) or [end to end](#write-a-new-skill).
 
-**2. Set up eval providers** — See [evals/README.md](evals/README.md#setup) for current recommended providers, API keys, and setup instructions.
+### Write a scaffolded skill
 
-### Running evals locally
+If the eval prompts and rubric are already written, your job is to write `skills/maplibre-<name>/SKILL.md`, to satisfy the outline in the issue. See [SKILL.md format](#skillmd-format) for the file structure.
 
-Evals are stored in `evals/prompts`. Run the eval for the skill you are working on:
+Run the eval yourself if you have the [eval setup](evals/README.md#setup); otherwise just open a PR when you are ready — a reviewer with the setup working will run the eval against your branch and submit the results.
 
-```bash
-npm run eval -- \
-  --config evals/prompts/<skill-name>.yaml \
-  --grader google:gemini-2.5-flash-lite \
-  --delay 2000 --no-cache -j 1
-```
+### Write a new skill
 
-Omit `--grader google:gemini-2.5-flash-lite` and `--delay 2000` if you don't have a `GOOGLE_API_KEY` — Cerebras will be used as judge instead, but note that Cerebras is more permissive and may pass tests that Gemini would flag. Use Gemini whenever possible for reliable results. See [evals/README.md](evals/README.md#setup) for provider details.
+Check [open issues](https://github.com/maplibre/maplibre-agent-skills/issues), particularly those labeled "help wanted," and comment where you know the subject matter. A maintainer will help you scope it — negotiate structure early so the eventual reviewer knows what to expect.
 
-Add `--output evals/results/output.csv \` before `--no-cache` to save results locally.
+Then:
 
-Results will show up in your terminal; optionally view and scroll through past results in your browser locally.
+1. **Rubric first.** [Set up providers](evals/README.md#setup) and [write the rubric](evals/README.md#writing-eval-prompts) — the standard is four tests (explicit, implicit, anti-pattern, negative), more if the skill's scope calls for it. Favor documented AI failure reports as test cases. [Confirm the rubric fails without the skill](evals/README.md#proving-tests-fail-without-the-skill), then open a draft PR with just the eval and prompt files for reviewer sign-off before writing content.
+2. **Write the skill** to cover the topic as described in the issue, not just make the evals pass — see [SKILL.md format](#skillmd-format).
+3. **Confirm the eval passes** [with the skill loaded](evals/README.md#running-evals), then commit the raw CSVs to `evals/results/` and set `status: verified` in the front matter.
+4. **Write the results doc**: `evals/results/maplibre-<name>.md`, one row per test — baseline and with-skill outcome, failure mode compressed into the cell — a `Run:` header line (date, model, judge), closing with a bold pass/fail tally. [`maplibre-cartography.md`](evals/results/maplibre-cartography.md) and [`maplibre-v6-migration.md`](evals/results/maplibre-v6-migration.md) are the pattern to copy. (A handful of older results docs use a longer full-transcript format instead — left as-is, not something to replicate.)
+5. **Test with an AI assistant** before marking the PR ready: `npx skills add .` to install the skill locally, then ask it the questions from your rubric to confirm the fix holds.
 
-### Check format and spelling
+If the eval setup is onerous, ship as `status: provisional` instead — but accept that your content may be edited or dropped if it later turns out not to match a verified gap. See [What a skill's status means](README.md#what-a-skills-status-means).
 
-Run `npm run check` frequently while developing — it runs all checks and stops at the first failure:
+### Edit an existing skill
 
-1. **Formatting** — Prettier (`.md`, `.json`, `.js`)
-2. **Spelling** — cspell (markdown)
-3. **Markdown linting** — markdownlint
-4. **Terminology** — proper noun capitalization (e.g. `MapLibre` not `Maplibre`)
-5. **Skills validation** — YAML frontmatter and structure
+Fixing a wrong example or clarifying existing content: no baseline probe needed, just update the eval tests that cover the change if the change affects what a correct answer looks like. Do not remove tests to make a PR pass; if a test is wrong, fix it with reviewer sign-off.
 
-All checks pass when the output ends with:
+Adding new content to an existing skill goes through the same gate a new skill does: probe the addition at baseline first, and cut it if the model already answers correctly without it. See [Cutting content the model already gets right](#cutting-content-the-model-already-gets-right) for a worked example from `maplibre-tile-sources`.
 
-```text
-✅ All skills are valid
-```
+### Improve an eval rubric
 
-See [Fixing Issues](#fixing-issues) below for how to resolve errors from each check.
+Rubrics are re-run periodically to confirm the pinned model still fails without the skill and passes with it, and whenever the pinned model changes — see [evals/README.md](evals/README.md#setup) for the current pin. If a rubric's prompt or expected answer could be worded better, open an issue or a PR. Test your change locally with Promptfoo first if you have the [eval setup](evals/README.md#setup); if you don't, a maintainer will.
 
-### Fixing Issues
+## SKILL.md format
 
-Most issues are auto-fixable:
-
-| Check            | Fix                                                                       |
-| ---------------- | ------------------------------------------------------------------------- |
-| Formatting       | `npm run format`                                                          |
-| Terminology      | `npm run fix:terminology`                                                 |
-| Markdown linting | `npm run format` fixes MD060 (table spacing); others require manual edits |
-| Spell check      | Correct manually                                                          |
-
-**Markdown linting details:** Error output includes the rule ID and line number. The most common manual fix is **MD051** (invalid link fragment) — verify the heading exists and the anchor is lowercase with hyphens.
-
-**Terminology details:** Flags incorrect capitalization of proper nouns in prose (e.g. `maplibre` → `MapLibre`). Applies to standalone words only; package names and URL paths are ignored.
-
-**Adding new words:** When a check flags a word that is correct:
-
-- **Proper nouns** — add to [`terminology.txt`](terminology.txt) (used by both the spell checker and terminology checker)
-- **Other technical terms** — add to the `words` array in [`cspell.config.json`](cspell.config.json), alphabetically sorted
-- **Do not add URL slugs** — fix the link text instead (e.g. `[Service Name](https://...)`)
-
-**Bypass pre-push:** `git push --no-verify`. Use this if you are stuck or unsure how to resolve a check. CI will still run checks; your reviewer can help resolve them before merge.
-
-### Submitting a Change
-
-For bug fixes, typos, and documentation edits:
-
-1. Create a branch: `git checkout -b fix-your-description`
-2. Make your edit.
-3. Run `npm run check` and fix any issues.
-4. If you edited skill content, run evals to confirm nothing regressed — see [Running evals locally](#running-evals-locally).
-5. Push and open a PR describing what you changed and why.
-
-For new skills, follow the full workflow in [Creating a New Skill](#creating-a-new-skill).
-
-## Creating a New Skill
-
-Follow these steps to add a new skill to the collection.
-
-### 1. Write Evals First
-
-Before writing any skill content, write the eval prompts and rubric. Evals define what a correct answer must include — independently of what the skill says. This is the quality control mechanism.
-
-1. Copy `evals/prompts/TEMPLATE.yaml`, rename it to `evals/prompts/maplibre-your-skill-name.yaml`.
-2. Write a set of at least 4, up to 10 prompts. See [evals/README.md](evals/README.md#writing-eval-prompts) for test types and assertion guidance.
-3. Create a branch: `git checkout -b add-maplibre-your-skill-name`
-4. Open a draft PR with only the eval and prompt files for reviewer sign-off.
-5. Run a baseline check — see [Proving tests fail without the skill](evals/README.md#proving-tests-fail-without-the-skill). Explicit, implicit, and anti-pattern tests must all fail; negative test results require judgment.
-6. Write the skill to make the evals pass.
-7. Run evals locally to confirm all pass (see [Running evals locally](#running-evals-locally)), then push.
-
-### 2. Skill Structure
+### 1. Directory structure
 
 ```text
 skills/maplibre-your-skill-name/
-├── SKILL.md              # Required: main skill file
-└── AGENTS.md             # Optional: short reference for the AI
+└── SKILL.md              # Required: the whole skill
 ```
 
-### 3. SKILL.md Format
-
-Every SKILL.md must have YAML frontmatter followed by markdown:
+### 2. Front matter and content
 
 ```markdown
 ---
 name: maplibre-example-skill
 description: Expert guidance on [domain] for MapLibre applications
+status: provisional
 ---
 
 # MapLibre [Domain] Skill
@@ -192,18 +121,24 @@ Use this skill when:
 
 - [MapLibre GL JS](https://maplibre.org/maplibre-gl-js/docs/)
 - [Other links]
+
+---
+
+**This skill is a snapshot.** Where a primary source contradicts it — the References above, MapLibre's current documentation, or what MapLibre does when you run it — that source wins. Follow it, then [report the disagreement](https://github.com/maplibre/maplibre-agent-skills/issues/new?template=ai-failure-report.md), citing the source and your MapLibre version: editing your installed copy helps no one else and is overwritten on the next update.
 ```
 
 - `name` must match the directory name exactly (e.g. `maplibre-tile-sources`).
 - `description` should be concise (1–2 sentences).
+- `status` is `verified`, `provisional`, or `process` — see [What a skill's status means](README.md#what-a-skills-status-means).
+- The closing footer is required and identical in every skill. A skill directory is all an install copies, so this is the only route back to us that an installed user has.
 - Content must include actionable guidance, not just reference text.
 
-### 4. Content Guidelines
+### 3. Content guidelines
 
 **Good skills have:**
 
 - Clear structure with headings
-- Actionable guidance (“Use X when Y”)
+- Actionable guidance ("Use X when Y")
 - Decision tables or trees where helpful
 - Code examples (MapLibre GL JS, open APIs) with ✅/❌ where useful
 - Concrete thresholds or scenarios where relevant
@@ -213,21 +148,81 @@ Use this skill when:
 
 - Generic text that only repeats official docs
 - Lists without context or prioritization
-- Vague guidance (“might want to”, “could consider”)
+- Vague guidance ("might want to", "could consider")
 
 **Reference:** Include links to primary sources wherever possible. See [Attribution and References](#attribution-and-references) for a curated list.
 
-### 5. Test Your Skill
+## Development setup
 
-Before publishing your PR:
+**1. Clone the repo and install dependencies:**
 
-1. **Run all checks:** `npm run check` (fix any issues before continuing)
-2. **Run evals** and confirm all assertions pass — see [Running evals locally](#running-evals-locally)
-3. **Test with an AI assistant:** `npx skills add . -a claude-code`, then ask questions the skill should answer
+```bash
+git clone https://github.com/maplibre/maplibre-agent-skills.git
+cd maplibre-agent-skills
+npm install
+```
+
+`npm install` also installs a pre-push git hook that runs `npm run check` before every push.
+
+**2. Set up eval providers** if you're taking an eval-writing path — see [evals/README.md](evals/README.md#setup).
+
+## Checks
+
+Run `npm run check` frequently while developing, not just before pushing — it stops at the first failure, and catching issues early costs less time than catching them all at once at the end. It runs:
+
+1. **Formatting** — Prettier (`.md`, `.json`, `.js`)
+2. **Spelling** — cspell (markdown)
+3. **Markdown linting** — markdownlint
+4. **Terminology** — proper noun capitalization (e.g. `MapLibre` not `Maplibre`)
+5. **Skills validation** — YAML frontmatter and structure
+
+All checks pass when the output ends with:
+
+```text
+✅ All skills are valid
+```
+
+**Fixing failures:**
+
+| Check            | Fix                                                                       |
+| ---------------- | ------------------------------------------------------------------------- |
+| Formatting       | `npm run format`                                                          |
+| Terminology      | `npm run fix:terminology`                                                 |
+| Markdown linting | `npm run format` fixes MD060 (table spacing); others require manual edits |
+| Spell check      | Correct manually                                                          |
+
+**Markdown linting details:** error output includes the rule ID and line number. The most common manual fix is **MD051** (invalid link fragment) — verify the heading exists and the anchor is lowercase with hyphens.
+
+**Terminology details:** flags incorrect capitalization of proper nouns in prose (e.g. `maplibre` → `MapLibre`). Applies to standalone words only; package names and URL paths are ignored.
+
+**Adding new words** when a check flags one that's correct:
+
+- **Proper nouns** — add to [`terminology.txt`](terminology.txt) (used by both the spell checker and terminology checker)
+- **Other technical terms** — add to the `words` array in [`cspell.config.json`](cspell.config.json), alphabetically sorted
+- **Do not add URL slugs** — fix the link text instead (e.g. `[Service Name](https://...)`)
+
+**Bypass pre-push:** `git push --no-verify`. Use this if you're stuck or unsure how to resolve a check — CI will still run checks, and your reviewer can help resolve them before merge.
+
+## Submitting a change
+
+1. Create a branch: `git checkout -b fix-your-description`
+2. Make your edit, following whichever path in [Ways to contribute](#ways-to-contribute) matches what you're doing.
+3. Run `npm run check`, and evals too if you touched skill content.
+4. Push and open a PR describing what you changed and why.
 
 ## Note on AI usage
 
-Please take a moment to review [MapLibre's AI Policy](https://github.com/maplibre/maplibre/blob/main/AI_POLICY.md). tl;dr: do not let AI speak for you, verify all generated content before requesting a review and disclose AI usage in pull requests.
+Please take a moment to review [MapLibre's AI Policy](https://github.com/maplibre/maplibre/blob/main/AI_POLICY.md). tl;dr: do not let AI speak for you, verify all generated content before requesting a review, and disclose AI usage in pull requests.
+
+**What that means in this repo.** The policy is not a prohibition. Its first line: "contributors can use whatever tools they would like to craft their contributions, but there must be a **human in the loop**." It then makes each contributor responsible for aligning with "repository-specific contribution guidelines" — this section. Concretely: an AI agent may draft skill content, eval prompts, and rubrics. What it may not do is submit them, or speak for you in the pull request.
+
+Before you mark a pull request ready for review:
+
+- **Verify every claim against a primary source.** The [style spec](https://maplibre.org/maplibre-style-spec/), the [GL JS docs](https://maplibre.org/maplibre-gl-js/docs/), and the GL JS [CHANGELOG](https://github.com/maplibre/maplibre-gl-js/blob/main/CHANGELOG.md) decide correctness. A fluent draft that cites nothing is the exact failure mode this repo exists to correct.
+- **Be able to answer questions about it** during review. If you cannot explain why a section says what it says, it is not ready.
+- **Write the PR description yourself**, and disclose the AI usage in it, noting the models and prompts used. The pull request template has a line for this. Disclosure is not penalized.
+
+Agent-drafted content meets the same gate as everything else, and the gate is the point: a skill must close a [demonstrated gap](evals/README.md#proving-tests-fail-without-the-skill) and pass evals that failed at baseline. Nothing enters this collection because it reads well.
 
 ## Attribution and References
 
@@ -235,9 +230,9 @@ Reference these sources in skill content wherever possible:
 
 **MapLibre — core:**
 
-- [MapLibre GL JS](https://maplibre.org/maplibre-gl-js/docs/) — web maps JavaScript library. For MapLibre code patterns to reference while writing skills, see the [MapLibre GL JS examples](https://maplibre.org/maplibre-gl-js/docs/examples/).
+- [MapLibre GL JS](https://maplibre.org/maplibre-gl-js/docs/) — web maps JavaScript library; see the [examples](https://maplibre.org/maplibre-gl-js/docs/examples/) for code patterns to reference.
 - [MapLibre Style Spec](https://maplibre.org/maplibre-style-spec/) — JSON style schema for GL JS and Native
-- [MapLibre Native](https://maplibre.org/maplibre-native/docs/book/) — C++ library for Android, iOS, and desktop, see [main README on GitHub](https://github.com/maplibre/maplibre-native) for instructions on how to _use_ MapLibre Native.
+- [MapLibre Native](https://maplibre.org/maplibre-native/docs/book/) — C++ library for Android, iOS, and desktop; see the [GitHub README](https://github.com/maplibre/maplibre-native) for usage.
 - [Martin tile server](https://maplibre.org/martin/) — PostGIS, MBTiles, and PMTiles tile server
 - [MapLibre Tile Spec](https://maplibre.org/maplibre-tile-spec/) — next-generation vector tile format
 
@@ -256,9 +251,10 @@ Reference these sources in skill content wherever possible:
 - [Maputnik](https://maplibre.org/maputnik/) — visual style editor
 - [awesome-maplibre](https://github.com/maplibre/awesome-maplibre) — curated ecosystem list
 
-**Tile sources and basemaps:**
+**Tile sources and map data:**
 
 - [OpenFreeMap](https://openfreemap.org/quick_start/) — free hosted OpenStreetMap tiles with MapLibre-ready styles
+- [OpenStreetMap US Tileservice](https://tiles.openstreetmap.us/) — vector and raster tilesets and fonts for the OpenStreetMap community
 - [PMTiles / Protomaps](https://docs.protomaps.com/) — single-file tile archive format for serverless deployments
 - [Overture Maps](https://docs.overturemaps.org/) — open, structured map data
 
@@ -273,12 +269,12 @@ Reference these sources in skill content wherever possible:
 
 ### A note about adapted content
 
-Due to similarities and shared history, though it shouldn’t strictly be necessary, we acknowledge that this project may adapt structure or content from [mapbox-agent-skills](https://github.com/mapbox/mapbox-agent-skills) (MIT © Mapbox). Please, if you find yourself adding or change content that is adapted from that repository:
+Due to similarities and shared history, though it shouldn't strictly be necessary, we acknowledge that this project may adapt structure or content from [mapbox-agent-skills](https://github.com/mapbox/mapbox-agent-skills) (MIT © Mapbox). Please, if you find yourself adding or changing content that is adapted from that repository:
 
-- **Preserve Mapbox’s copyright.** The [NOTICE](NOTICE) file and [LICENSE.md](LICENSE.md) already state that portions are adapted from mapbox-agent-skills and remain Copyright (c) Mapbox, Inc.
+- **Preserve Mapbox's copyright.** The [NOTICE](NOTICE) file and [LICENSE.md](LICENSE.md) already state that portions are adapted from mapbox-agent-skills and remain Copyright (c) Mapbox, Inc.
 - For a skill or file that is substantially adapted from a Mapbox skill, you may add a short line at the top of the file, e.g.:
   `Adapted from mapbox-agent-skills. Copyright (c) Mapbox, Inc. Modifications (c) MapLibre and contributors.`
-- New, original content only needs the project’s usual license (see [LICENSE.md](LICENSE.md)).
+- New, original content only needs the project's usual license (see [LICENSE.md](LICENSE.md)).
 
 ## Code of Conduct
 
@@ -288,10 +284,6 @@ This project follows the [MapLibre Code of Conduct](https://github.com/maplibre/
 - No harassment, spam, or unprofessional behavior
 
 Issues or PRs that violate these standards may be closed; repeat offenders may be blocked.
-
-## AI-Generated Contributions
-
-This project follows the [MapLibre AI Generated Contributions Policy](https://github.com/maplibre/maplibre/blob/main/AI_POLICY.md). In brief: AI tools are permitted, but contributors are responsible for the content they submit — including correctness, licensing, and the ability to explain and maintain it during review.
 
 ## License
 

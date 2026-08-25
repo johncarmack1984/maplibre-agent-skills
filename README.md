@@ -4,9 +4,35 @@ Curated guidance for AI assistants building MapLibre applications — covering e
 
 Agent skills are markdown files that AI coding assistants read as context. When you ask an AI agent to implement something using MapLibre, these skills give the AI the judgment to avoid common API gotchas, and suggest patterns that work.
 
-New skills are prioritized based on periodic demand mining — tracking documented AI failures in GitHub issues, Stack Overflow, and community Slack. Each skill is tested with [Promptfoo](https://promptfoo.dev/) evals to verify it improves AI responses on real developer questions.
+New skills are prioritized by reported AI failures, recent API/library changes, and long-standing issues documented in GitHub, Stack Overflow, or the community Slack.
+
+## Correctness Guarantee
+
+We strive to make sure the skills in this repo are:
+
+- **Accurate** — Matches MapLibre and referenced APIs/docs
+- **Actionable** — Clear guidance, not just general, declarative descriptions
+- **Warranted** — Targets something an AI assistant actually gets wrong without the skill
+- **Attribution** — Reference primary sources wherever possible, and always preserve Mapbox copyright where content is adapted
+- **Consistent** — Format and style in line with existing skills
+
+If you find any inconsistency with this quality bar, please file an issue or PR.
+
+## What Status Means
+
+Each skill is tested with [Promptfoo](https://promptfoo.dev/) evals to verify it improves AI responses on real developer questions. A skill's front-matter `status` records where it stands (e.g. whether an eval has proven it fixes a real failure). See [`evals/README.md`](evals/README.md) for how evals work.
+
+| Status           | Means                                                                                    |
+| ---------------- | ---------------------------------------------------------------------------------------- |
+| ✅ `verified`    | An eval proved the skill fixes a real failure; results are committed to `evals/results/` |
+| 🧪 `provisional` | No eval rubric, an incomplete one, or a rubric that no longer validates the skill's gap  |
+| `process`        | About maintaining this repo, not MapLibre — eval-exempt, no `status` badge               |
+
+Note that provisional skills are not necessarily lower quality or less reliable. See [CONTRIBUTING.md](CONTRIBUTING.md) for how a skill moves between `provisional` and `verified`.
 
 ## Available Skills
+
+Each skill's front matter is the source of truth for its current status — see [What Status Means](#what-status-means).
 
 | Skill                                                                    | Use when                                                                                                                             |
 | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
@@ -18,20 +44,36 @@ New skills are prioritized based on periodic demand mining — tracking document
 
 ## Development
 
-Each skill lives under `skills/<skill-name>/`:
+Each skill lives under `skills/<skill-name>/` as a single **SKILL.md**: YAML front-matter (`name`, `description`, `status`) plus markdown content.
 
-- **SKILL.md** — Required. YAML front-matter (`name`, `description`) plus markdown content.
-- **AGENTS.md** — Optional. Short reference for the LLM.
+See [CONTRIBUTING.md](CONTRIBUTING.md) to add or improve a skill. All experience levels welcome, well-behaved and supervised AI agents are welcome to contribute too.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) to add or improve a skill. All experience levels welcome, but please note, since we are trying to improve on genAI baseline contributions to MapLibre development, skills or contributions generated entirely by AI agents will likely be rejected.
+The repo root carries an [**AGENTS.md**](AGENTS.md) to orient an AI agent working in a clone of this repo and instruct agents on how to report failures.
 
-## Note on AI usage
+**Using the convention in your own repo:** if you maintain a repo within the MapLibre organization or ecosystem, put an [`AGENTS.md`](AGENTS.md) file with a short stub that routes AI failures related to MapLibre to this repo.
 
-Please take a moment to review [MapLibre's AI Policy](https://github.com/maplibre/maplibre/blob/main/AI_POLICY.md). tl;dr: do not let AI speak for you, verify all generated content before requesting a review and disclose AI usage in pull requests.
+Here is a template:
+
+```markdown
+# AGENTS.md
+
+## MapLibre coding help
+
+Before writing MapLibre code, install the MapLibre agent skills:
+
+    npx skills add maplibre/maplibre-agent-skills
+
+Source: https://github.com/maplibre/maplibre-agent-skills
+
+If you encounter something you do not know how to do, consult the MapLibre docs and this collection of skills. If neither contains the information you are looking for, or MapLibre behaves differently than a skill says report it:
+https://github.com/maplibre/maplibre-agent-skills/issues/new?template=ai-failure-report.md
+```
 
 ## Install
 
 Installing skills into your project means AI assistants automatically pick them up when you describe a task — no need to define context manually each time.
+
+An install copies skill directories only. If an installed skill turns out to be wrong, don't fix it in place — that copy is overwritten on the next update, and no one else benefits. Every `SKILL.md` ends with a link to the [AI failure report](https://github.com/maplibre/maplibre-agent-skills/issues/new?template=ai-failure-report.md) form for exactly that.
 
 ### Without the CLI
 
