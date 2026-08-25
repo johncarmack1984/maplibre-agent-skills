@@ -116,6 +116,23 @@ tests:
           `MapDataEvent` is fine ONLY as an explicitly-labeled removed/old
           type, never as the working import.
 
+  - description: explicit — set up MapLibre GL JS in a Vite app
+    vars:
+      prompt: >
+        I'm adding MapLibre GL JS to a Vite + TypeScript app (not a CDN
+        script, an npm install). Show me the map setup.
+    assert:
+      - type: icontains
+        value: 'setWorkerUrl'
+      - type: llm-rubric
+        value: >
+          Calls `setWorkerUrl()` once, before creating the Map, passing it a
+          URL to the built worker file (e.g. via Vite's `?worker&url` import
+          query on `maplibre-gl/dist/maplibre-gl-worker.mjs`, or an
+          equivalent bundler-resolved worker URL). Does not claim the worker
+          loads automatically with no setup, and does not use plain `?url`
+          in place of `?worker&url` for the Vite case specifically.
+
   - description: negative — vector tile source setup, unrelated to v6 breaking changes
     vars:
       prompt: >

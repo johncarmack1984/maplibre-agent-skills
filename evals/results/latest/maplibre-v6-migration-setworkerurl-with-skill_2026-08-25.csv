@@ -1,0 +1,163 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+explicit — set up MapLibre GL JS in a Vite app,skills/maplibre-v6-migration/SKILL.md,"I'm adding MapLibre GL JS to a Vite + TypeScript app (not a CDN script, an npm install). Show me the map setup.
+","Thinking: We need to answer with map setup for Vite + TypeScript using npm install, covering migration points: import style, setWorkerUrl with Vite ?worker&url, using named imports, handling missing style images via setMissingStyleImageResolver, using public camera API, maybe type for data events. Provide code snippet. Also mention pin version, ensure CSS import, etc. Should not go beyond the seven patterns. Provide explanation.
+
+Below is a **minimal, working example** that shows how to initialise a MapLibre GL JS map in a **Vite + TypeScript** project that uses the npm package (v6.x).  
+All of the v5‑→‑v6 breaking‑change points that affect a bundler setup are handled:
+
+| What we’re fixing | v5 → v6 change | How we fix it in the snippet |
+|-------------------|----------------|------------------------------|
+| **ESM‑only build** – no default export | `import maplibregl from 'maplibre-gl'` no longer works | `import * as maplibregl from 'maplibre-gl'` (or named imports) |
+| **Worker URL** – bundlers can’t auto‑detect it | `import.meta.url` is lost after bundling | Vite’s `?worker&url` query + `setWorkerUrl()` |
+| **Missing sprite icons** – `styleimagemissing` is notify‑only | `map.addImage()` inside the handler does nothing | `map.setMissingStyleImageResolver()` |
+| **Public camera API** – `map.transform` removed | Direct access to `map.transform` is gone | Use `map.getZoom()`, `map.getCenter()`, … |
+| **TypeScript event types** – `MapDataEvent` removed | `data`, `dataloading`, `dataabort` now use a union | Import `MapSourceDataEvent | MapStyleDataEvent` if you type the handler |
+| **CSS** – still needed | – | Import the CSS from the package |
+| **Pin the version** – avoid accidental major upgrades | – | `npm i maplibre-gl@^6.0.0` |
+
+---
+
+## 1️⃣ Install the correct version
+
+```bash
+npm i maplibre-gl@^6.0.0   # or yarn add maplibre-gl@^6.0.0
+```
+
+> **Tip:** Keep the `^6.0.0` (or a concrete `6.x.y`) in `package.json` so a future major (7) won’t silently break the app.
+
+---
+
+## 2️⃣ Vite + TypeScript file (e.g. `src/map.ts`)
+
+```ts
+// src/map.ts
+import { Map, NavigationControl, setWorkerUrl } from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';               // <-- bring in the default CSS
+
+/* --------------------------------------------------------------
+   1️⃣ Tell Vite to bundle the worker and give us its URL.
+   The `?worker&url` suffix tells Vite to treat the file as a Web
+   Worker and then export its final URL as a string.
+-------------------------------------------------------------- */
+import mapWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
+
+/* --------------------------------------------------------------
+   2️⃣ Register the worker URL **once**, before any Map instance
+   is created.  This is required for every bundler build (Vite,
+   webpack, esbuild, …).  The call is a no‑op in a plain CDN
+   `<script type=""module"">` import, so it’s safe to keep it here.
+-------------------------------------------------------------- */
+setWorkerUrl(mapWorkerUrl);
+
+/* --------------------------------------------------------------
+   3️⃣ Optional: Resolve missing style images at runtime.
+   In v6 `styleimagemissing` is only a notification; you must
+   provide a resolver that returns an ImageBitmap, HTMLImageElement,
+   or a Promise thereof.
+-------------------------------------------------------------- */
+function generateIcon(id: string): HTMLImageElement {
+  // Very simple example – you could fetch SVGs, draw on a canvas, etc.
+  const img = new Image();
+  img.src = `/icons/${id}.png`;   // assume you have PNGs under public/icons/
+  return img;
+}
+maplibregl.setMissingStyleImageResolver((id) => generateIcon(id));
+
+/* --------------------------------------------------------------
+   4️⃣ Create the map.
+-------------------------------------------------------------- */
+export const map = new Map({
+  container: 'map',               // <-- the <div id=""map""></div> in your HTML
+  style: 'https://demotiles.maplibre.org/style.json', // any valid style URL
+  center: [0, 0],                 // [lng, lat]
+  zoom: 2,
+  // any other Map options you need …
+});
+
+/* --------------------------------------------------------------
+   5️⃣ Add a navigation control (optional UI helpers)
+-------------------------------------------------------------- */
+map.addControl(new NavigationControl());
+
+/* --------------------------------------------------------------
+   6️⃣ Example of using the public camera API (instead of
+       map.transform) – you can call these anywhere after the
+       map is loaded.
+-------------------------------------------------------------- */
+map.on('load', () => {
+  console.log('Zoom:', map.getZoom());
+  console.log('Center:', map.getCenter().toArray());
+  console.log('Pitch:', map.getPitch());
+  console.log('Bearing:', map.getBearing());
+});
+
+/* --------------------------------------------------------------
+   7️⃣ Typed data‑event handler (if you need it)
+-------------------------------------------------------------- */
+import type {
+  MapSourceDataEvent,
+  MapStyleDataEvent,
+} from 'maplibre-gl';
+
+map.on('data', (e: MapSourceDataEvent | MapStyleDataEvent) => {
+  if ('sourceId' in e) {
+    // Source‑related event
+    console.log('Source data event for', e.sourceId, e.sourceDataType);
+  } else {
+    // Style‑related event
+    console.log('Style data event');
+  }
+});
+```
+
+---
+
+## 3️⃣ Add the container element (e.g. in `src/App.vue` or `index.html`)
+
+```html
+<!-- src/App.vue (template section) -->
+<div id=""map"" style=""width: 100%; height: 100vh;""></div>
+```
+
+or, if you’re using a plain HTML entry point:
+
+```html
+<body>
+  <div id=""map"" style=""width:100%;height:100vh;""></div>
+  <script type=""module"" src=""/src/main.ts""></script>
+</body>
+```
+
+---
+
+## 4️⃣ Vite config (usually you don’t need to change anything)
+
+The default Vite config already knows how to handle the `?worker&url` query.  
+If you have a custom `vite.config.ts` that overrides asset handling, make sure the **worker** plugin is enabled (it is by default).
+
+```ts
+// vite.config.ts – only needed if you have a heavily‑customized config
+import { defineConfig } from 'vite';
+import vue from '@vitejs/plugin-vue'; // or react, svelte, etc.
+
+export default defineConfig({
+  plugins: [vue()],
+  // No extra config required for MapLibre workers
+});
+```
+
+---
+
+## 5️⃣ Recap of the migration‑specific bits
+
+| Step | Why it matters for v6 |
+|------|-----------------------|
+| `import { Map, setWorkerUrl } from 'maplibre-gl'` | No default export any more. |
+| `import mapWorkerUrl … ?worker&url` + `setWorkerUrl()` | Bundlers can’t infer the worker location automatically. |
+| `maplibregl.setMissingStyleImageResolver()` | `styleimagemissing` is now “notify‑only”. |
+| Use `map.getZoom()`, `map.getCenter()`, … | `map.transform` was removed. |
+| Type the `data`/`dataloading`/`dataabort` handlers with `MapSourceDataEvent | MapStyleDataEvent` | `MapDataEvent` no longer exists. |
+| Import the CSS file from the package | Still required for default UI controls. |
+| Pin the npm version (`@^6.0.0`) | Prevents a silent break when v7 ships. |
+
+That’s it! With the code above you should see a fully functional MapLibre map in a Vite + TypeScript project, and you’ll be safely on the v6 API surface. 🎉",PASS,1.00,,All assertions passed,

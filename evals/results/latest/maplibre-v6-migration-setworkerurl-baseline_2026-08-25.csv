@@ -1,0 +1,293 @@
+Description,skillFile,injectSkill,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+explicit — set up MapLibre GL JS in a Vite app,skills/maplibre-v6-migration/SKILL.md,false,"I'm adding MapLibre GL JS to a Vite + TypeScript app (not a CDN script, an npm install). Show me the map setup.
+","Thinking: The user wants to see map setup code for MapLibre GL JS in a Vite + TypeScript app, using npm install (not CDN). Provide steps: install packages, configure Vite, import CSS, create a component (React? maybe generic). Could be plain TS with Vite. Provide example of index.html, main.ts, map.ts, CSS import. Also mention types, using @types/maplibre-gl? Actually maplibre-gl includes its own types. Show using import maplibre from 'maplibre-gl'; and CSS import 'maplibre-gl/dist/maplibre-gl.css'; Provide example of initializing map with container, style, center, zoom. Also show handling of token if using MapTiler style. Provide Vite config for environment variables. Provide optional plugin for worker. MapLibre uses WebGL, no worker needed. Provide example of using useEffect in React if needed. But user didn't specify framework; just Vite + TypeScript. Could be plain vanilla TS. Provide a simple HTML with a div id=""map"". Provide main.ts that mounts map. Also show using import.meta.env for style URL.
+
+Will answer with step-by-step instructions, code snippets, and notes.
+
+Below is a **complete, minimal example** that shows how to add **MapLibre GL JS** to a **Vite + TypeScript** project when you install the library from npm (no CDN).  
+It works with plain vanilla TypeScript, but the same ideas apply if you’re using a framework (React, Vue, Svelte, …).
+
+---
+
+## 1️⃣  Install the npm packages
+
+```bash
+# From the root of your Vite project
+npm i maplibre-gl
+# (optional) If you want the official MapLibre type definitions – they are already bundled,
+# but the @types package can be useful for older editors.
+npm i -D @types/maplibre-gl
+```
+
+> **Why not a CDN?**  
+> Installing from npm lets you get proper TypeScript typings, tree‑shaking, and easy version control.
+
+---
+
+## 2️⃣  Project structure (one possible layout)
+
+```
+my-vite-app/
+├─ public/
+│   └─ index.html
+├─ src/
+│   ├─ main.ts          ← entry point (Vite loads this)
+│   └─ map.ts           ← map‑initialisation helper (optional)
+├─ vite.config.ts
+├─ tsconfig.json
+└─ package.json
+```
+
+---
+
+## 3️⃣  `index.html`
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"" />
+  <title>MapLibre GL + Vite + TS</title>
+  <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"" />
+  <!-- Vite injects the compiled script automatically -->
+</head>
+<body>
+  <!-- The map will be rendered into this div -->
+  <div id=""map"" style=""width: 100vw; height: 100vh;""></div>
+</body>
+</html>
+```
+
+> **Tip:** The `style` attribute above makes the map fill the whole viewport.  
+> You can also move the CSS to a separate file if you prefer.
+
+---
+
+## 4️⃣  `src/main.ts`
+
+```ts
+// ------------------------------------------------------------
+// 1️⃣  Import the library + its CSS (the CSS is required for
+//     controls, sprites, fonts, etc.)
+// ------------------------------------------------------------
+import 'maplibre-gl/dist/maplibre-gl.css';
+import maplibregl from 'maplibre-gl';
+
+// ------------------------------------------------------------
+// 2️⃣  Optional: Pull a style URL from an environment variable.
+//     Vite exposes variables that start with VITE_ via
+//     import.meta.env.  This is handy for swapping between
+//     dev / prod styles without code changes.
+// ------------------------------------------------------------
+const MAP_STYLE = import.meta.env.VITE_MAP_STYLE as string
+  ?? 'https://demotiles.maplibre.org/style.json'; // fallback demo style
+
+// ------------------------------------------------------------
+// 3️⃣  Initialise the map once the DOM is ready.
+// ------------------------------------------------------------
+function initMap() {
+  // The container must exist in the DOM (the <div id=""map""> above)
+  const map = new maplibregl.Map({
+    container: 'map',          // id of the container element
+    style: MAP_STYLE,          // style URL or JSON object
+    center: [0, 0],            // [lng, lat] – start position
+    zoom: 2,                   // initial zoom
+    // optional: you can set maxZoom, minZoom, pitch, bearing, etc.
+  });
+
+  // --------------------------------------------------------
+  // 4️⃣  Add a navigation control (zoom + compass) – optional
+  // --------------------------------------------------------
+  map.addControl(new maplibregl.NavigationControl());
+
+  // --------------------------------------------------------
+  // 5️⃣  Example: add a marker at the centre
+  // --------------------------------------------------------
+  new maplibregl.Marker()
+    .setLngLat([0, 0])
+    .addTo(map);
+}
+
+// ------------------------------------------------------------
+// 6️⃣  Wait for the DOM to be ready (Vite bundles this as a
+//     module, so the script runs after the HTML is parsed,
+//     but we still guard against race conditions)
+// ------------------------------------------------------------
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initMap);
+} else {
+  initMap();
+}
+```
+
+### What’s happening?
+
+| Line(s) | Explanation |
+|--------|--------------|
+| `import 'maplibre-gl/dist/maplibre-gl.css';` | Pulls the library’s CSS into the Vite bundle (Vite’s CSS handling will inject it into the page). |
+| `import maplibregl from 'maplibre-gl';` | The default export is the `Map` constructor and all the helper classes. |
+| `import.meta.env.VITE_MAP_STYLE` | Vite’s way to read environment variables at **build time**. You can set it in a `.env` file (see below). |
+| `new maplibregl.Map({ … })` | Creates the map. The only required options are `container`, `style`, `center`, and `zoom`. |
+| `map.addControl(new maplibregl.NavigationControl());` | Adds the familiar zoom‑in/zoom‑out + compass UI. |
+| `new maplibregl.Marker()` | Shows how to add a simple marker. |
+
+---
+
+## 5️⃣  (Optional) Environment variables for the style URL
+
+Create a file called **`.env`** in the project root:
+
+```dotenv
+# .env
+VITE_MAP_STYLE=https://demotiles.maplibre.org/style.json
+# Or, for a MapTiler style (requires an API key):
+# VITE_MAP_STYLE=https://api.maptiler.com/maps/streets/style.json?key=YOUR_MAPTILER_KEY
+```
+
+> **Why use `VITE_`?**  
+> Vite only exposes variables that start with `VITE_` to the client bundle. Anything else stays private to the build process.
+
+You can also create `.env.production` and `.env.development` to have different styles per environment.
+
+---
+
+## 6️⃣  Vite config (no special changes needed)
+
+A vanilla Vite config works out‑of‑the‑box:
+
+```ts
+// vite.config.ts
+import { defineConfig } from 'vite';
+import { resolve } from 'node:path';
+
+export default defineConfig({
+  // If you want to serve the app from a sub‑folder, set base:
+  // base: '/my-app/',
+  resolve: {
+    alias: {
+      // Optional: shorten imports, e.g. '@/utils' → src/utils
+      '@': resolve(__dirname, 'src'),
+    },
+  },
+});
+```
+
+> **Note:** MapLibre GL does **not** need a Web Worker configuration (unlike Mapbox GL JS v2). The library ships a tiny worker internally, and Vite will bundle it automatically.
+
+---
+
+## 7️⃣  Run / Build
+
+```bash
+# Development server (hot‑module replacement)
+npm run dev
+
+# Production build
+npm run build
+```
+
+You should see a full‑screen map rendered with the demo style (or whatever style you configured).
+
+---
+
+## 8️⃣  Quick checklist for a production‑ready setup
+
+| ✅ | Item | Why it matters |
+|---|------|----------------|
+| 1 | **Lock the MapLibre version** (`""maplibre-gl"": ""^4.2.0""` or whatever you need) | Guarantees reproducible builds. |
+| 2 | **Pin a style URL** (self‑hosted style JSON or a stable third‑party service) | Avoids breaking changes if the demo style disappears. |
+| 3 | **Set `crossOrigin: ""anonymous""`** on the map if you need to export the canvas (e.g., screenshots). |
+| 4 | **Add a fallback UI** for browsers without WebGL (`maplibregl.supported()` check). |
+| 5 | **Configure CSP** (Content‑Security‑Policy) to allow `style-src` and `script-src` for the map tiles provider. |
+| 6 | **Cache tiles** (via service worker or HTTP cache headers) for better performance. |
+| 7 | **Consider a custom sprite/font** if you want a brand‑consistent look. |
+
+---
+
+## 9️⃣  TL;DR – All the code in one place
+
+```bash
+# 1️⃣ Install
+npm i maplibre-gl
+npm i -D @types/maplibre-gl   # optional
+```
+
+**`.env`**
+
+```dotenv
+VITE_MAP_STYLE=https://demotiles.maplibre.org/style.json
+```
+
+**`public/index.html`**
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"" />
+  <title>MapLibre GL + Vite + TS</title>
+  <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"" />
+</head>
+<body>
+  <div id=""map"" style=""width:100vw;height:100vh;""></div>
+</body>
+</html>
+```
+
+**`src/main.ts`**
+
+```ts
+import 'maplibre-gl/dist/maplibre-gl.css';
+import maplibregl from 'maplibre-gl';
+
+const MAP_STYLE = import.meta.env.VITE_MAP_STYLE as string
+  ?? 'https://demotiles.maplibre.org/style.json';
+
+function initMap() {
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: MAP_STYLE,
+    center: [0, 0],
+    zoom: 2,
+  });
+
+  map.addControl(new maplibregl.NavigationControl());
+
+  new maplibregl.Marker()
+    .setLngLat([0, 0])
+    .addTo(map);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initMap);
+} else {
+  initMap();
+}
+```
+
+**`vite.config.ts`** (optional)
+
+```ts
+import { defineConfig } from 'vite';
+import { resolve } from 'node:path';
+
+export default defineConfig({
+  resolve: {
+    alias: { '@': resolve(__dirname, 'src') },
+  },
+});
+```
+
+Run `npm run dev` → **MapLibre GL** appears, fully typed, bundled by Vite, and ready for production.
+
+---
+
+### 🎉 You’re all set!
+
+Feel free to extend this skeleton:
+
+* Load GeoJSON sources (`map.addSource` / `map.addLayer`).
+* Use the **MapLibre GL Draw** plugin for interactive editing.
+* Integrate with a UI framework (React, Vue, Svelte) – just move the `initMap` call into a component’s lifecycle hook (`useEffect`, `onMounted`, …).
+
+If you hit any snags (CORS, style JSON errors, etc.) just drop a follow‑up question—happy mapping! 🚀",FAIL,0.00,,"The output states that MapLibre GL does not need a Web Worker configuration, and that Vite will bundle it automatically. However, the rubric requires calling `setWorkerUrl()` and specifically mentions using `?worker&url` for Vite. The provided code does not include this configuration.",
