@@ -2,6 +2,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { setOutputs } from './lib/github-output.js';
 
 export function bumpVersion(version, level) {
   const [major, minor, patch] = version.split('.').map(Number);
@@ -171,8 +172,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   updateReadme();
 
   execSync('npx prettier --write CHANGELOG.md README.md package.json', {
-    stdio: 'inherit'
+    stdio: ['ignore', 'ignore', 'inherit']
   });
 
-  process.stdout.write(result.version);
+  setOutputs({ version: result.version });
 }

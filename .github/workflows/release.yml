@@ -37,7 +37,7 @@ jobs:
         id: release
         env:
           LEVEL: ${{ inputs.level }}
-        run: echo "version=$(node scripts/cut-release.js --level "$LEVEL")" >> "$GITHUB_OUTPUT"
+        run: node scripts/cut-release.js --level "$LEVEL"
 
       - name: Open the release PR
         env:
