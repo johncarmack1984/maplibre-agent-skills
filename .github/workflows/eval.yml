@@ -9,9 +9,7 @@ name: Eval
 #                  prompts are expected to FAIL here; a negative test should PASS.
 #
 # Runs in this repo's own Actions context with its secrets regardless of ref —
-# see evals/README.md → CI before dispatching against an unreviewed ref. The
-# dispatched ref runs in the read-only `eval` job; only the schedule-only
-# `publish` job, which checks out the default branch, holds a write token.
+# see evals/README.md → CI before dispatching against an unreviewed ref.
 
 on:
   schedule:
@@ -38,10 +36,8 @@ permissions:
 jobs:
   eval:
     runs-on: ubuntu-latest
-    # Read-only: this job checks out inputs.ref, which on dispatch can be any
-    # branch, and runs promptfoo's JS prompt function (lib/skill-prompt.mjs) from
-    # it. It holds the API secrets it needs to run, but not a token that can write
-    # to the repo. The repo writes live in the `publish` job below.
+    # Checks out inputs.ref, arbitrary on dispatch, so it holds the API secrets
+    # but no write token. Repo writes are in the publish job.
     permissions:
       contents: read
     outputs:
@@ -118,8 +114,6 @@ jobs:
           name: eval-results-${{ github.run_id }}
           path: evals/results/*.csv
 
-      # Carries the pass/fail line per skill to the publish job, which runs the
-      # status sync on the trusted default branch.
       - name: Upload verdicts
         if: always()
         uses: actions/upload-artifact@v4
@@ -128,9 +122,8 @@ jobs:
           path: /tmp/skill-verdicts.txt
           if-no-files-found: ignore
 
-  # Everything that writes to the repo. Scheduled runs only, so it never sees a
-  # dispatched ref: it checks out the default branch and applies the results the
-  # eval job produced. `always()` so a failed drift check still opens its issue.
+  # Repo writes, scheduled runs only: checks out the default branch, never a
+  # dispatched ref. always() so a failed eval still opens its issue.
   publish:
     needs: eval
     if: always() && github.event_name == 'schedule'
@@ -226,7 +219,7 @@ jobs:
       # This run watches for drift — a provider silently updating a model behind a
       # pinned ID. So the issue asks a question; it does not assert a cause.
       - name: Open issue on failure
-        if: needs.eval.result == 'failure'
+        if: always() && needs.eval.result == 'failure'
         uses: actions/github-script@v7
         with:
           script: |
