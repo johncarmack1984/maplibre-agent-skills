@@ -4,6 +4,12 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ## [Unreleased]
 
+<!-- bump: patch -->
+
+### Internal
+
+- Versioning and CHANGELOG automation: a `Changelog` field in the PR template, entries recorded on merge, a Release workflow that cuts the version and regenerates the README skills table ([#58](https://github.com/maplibre/maplibre-agent-skills/pull/58))
+
 ## [0.1.0] - 2026-08-25
 
 First tagged release. The collection is versioned as a whole via this release tag, since the Agent Skills spec has no per-skill version field.
