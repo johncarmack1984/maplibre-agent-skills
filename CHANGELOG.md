@@ -14,6 +14,7 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Fixed
 
+- pinned generator `max_tokens` lowered 8192 → 4096; no output is lost, and far fewer calls are rejected against Groq's TPM ceiling ([#63](https://github.com/maplibre/maplibre-agent-skills/pull/63))
 - `maplibre-mapbox-migration` and `maplibre-pmtiles-patterns`: corrected import and CDN examples broken by MapLibre GL JS v6's ES-module-only build ([#59](https://github.com/maplibre/maplibre-agent-skills/pull/59))
 
 ### Internal
