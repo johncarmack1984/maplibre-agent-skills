@@ -19,6 +19,7 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Internal
 
+- evals: re-ran `maplibre-cartography`, `maplibre-mapbox-migration`, `maplibre-pmtiles-patterns`, `maplibre-terrain-patterns` on the Groq pin and replaced their Cerebras-era results (#64) ([#70](https://github.com/maplibre/maplibre-agent-skills/pull/70))
 - Release watch: a weekly check that files an issue when an upstream release removes, renames, or deprecates something a skill still mentions (#71) ([#74](https://github.com/maplibre/maplibre-agent-skills/pull/74))
 - `eval.yml`: a publish-job failure after a passing eval now opens an `eval-publish` issue (#55) ([#60](https://github.com/maplibre/maplibre-agent-skills/pull/60))
 - Versioning and CHANGELOG automation: a `Changelog` field in the PR template, entries recorded on merge, a Release workflow that cuts the version and regenerates the README skills table ([#58](https://github.com/maplibre/maplibre-agent-skills/pull/58))
