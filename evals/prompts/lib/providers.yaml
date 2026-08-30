@@ -1,5 +1,10 @@
-# The pinned generator (model-under-test). Referenced from every eval config and TEMPLATE.yaml.
-# Edit this file to change the default generator for all evals.
+# The pinned generator (model-under-test), referenced from every eval config and TEMPLATE.yaml.
+#
+# Do not raise max_tokens unless/until warranted by a pinned model change. Groq reserves
+# prompt + max_tokens against an 8000 TPM window, so a larger ceiling makes skill-injected
+# calls fail under load (13 of 21 baseline calls rejected at 8192) and buys no output: 
+# completions cap at ~11.9K characters at either value. Groq truncates mid-sentence at that
+# cap, so read the raw completion behind any FAIL — see evals/README.md.
 id: groq:openai/gpt-oss-120b
 label: groq-gpt-oss
 config:

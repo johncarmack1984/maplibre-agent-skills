@@ -1,0 +1,236 @@
+# Evals for the maplibre-source-wiring skill.
+# Run commands and provider setup: evals/README.md
+# Per-test verdicts and what has not been run: evals/results/maplibre-source-wiring.md
+
+description: Evals for the maplibre-source-wiring skill
+
+prompts:
+  - file://lib/skill-prompt.mjs
+
+providers:
+  - file://lib/providers.yaml
+
+evaluateOptions:
+  delay: 500
+
+defaultTest:
+  vars:
+    skillFile: skills/maplibre-source-wiring/SKILL.md
+
+tests:
+  - description: implicit — custom style layers invisible against hosted tiles
+    vars:
+      prompt: >
+        I'm using a hosted tile provider's style URL and everything looks
+        great. But when I try to write my own custom style against the same
+        tile source, none of my layers show up.
+    assert:
+      - type: icontains
+        value: source-layer
+      - type: llm-rubric
+        value: >
+          Explains that the custom style's layer definitions must reference
+          `source-layer` names exactly as they appear in the tile source's
+          schema. Directs the developer to the TileJSON `vector_layers` field
+          as the authoritative list of available source-layer names. Explains
+          that the provider's pre-built style already has these matched and
+          that building a custom style requires knowing the schema.
+
+  - description: anti-pattern — addLayer covering basemap labels
+    vars:
+      prompt: >
+        I added my GeoJSON data layer with map.addLayer() and it shows up,
+        but it's drawn on top of all the street names and labels.
+        How do I fix the layer order?
+    assert:
+      - type: icontains
+        value: symbol
+      - type: llm-rubric
+        value: >
+          Explains that `map.addLayer()` without a second argument appends
+          the layer above everything including labels. Shows the correct fix:
+          find the first layer with type `symbol` in the style, and pass
+          its ID as the second argument to `map.addLayer()` to insert the
+          data layer below labels. Must not only give hardcoded label layer
+          IDs from a specific provider's style (e.g. 'road-label') as the
+          primary answer — the programmatic approach works across any style.
+
+  - description: explicit — TileJSON url vs hand-wired tiles template
+    vars:
+      prompt: >
+        In a MapLibre vector source, should I use the `url` field pointing at
+        a TileJSON endpoint, or just put the {z}/{x}/{y} template straight
+        into the `tiles` array? My tile server offers both.
+    assert:
+      - type: icontains
+        value: TileJSON
+      - type: llm-rubric
+        value: >
+          Must recommend `url` to the TileJSON endpoint as the default when
+          one is available. Must explain that MapLibre reads the tile URL
+          template, zoom range (minzoom/maxzoom), bounds, attribution, and
+          for vector sources the available source-layers from the TileJSON
+          document automatically. Must explain the concrete cost of the
+          `tiles` array: MapLibre has no zoom range unless you supply one
+          and will request zoom levels the tileset does not contain. Must
+          note that the `tiles` array is the right choice when no TileJSON
+          endpoint exists.
+
+  - description: negative — unrelated question, expression syntax
+    vars:
+      prompt: >
+        How do I color my circle layer based on a numeric population
+        property, so bigger values are darker?
+    assert:
+      - type: llm-rubric
+        value: >
+          Answers the data-driven styling question — an `interpolate` or
+          `step` expression on `circle-color` keyed to the property. Must
+          NOT claim the user needs to fix `source-layer`, TileJSON, layer
+          order, CORS, or `glyphs` to accomplish this, and must not treat
+          this as a blank-map or non-rendering problem.
+
+  - description: explicit — naming published tile schemas and their doc URLs
+    vars:
+      prompt: >
+        I'm writing style layers against an unfamiliar vector tile source
+        and need to know the possible source-layer names. What are the
+        major published vector tile schemas I should check, and where are
+        their layer lists documented?
+    assert:
+      - type: llm-rubric
+        value: >
+          Must name at least two of OpenMapTiles, Shortbread, and Protomaps
+          as major published vector tile schemas. Must give an actual
+          documentation URL for at least one of them (e.g.
+          openmaptiles.org/schema, shortbread-tiles.org, or
+          docs.protomaps.com/basemaps/layers), not just a vague "check the
+          provider's docs." Must not present a fabricated schema name or a
+          URL that does not correspond to a real published schema.
+
+  - description: implicit — literal {z}/{x}/{y} template fetched directly is not a server outage
+    vars:
+      prompt: >
+        My vector source uses tiles: ['https://tiles.example.com/{z}/{x}/{y}.pbf'].
+        I pasted that exact URL into my browser address bar to check it
+        works, and got an HTTP 500 error. Does this mean the tile server is
+        down or broken?
+    assert:
+      - type: llm-rubric
+        value: >
+          Must explain that {z}/{x}/{y} is a template MapLibre substitutes
+          with real tile coordinates before making a request, and is never
+          meant to be fetched literally with the placeholders still in
+          place. Must state that an error response (500 or otherwise) to
+          the literal, unsubstituted URL does not indicate the tile server
+          or source is broken. Must recommend testing with a real
+          coordinate substituted in (e.g. .../0/0/0.pbf) instead.
+
+  - description: implicit — raster tileSize defaults to 512, classic OSM tiles are 256
+    vars:
+      prompt: >
+        I'm adding tile.openstreetmap.org as a raster source in MapLibre:
+        { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'] }.
+        Is anything missing before this will render correctly?
+    assert:
+      - type: icontains
+        value: '256'
+      - type: llm-rubric
+        value: >
+          Must state that MapLibre's raster `tileSize` defaults to 512, but
+          classic OpenStreetMap tiles are 256px, and that this source needs
+          `tileSize: 256` set explicitly. Must explain the consequence of
+          omitting it: the map renders at the wrong effective zoom level
+          (imagery and labels appear a zoom level off) with no error or
+          warning. Must not claim `tileSize` is unnecessary or that
+          MapLibre auto-detects it from the tile response.
+
+  - description: anti-pattern — a glyph URL is not a vector tile source (the .pbf collision)
+    vars:
+      prompt: >
+        My style's glyphs property points to
+        https://example.com/fonts/{fontstack}/{range}.pbf. Since it's
+        already working and ends in .pbf, can I also register that same
+        URL as a vector tile source, or do I need a separate one for
+        tiles?
+    assert:
+      - type: llm-rubric
+        value: >
+          Must say no — a glyphs URL is not a tile source, despite sharing
+          the `.pbf` extension with vector tile templates. Must explain the
+          two templates encode structurally different things:
+          `{fontstack}/{range}.pbf` is a font glyph range, `{z}/{x}/{y}.pbf`
+          is a tile coordinate. Must state that a vector tile source needs
+          its own separate `tiles`/`url` pointing at an actual tile
+          endpoint, not the glyphs URL.
+
+  - description: implicit — a whole style document is not itself a source
+    vars:
+      prompt: >
+        I found a style JSON online (it has version, sources, layers,
+        sprite, and glyphs) and I just want to reuse one of its background
+        layers on top of my own basemap. Can I add the whole style JSON as
+        a source in my map?
+    assert:
+      - type: llm-rubric
+        value: >
+          Must say no — a style document is not a source; it is a
+          top-level configuration object that itself contains sources.
+          Must explain the correct approach: extract the specific value or
+          layer you want, or add one of the style's own referenced sources
+          if you need its tile data, rather than registering the whole
+          style document as a source.
+
+  - description: implicit — a mapbox:// URL is not directly usable in MapLibre
+    vars:
+      prompt: >
+        A colleague sent me mapbox://styles/mapbox/streets-v11 for us to
+        use as a vector source in our MapLibre map. Can we just drop that
+        URL into a vector source's `url` field?
+    assert:
+      - type: llm-rubric
+        value: >
+          Must say a `mapbox://` URL requires a Mapbox access token and the
+          Mapbox tile API, and will not resolve in MapLibre the way a plain
+          `https://` TileJSON URL does. Must not claim `mapbox://` URLs
+          work out of the box in MapLibre with no additional configuration.
+          Should point toward finding a non-Mapbox equivalent source.
+
+  - description: implicit — GeoParquet has no native MapLibre source, needs conversion
+    vars:
+      prompt: >
+        I have my dataset as GeoParquet (a .parquet file). Can I point a
+        MapLibre GeoJSON source's `data` field directly at it, or reference
+        it as a vector tile source?
+    assert:
+      - type: llm-rubric
+        value: >
+          Must state that MapLibre has no native GeoParquet source type,
+          and no source's `data`/`url` field can point at a `.parquet` file
+          directly. Must recommend converting it first — to GeoJSON for
+          small data, or to vector tiles/PMTiles via a tool such as
+          tippecanoe — before it can be used as a MapLibre source. Must not
+          claim MapLibre can read GeoParquet natively.
+
+  - description: implicit — setFeatureState silently does nothing without a feature id
+    vars:
+      prompt: >
+        I have a GeoJSON source of parcel polygons and I want to highlight one
+        on hover using map.setFeatureState(). Each feature has a `parcel_id`
+        in its properties. I call setFeatureState with that value and nothing
+        happens — no error in the console, the paint expression never picks
+        it up, and reading the state back comes up empty. What am I missing?
+    assert:
+      - type: icontains
+        value: promoteId
+      - type: llm-rubric
+        value: >
+          Must explain that feature state is keyed on a feature's `id`, which
+          is a top-level member of the GeoJSON feature object and is not the
+          same as a value inside `properties` — so these features have no id
+          and MapLibre has nothing to attach state to. Must give the fix as
+          setting `promoteId: 'parcel_id'` on the source so MapLibre uses that
+          property as the feature id (or, as an alternative, writing a
+          top-level `id` onto each feature). Must not attribute the silence
+          primarily to layer order, CORS, a missing `feature-state` paint
+          expression alone, or the source not being loaded yet.

@@ -1,5 +1,6 @@
 # Evals for the maplibre-tile-sources skill.
-# See evals/README.md for run commands and provider setup.
+# Run commands and provider setup: evals/README.md
+# Per-test verdicts and what has not been run: evals/results/maplibre-tile-sources.md
 
 description: Evals for the maplibre-tile-sources skill
 
@@ -48,58 +49,47 @@ tests:
           or vector tile pipeline as the primary solution without
           acknowledging that GeoJSON is a viable alternative here.
 
-  - description: implicit — custom style layers invisible against hosted tiles
+  - description: implicit — dataset outgrew GeoJSON without the user naming tiles
     vars:
       prompt: >
-        I'm using a hosted tile provider's style URL and everything looks
-        great. But when I try to write my own custom style against the same
-        tile source, none of my layers show up.
+        My parcel layer is a 180 MB GeoJSON file with around 400,000
+        polygons. The browser hangs for ages on load and sometimes the tab
+        just dies. I've already tried minifying the JSON. What now?
     assert:
-      - type: icontains
-        value: source-layer
       - type: llm-rubric
         value: >
-          Explains that the custom style's layer definitions must reference
-          `source-layer` names exactly as they appear in the tile source's
-          schema. Directs the developer to the TileJSON `vector_layers` field
-          as the authoritative list of available source-layer names. Explains
-          that the provider's pre-built style already has these matched and
-          that building a custom style requires knowing the schema.
+          Must identify that this dataset is far past what a GeoJSON source
+          can handle — the whole file downloads and parses in the browser on
+          every load — and that no amount of minification fixes that.
+          Must recommend vector tiles as the answer, naming a generation
+          tool (tippecanoe or Planetiler). Must not offer only incremental
+          GeoJSON optimizations (simplifying geometry, trimming coordinate
+          precision, pagination) as the primary fix at this size.
 
-  - description: anti-pattern — addLayer covering basemap labels
+  - description: anti-pattern — merging basemap and application data into one tileset
     vars:
       prompt: >
-        I added my GeoJSON data layer with map.addLayer() and it shows up,
-        but it's drawn on top of all the street names and labels.
-        How do I fix the layer order?
-    assert:
-      - type: icontains
-        value: symbol
-      - type: llm-rubric
-        value: >
-          Explains that `map.addLayer()` without a second argument appends
-          the layer above everything including labels. Shows the correct fix:
-          find the first layer with type `symbol` in the style, and pass
-          its ID as the second argument to `map.addLayer()` to insert the
-          data layer below labels. Must not only give hardcoded label layer
-          IDs from a specific provider's style (e.g. 'road-label') as the
-          primary answer — the programmatic approach works across any style.
-
-  - description: implicit — no text labels in custom style
-    vars:
-      prompt: >
-        I set up a custom MapLibre style that points to my self-hosted tile
-        server. The map loads and the tiles are rendering correctly, but
-        there are no text labels anywhere on the map. What am I missing?
+        I want my roads, water, labels, and my own delivery-zone polygons
+        all in a single vector tileset so the map only hits one source.
+        What's the best pipeline to merge OpenStreetMap data with my
+        polygons and build that combined tileset?
     assert:
       - type: llm-rubric
         value: >
-          Must explain that text labels in MapLibre require a `glyphs`
-          property at the root of the style, pointing to a font SDF endpoint
-          in the format `{fontstack}/{range}.pbf`. Must not focus primarily
-          on CORS or tile loading issues as the cause, since the user has
-          confirmed tiles are rendering correctly. May also mention `sprite`
-          as required for icons and symbols.
+          Must push back on merging application data into the basemap
+          tileset rather than simply supplying the requested pipeline.
+          Must explain that the basemap and the user's own data are
+          normally separate sources: a style can hold any number of
+          sources, the basemap supplies context while the user's source
+          supplies their data, and merging means regenerating the whole
+          tileset whenever the user's data changes. Must describe the
+          standard pattern instead — a hosted basemap style URL or vector
+          source, plus the delivery zones as a separate GeoJSON or vector
+          source. May acknowledge one narrow exception — a self-contained
+          artifact that must render with no network and no second file,
+          such as an offline or air-gapped deployment. Must NOT offer
+          self-hosting, bundle size, a demo, or a proof-of-concept as
+          reasons the merge is justified.
 
   - description: negative — small dataset, no tile server needed
     vars:
@@ -114,3 +104,57 @@ tests:
           vector tile infrastructure. Must not recommend setting up a tile
           server, PMTiles pipeline, or tile generation workflow for a
           dataset this small. May suggest GeoJSON source or markers.
+
+  - description: implicit — georeferencing a scanned image, not a tile or GeoJSON source
+    vars:
+      prompt: >
+        I have a scanned 1920s map of my city as a JPG, and I know the
+        lat/lon coordinates of its four corners. I want to overlay it on my
+        MapLibre map at the correct location and let users toggle its
+        opacity. What's the right way to add this?
+    assert:
+      - type: icontains
+        value: coordinates
+      - type: llm-rubric
+        value: >
+          Must recommend MapLibre's `image` source type, not a GeoJSON
+          source and not a raster tile source. Must mention specifying the
+          four corner `coordinates` for georeferencing. Must not recommend
+          converting the scanned map into a raster tileset as the primary
+          approach for a single one-off image. May mention `raster-opacity`
+          on the resulting raster layer for the opacity toggle.
+
+  - description: explicit — vector tiles for a restylable basemap, not raw performance
+    vars:
+      prompt: >
+        I want to offer both a light and dark theme for my basemap,
+        switchable at runtime, without hosting two separate sets of tiles.
+        What tile type should my basemap use?
+    assert:
+      - type: icontains
+        value: vector
+      - type: llm-rubric
+        value: >
+          Must recommend vector tiles, and must justify it specifically by
+          the ability to restyle client-side without regenerating or
+          re-hosting the underlying tile data. Must explain that raster
+          tiles are pre-rendered images baked with one look, so a second
+          theme would require generating and hosting a second raster
+          tileset. Must not recommend raster tiles as the primary answer.
+
+  - description: implicit — Leaflet cannot render vector tiles natively
+    vars:
+      prompt: >
+        My app is built on Leaflet and I want to add a MapLibre-style
+        vector tile basemap to it. Is that possible, and how?
+    assert:
+      - type: icontains
+        value: maplibre-gl-leaflet
+      - type: llm-rubric
+        value: >
+          Must state that Leaflet itself only renders raster tiles and
+          cannot directly consume a vector tile source. Must recommend a
+          MapLibre-to-Leaflet integration (such as the maplibre-gl-leaflet
+          plugin) that renders the MapLibre style and displays it as a
+          raster layer inside Leaflet. Must not claim Leaflet can natively
+          render vector tiles without such a plugin.
