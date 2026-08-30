@@ -1,0 +1,45 @@
+# The repositories the release watch reads, and why each one is on the list.
+#
+# Explicit and reviewable on purpose. Deriving it from the MapLibre org would
+# miss the ecosystem projects our skills make claims about (Protomaps,
+# tippecanoe, planetiler) and would pull in org repos no skill touches.
+#
+# Adding an entry: name the repo, and say which skill's claims depend on it. If
+# it has no skill surface, it does not belong here.
+#
+# Read by scripts/lib/release-watch.js, which understands a deliberately small
+# slice of YAML: a `watch:` list of entries, each a flat map of scalar values
+# (repo, why, enabled, note). A quoted value may wrap onto following lines; no
+# block scalars, no nesting.
+
+watch:
+  - repo: maplibre/maplibre-gl-js
+    why: 'Every skill except maplibre-skill-authoring calls the GL JS API; maplibre-mapbox-migration, maplibre-v6-migration, maplibre-pmtiles-patterns and maplibre-fonts-glyphs also carry its import paths and CDN bundle names.'
+
+  - repo: maplibre/maplibre-style-spec
+    why: 'maplibre-cartography, maplibre-terrain-patterns and maplibre-fonts-glyphs name style properties, expressions, source types (raster-dem) and the glyphs URL template that the spec defines.'
+
+  - repo: maplibre/maplibre-native
+    why: 'maplibre-fonts-glyphs names the Native-only font-faces property, the Android and iOS versions that ship it, and the open issue for local-font fallback (maplibre-native#165).'
+
+  - repo: maplibre/martin
+    why: 'maplibre-pmtiles-patterns says Martin serves PMTiles from local paths, HTTP URLs and S3 and names martin-cp; maplibre-tile-sources says Martin exposes MBTiles/PMTiles metadata as TileJSON; maplibre-cartography lists it as a sprite generator.'
+
+  - repo: maplibre/maplibre-tile-spec
+    why: 'maplibre-tile-sources and maplibre-mapbox-migration name MLT as a vector tile format and link the spec.'
+
+  - repo: felt/tippecanoe
+    why: 'maplibre-pmtiles-patterns gives tippecanoe command lines (-zg, -o, -z) and says PMTiles output arrived in v2.17; maplibre-tile-sources recommends it for vector tiles.'
+
+  - repo: onthegomap/planetiler
+    why: 'maplibre-pmtiles-patterns gives a planetiler command line (--area, --output) and names the OpenMapTiles schema; maplibre-tile-sources recommends it for vector tiles from OSM.'
+
+  # Protomaps publishes the PMTiles specification and the JavaScript library, but
+  # this repository has no GitHub Releases and no tags at all (verified against
+  # the API 2026-08-28), so there is nothing for the watch to read. The PMTiles
+  # claims in maplibre-pmtiles-patterns are watched indirectly through GL JS.
+  # Enable this entry if Protomaps starts cutting releases here.
+  - repo: protomaps/PMTiles
+    enabled: false
+    note: 'publishes no GitHub Releases or tags; nothing to watch yet'
+    why: 'maplibre-pmtiles-patterns depends on the PMTiles archive spec, protocol registration and the js library API.'
