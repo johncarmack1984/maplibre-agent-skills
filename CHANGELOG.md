@@ -4,6 +4,12 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ## [Unreleased]
 
+<!-- bump: minor -->
+
+### Added
+
+- `maplibre-tile-sources`: rewritten against a revised eval rubric; `maplibre-source-wiring`: added; `maplibre-running-evals`: added; links and cross-references modified across the whole collection ([#69](https://github.com/maplibre/maplibre-agent-skills/pull/69))
+
 ## [0.2.0] - 2026-08-30
 
 ### Added
