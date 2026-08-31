@@ -1,5 +1,7 @@
 # Eval Results: maplibre-terrain-patterns
 
+> **Superseded.** This skill was replaced by `maplibre-terrain-rendering` (#78); the DEM-source half of the split was drafted, probed, and withdrawn because every one of its tests passed at baseline (`evals/results/maplibre-dem-sources.md`). The measurements below stand as the evidence for the split — in particular the with-skill request sizes against Groq's 8,000 TPM window — and the three baseline FAILs are carried into `evals/results/maplibre-terrain-rendering.md`. Nothing here is re-run.
+
 Canonical results table for this skill. Baseline is the same prompt with the skill omitted (`--var injectSkill=false`). See `evals/prompts/maplibre-terrain-patterns.yaml`.
 
 Model `groq:openai/gpt-oss-120b` · judge `google:gemini-2.5-flash-lite` · `npm run eval:graded`. Raw CSVs under [`latest/`](latest/), matching `maplibre-terrain-patterns-*`. Re-run 2026-08-28 on the Groq pin, replacing the 2026-07-03 Cerebras run (#64).
