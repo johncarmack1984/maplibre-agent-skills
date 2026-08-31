@@ -2,27 +2,27 @@
 
 Canonical results table for this skill. Baseline is the same prompt with the skill omitted (`--var injectSkill=false`). See `evals/prompts/maplibre-pmtiles-patterns.yaml`.
 
-Model `groq:openai/gpt-oss-120b` · judge `google:gemini-2.5-flash-lite` · `npm run eval:graded`. Raw CSVs under [`latest/`](latest/), matching `maplibre-pmtiles-patterns-*`. Re-run 2026-08-28 on the Groq pin, replacing the 2026-07-03/04 Cerebras run (#64).
+Run: 2026-08-30 · model `groq:openai/gpt-oss-120b` · judge `google:gemini-2.5-flash-lite` · `npm run eval:graded`. Raw CSVs under [`latest/`](latest/), matching `maplibre-pmtiles-patterns-*_2026-08-30`. The 2026-08-28 CSVs are kept alongside.
 
-| #   | Test                                           | Type         | Baseline (no skill)                                                   | With skill                                                                    |
-| --- | ---------------------------------------------- | ------------ | --------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| 1   | Loading a PMTiles file                         | Explicit     | PASS — on concept; the code is invented, see below                    | **PASS** — `new pmtiles.Protocol()` + `addProtocol('pmtiles', protocol.tile)` |
-| 2   | Serverless tile hosting on GitHub Pages        | Implicit     | **FAIL** — pre-cut `.pbf`/`.png` tile trees; never PMTiles            | **PASS** — single `.pmtiles` file, range requests, `url:` source              |
-| 3   | addProtocol broke after upgrading to v4        | Anti-pattern | PASS — the v4 signature is known, see below                           | **PASS** — return `{ data }`, no callback                                     |
-| 4   | Inspect a PMTiles file before deploying        | Explicit     | **FAIL** — `pmtiles show` yes, `pmtiles verify` never                 | **PASS** — `pmtiles show` + `pmtiles verify`                                  |
-| 5   | Wrong tool for live PostGIS data               | Negative     | PASS                                                                  | PASS                                                                          |
-| 6   | tiles array bypasses PMTiles header zoom range | Anti-pattern | PASS — cause and fix right, with an invented `tileset` key, see below | **PASS** — header never read → default `maxzoom: 22`; `url: 'pmtiles://…'`    |
+| #   | Test                                           | Type         | Baseline (no skill)                                                                                                             | With skill                                                                                                        |
+| --- | ---------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| 1   | Loading a PMTiles file                         | Explicit     | **FAIL** — hand-rolled `addProtocol('pmtiles', (request) => pmtiles.get(request))`; host-less `pmtiles://my-pmtiles-source` URL | **PASS** — `new pmtiles.Protocol()` + `addProtocol('pmtiles', protocol.tile)`                                     |
+| 2   | Serverless tile hosting on GitHub Pages        | Implicit     | **FAIL** — pre-cut raster and vector tile trees; never PMTiles, never range requests                                            | **PASS** — single `.pmtiles` file, range requests, `url:` source                                                  |
+| 3   | addProtocol broke after upgrading to v4        | Anti-pattern | **FAIL** — right on the Promise shape, then "`map.addProtocol()` still exists in v4"; the `map.addProtocol` tripwire fired      | **PASS** — global `maplibregl.addProtocol`, handler resolving to `{data}`                                         |
+| 4   | Inspect a PMTiles file before deploying        | Explicit     | **FAIL** — never `pmtiles show` or `pmtiles verify`; invents `pmtiles info`                                                     | **PASS** — `pmtiles show` + `pmtiles verify`                                                                      |
+| 5   | Wrong tool for live PostGIS data               | Negative     | PASS                                                                                                                            | PASS                                                                                                              |
+| 6   | tiles array bypasses PMTiles header zoom range | Anti-pattern | **FAIL** — invents `pmtiles set-metadata … maxzoom` and `pmtiles info`, and tells the reader to regenerate at a higher zoom     | **PASS** — header never read → default `maxzoom: 22`; `url: 'pmtiles://…'` → overzoom of the deepest stored tiles |
 
-**Result: two gaps demonstrated closed (2, 4); three tests now pass at baseline and are not gap evidence; the negative holds.** With-skill 6 of 6. `status: verified` was set on the Cerebras run, where all four gap tests failed at baseline; what it rests on now is narrower.
+**Result: 5 FAIL / 1 PASS at baseline, 6 PASS with the skill. Every non-negative test fails at baseline and passes with the skill; the negative holds in both directions. `status: verified` is set.**
 
-## Tests 1, 3, 6: passing at baseline, not equally
+## What the rubrics guard against
 
-- **Test 3 is a closed gap.** The v4 `addProtocol` change is simply known: v3 `(params, callback)` against v4 `(params, abortController)` returning a Promise, with the v3 form shown only as the broken code.
-- **Test 1 passes on concept with invented code.** `addProtocol('pmtiles', (request) => pmtiles.get(request))` as the handler, "MapLibre GL JS ≥ 2.4 already knows how to treat `pmtiles://` URLs", and `pmtiles info` for the CLI. The judge passed it. The skill's `new pmtiles.Protocol()` + `protocol.tile` still corrects a wrong answer, but the rubric does not pin that shape.
-- **Test 6 passes on the causal story** (a `tiles` template bypasses the archive's metadata, so zooms the archive lacks get requested; fix with `url:`) while inventing a `tileset` key as an alias for `url` and never naming the default `maxzoom: 22` the rubric asks for.
+Three tests once passed at baseline on invented code because their rubrics scored the concept, not the code. Each now names the real API beside a tripwire for the invented one, and the tripwires are doing work the rubric text alone did not (tests 3 and 4 fail at baseline on their tripwire alone; the judge passed both rubrics):
 
-Whether to tighten the rubrics for 1 and 6 to the distinguishing shapes, or to drop test 3 as a non-gap, is a maintainer call.
+- **Test 1** — `protocol.tile` and the `Protocol` class from `pmtiles`; tripwire `not-icontains: pmtiles.get(`. Verified against [`js/src/adapters.ts`](https://github.com/protomaps/PMTiles/blob/main/js/src/adapters.ts).
+- **Test 3** — the v4 handler shape (`async (params, abortController)` resolving to `{data}`) on the module-level `maplibregl.addProtocol`; tripwire `not-icontains: map.addProtocol`. Verified against [`src/source/protocol_crud.ts`](https://github.com/maplibre/maplibre-gl-js/blob/main/src/source/protocol_crud.ts).
+- **Test 6** — the answer must say that with the archive's own `maxzoom` supplied MapLibre **overzooms** the deepest stored tiles, and must not patch the archive's metadata; tripwires `not-icontains` for `pmtiles inspect`, `set-metadata`, `pmtiles info`, and `tileset:`. go-pmtiles has none of those subcommands (`main.go` declares `show`, `tile`, `cluster`, `edit`, `extract`, `merge`, `convert`, `verify`, `serve`, `upload`, `version`).
 
 ## Truncation
 
-Groq stops this model at 3,072 completion tokens (`finish_reason: length`), at `max_tokens` 8192 and 4096 alike. Eight of twelve completions here hit it, always inside a trailing troubleshooting table or example after the graded substance. The two FAILs (tests 2 and 4) are content misses stated early in each answer.
+Groq stops this model at 3,072 completion tokens (`finish_reason: length`). Most completions here hit it, always inside a trailing troubleshooting table or extended example after the graded substance. Both test 6 completions (baseline 7,924 characters, with-skill 9,799) ran to a natural end. Every FAIL is a miss or an error in the delivered text, not a cut-off answer.

@@ -2,35 +2,25 @@
 
 Canonical results table for this skill. Baseline is the same prompt with the skill omitted (`--var injectSkill=false`). See `evals/prompts/maplibre-mapbox-migration.yaml`.
 
-Model `groq:openai/gpt-oss-120b` · judge `google:gemini-2.5-flash-lite` · `npm run eval:graded`. Raw CSVs under [`latest/`](latest/), matching `maplibre-mapbox-migration-*`. Re-run 2026-08-28 on the Groq pin, replacing the Cerebras-era full-transcript doc [`example-mapbox-migration.md`](example-mapbox-migration.md) (#64).
+Run: 2026-08-30 · model `groq:openai/gpt-oss-120b` · judge `google:gemini-2.5-flash-lite` · `npm run eval:graded`. Raw CSVs under [`latest/`](latest/), matching `maplibre-mapbox-migration-*_2026-08-30`; the 2026-08-28 CSVs are kept alongside. The full-transcript Cerebras-era doc is [`example-mapbox-migration.md`](example-mapbox-migration.md).
 
-| #   | Test                                                 | Type         | Baseline (no skill)                                                                         | With skill                                                      |
-| --- | ---------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| 1   | CLI tool to validate exported style JSON             | Explicit     | **FAIL** — invents `@maplibre/style-spec` and a `style-spec` CLI; never `gl-style-validate` | **PASS** — `@maplibre/maplibre-style-spec`, `gl-style-validate` |
-| 2   | Tile source with no API key during migration         | Implicit     | **FAIL** — demo style, Carto Positron, OSM raster; never OpenFreeMap                        | **PASS** — OpenFreeMap                                          |
-| 3   | Mapbox v2 features (`setFog`) broken after migration | Anti-pattern | PASS — failed green, see below                                                              | **PASS** — with a defect, see below                             |
-| 4   | Which Mapbox plugins still work in MapLibre          | Implicit     | **FAIL** — an "Awesome MapLibre" repo in passing, not as the list                           | **PASS** — awesome-maplibre                                     |
-| 5   | Geocoder for an existing Mapbox GL JS v2 app         | Negative     | PASS                                                                                        | **FAIL** — over-applies, see below                              |
+| #   | Test                                                 | Type         | Baseline (no skill)                                                                                                            | With skill                                                                                                                                                                                                      |
+| --- | ---------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | CLI tool to validate exported style JSON             | Explicit     | **FAIL** — never `gl-style-validate`                                                                                           | **PASS** — `@maplibre/maplibre-style-spec`, `gl-style-validate`                                                                                                                                                 |
+| 2   | Tile source with no API key during migration         | Implicit     | **FAIL** — Mapbox-hosted styles, OpenMapTiles, OSM raster, the demo style; never OpenFreeMap                                   | **PASS** — OpenFreeMap                                                                                                                                                                                          |
+| 3   | Mapbox v2 features (`setFog`) broken after migration | Anti-pattern | **FAIL** — "MapLibre GL JS v2 includes `map.setFog()`", terrain exaggeration and `sky` claimed for v2, `maplibre-gl@2` advised | **PASS** — no `setFog` in any version; `setSky` / the `sky` block; `setFreeCameraOptions`/`getFreeCameraOptions` named absent → `calculateCameraOptionsFromCameraLngLatAltRotation` + `jumpTo`/`easeTo`/`flyTo` |
+| 4   | Which Mapbox plugins still work in MapLibre          | Implicit     | **FAIL** — general compatibility advice, never awesome-maplibre                                                                | **PASS** — awesome-maplibre                                                                                                                                                                                     |
+| 5   | Geocoder for an existing Mapbox GL JS v2 app         | Negative     | PASS                                                                                                                           | PASS — stays on Mapbox GL JS v2, names `MapboxGeocoder` and token-free alternatives                                                                                                                             |
 
-**Result: three gaps demonstrated closed (1, 2, 4); test 3 is not evidence either way; the negative over-applies.** The launch bar is not cleanly cleared on this pin. `status: verified` was set on the Cerebras run and is left for a maintainer to keep or drop.
+**Result: 4 FAIL / 1 PASS at baseline, 5 PASS with the skill. Every non-negative test fails at baseline and passes with the skill; the negative holds in both directions. `status: verified` is set.**
 
-## Test 3: failed green in both directions
+## What the rubrics guard against
 
-The baseline passes, and should not have. It invents a "MapLibre GL JS v2 (v2-compatible branch)" that "reintroduces" `map.setFog()` with "the same API as Mapbox GL JS v2", and never states the v1.13 fork. The judge accepted that as fact ("accurately notes that MapLibre GL JS v2.x has reintroduced features like fog"), and the `icontains: v1.13` tripwire matched an unrelated "sky layer (available in v1.13+)". This is the anti-pattern the test exists to catch, scored as success.
+- **Test 3** — a fog API that does not exist. Answers on both sides once invented `map.setFog()` and `map.setFreeCameraOptions()` for MapLibre and the judge accepted them. The rubric now requires the real replacements by name — the root-level `sky` block and `map.setSky()` (`icontains: setSky`), and `calculateCameraOptionsFromCameraLngLatAltRotation` with `jumpTo`/`easeTo`/`flyTo` for the free camera — and forbids each invented claim. Checked against [`src/ui/map.ts`](https://github.com/maplibre/maplibre-gl-js/blob/main/src/ui/map.ts) and the [`sky`](https://maplibre.org/maplibre-style-spec/sky/) spec. A `not-icontains: setFreeCameraOptions` tripwire would fail correct answers, which have to name the method in order to say it is absent, so the must-not is carried by the rubric. The skill's step 9 is the two-row mapping this test asks for.
+- **Test 5** — the negative must score the positive. "Does not bring up library migration" failed an answer that stayed on Mapbox GL JS v2 and merely noted a token-free geocoder also works with MapLibre. The rubric now asks for a geocoder that works with the app as it stands and forbids only recommending a library switch.
 
-The with-skill answer states the December 2020 v1.13 fork correctly, then does the same thing in miniature: its comparison table says fog was "added back in MapLibre v5" and it ships `map.setFog({…})` for `maplibre-gl@^5`. MapLibre GL JS has `map.setSky()` and no `setFog` (`src/ui/map.ts`), and the skill never mentions fog or sky.
-
-Two follow-ups, both for reviewer sign-off rather than this PR:
-
-- The rubric needs a positive clause the hallucination cannot satisfy: must not claim MapLibre provides `setFog` or a v2-compatible branch, paired with must name `setSky` / the `sky` style property as the equivalent.
-- The Mapbox `setFog` → MapLibre `sky` / `setSky()` mapping is a candidate skill addition. Probe at baseline first; on this evidence it fails there.
-
-The Cerebras-era record scored this test 0.00 at baseline and 1.00 with the skill.
-
-## Test 5: the negative over-applies
-
-The answer addresses the Mapbox GL JS v2 question (Mapbox-provided geocoder → open-source controls such as `maplibre-gl-geocoder` used with `mapboxgl` → DIY), but migration surfaces as asides ("or are already planning to move to MapLibre", "cut costs or move to an open-source stack"), and the chain-of-thought the judge reads says "if you want open-source, you can switch to MapLibre GL JS". Scored 0.00 against a rubric that forbids bringing up migration. Cerebras-era: 1.00. Left as-is rather than loosened.
+Passes are on the rubric's terms: the test 3 with-skill answer still adds unchecked claims outside them (`sky` "experimental in v5", `calculateCameraOptionsFromTo` as an "older" helper).
 
 ## Truncation
 
-Groq stops this model at 3,072 completion tokens (`finish_reason: length`), at `max_tokens` 8192 and 4096 alike. Eight of ten completions here hit it. Every FAIL is a content miss present in the delivered text: test 1 names its packages up front, test 2 enumerates its sources in full, and test 4's only mention of the list is mid-answer.
+Groq stops this model at 3,072 completion tokens (`finish_reason: length`). Most completions here hit it, inside a trailing checklist or example. Test 1's with-skill answer (6,216 characters) and test 3's (10,771) both ran to a natural end. Every FAIL is a content miss present in the delivered text.
