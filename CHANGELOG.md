@@ -4,6 +4,12 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ## [Unreleased]
 
+<!-- bump: patch -->
+
+### Changed
+
+- evals: rubrics for `maplibre-mapbox-migration` and `maplibre-pmtiles-patterns` now fail invented APIs; `maplibre-mapbox-migration` gains the Mapbox v2 → MapLibre API mapping, and both skills move to `verified` ([#85](https://github.com/maplibre/maplibre-agent-skills/pull/85))
+
 ## [0.2.0] - 2026-08-30
 
 ### Added
