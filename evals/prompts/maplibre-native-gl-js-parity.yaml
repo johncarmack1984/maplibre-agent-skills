@@ -1,0 +1,291 @@
+# Evals for the maplibre-native-gl-js-parity skill.
+# See evals/README.md for run commands and provider setup.
+#
+# Two probe classes:
+#   A — a MapLibre GL JS feature MapLibre Native does not have, which a
+#       GL-JS-trained model hands to a mobile developer anyway.
+#   B — a feature MapLibre Native does have, which a model trained on older
+#       material denies or misdates.
+# Every release boundary below is a CHANGELOG line under a release heading in
+# platform/android/CHANGELOG.md or platform/ios/CHANGELOG.md at maplibre-native
+# main; every absence is an open js-parity issue with no contradicting
+# CHANGELOG entry. Latest releases at authoring time: android-v13.6.0
+# (2026-08-28), ios-v6.29.0 (2026-08-23).
+#
+# Every `not-icontains` value is a string a baseline run actually produced,
+# checked against maplibre-native or the style specification and found not to
+# exist there. See evals/results/maplibre-native-gl-js-parity.md.
+
+description: Evals for the maplibre-native-gl-js-parity skill
+
+prompts:
+  - file://lib/skill-prompt.mjs
+
+providers:
+  - file://lib/providers.yaml
+
+evaluateOptions:
+  delay: 500
+
+defaultTest:
+  vars:
+    skillFile: skills/maplibre-native-gl-js-parity/SKILL.md
+
+tests:
+  - description: explicit — class A — addProtocol has no MapLibre Native equivalent
+    vars:
+      prompt: >
+        Android, Kotlin, MapLibre Native. Our tiles sit in an encrypted blob on
+        the device. I want the style JSON to reference them as
+        `vault://tiles/{z}/{x}/{y}` and have my own code decrypt each tile and
+        hand back the bytes. On the web I do this with
+        `maplibregl.addProtocol`. What is the equivalent on Android?
+    assert:
+      - type: not-icontains
+        value: 'HttpRequestHandler'
+      - type: llm-rubric
+        value: >
+          Must state that MapLibre Native has no `addProtocol` equivalent: an
+          application cannot register a new URL scheme, and the request is
+          tracked in maplibre-native#3562, still open as of android-v13.6.0 /
+          ios-v6.29.0. Must state or imply that the set of non-HTTP schemes
+          MapLibre Native recognizes is fixed — `asset://`, `file://`,
+          `mbtiles://`, `pmtiles://` — and not extensible by the app. Must not
+          present any Android symbol as a working protocol registration: not
+          `MapLibre.addProtocol`, `MapLibreMap.addProtocol`,
+          `Style.addProtocol`, nor an invented request-handler interface that
+          returns tile bytes to the renderer. Must not claim
+          `FileSource.setResourceTransform` can return tile bytes — its
+          `ResourceTransformCallback.onURL(kind, url)` returns a replacement
+          URL string, so it can reroute a request but never serve data. Must
+          name at least one workaround that actually exists: rewriting URLs
+          with `FileSource.setResourceTransform`, serving the decrypted tiles
+          from a loopback HTTP server inside the app, or repackaging the tiles
+          as a local `mbtiles://` / `pmtiles://` / `file://` / `asset://`
+          archive. Must not claim a plugin or third-party library adds custom
+          schemes to MapLibre Native.
+
+  - description: implicit — class A — globe projection is in no MapLibre Native release
+    vars:
+      prompt: >
+        iOS, Swift, `MLNMapView`. Our style JSON has this at the top level:
+        `"projection": {"type": "globe"}`. In the browser the same style
+        renders as a globe; in the app the map stays flat however far I zoom
+        out. I am on the newest MapLibre iOS from Swift Package Manager. What
+        do I change to get the globe?
+    assert:
+      - type: not-icontains
+        value: 'MLNProjectionType'
+      - type: not-icontains
+        value: 'Projection::Globe'
+      - type: llm-rubric
+        value: >
+          Must state that globe projection is not available in MapLibre
+          Native: no released version has it, up to and including ios-v6.29.0
+          (2026-08-23) and android-v13.6.0 (2026-08-28). Must name
+          maplibre-native#3161 as the tracking issue, and must not supply an
+          invented issue number or a placeholder standing in for one. Must
+          make clear that MapLibre Native renders Web Mercator only, that the
+          style's `projection` key therefore has no effect, and that no code
+          change, `MLNMapView` property, style edit, or version upgrade turns
+          it on today. Must not state or imply a planned release, a roadmap
+          position, or an ETA for globe in MapLibre Native. Must not present a
+          MapLibre Native projection API as existing, in the platform SDK or
+          in the C++ core, even as the shape a future implementation would
+          take. Must not present switching to Mapbox's proprietary Maps SDK as
+          the recommended remedy. Proposing a genuinely different approach —
+          stay on the Mercator map, or render the globe view in a web view
+          with MapLibre GL JS — is acceptable.
+
+  - description: anti-pattern — class A — porting setTerrain to Kotlin
+    vars:
+      prompt: >
+        I am porting our web map to Android (Kotlin, MapLibre Native). This is
+        the web code I need to reproduce: `map.addSource('dem', {type:
+        'raster-dem', url: 'https://example.com/terrain.json'})` followed by
+        `map.setTerrain({source: 'dem', exaggeration: 1.5})`. Give me the
+        Kotlin that does the same thing against `MapLibreMap` / `Style`.
+    assert:
+      - type: not-icontains
+        value: 'android-sdk-extensions'
+      - type: llm-rubric
+        value: >
+          Must state that MapLibre Native has no 3D terrain: `setTerrain` and
+          the style's `terrain` block have no equivalent in any released
+          Android or iOS version (android-v13.6.0 / ios-v6.29.0 are the
+          latest), and the request is tracked in maplibre-native#252. Must not
+          hand back a Kotlin `setTerrain` call or any invented terrain symbol
+          — not `Style.setTerrain`, `MapLibreMap.setTerrain`, `TerrainOptions`,
+          a `Terrain(...)` constructor, an `exaggeration(...)` builder method,
+          nor a `terrain` property on `MapLibreMap` — presented as working
+          code. Must not claim a newer MapLibre Native release, a switch of
+          rendering backend (Vulkan, Metal, OpenGL ES), or a custom layer
+          provides `setTerrain`. Offering the shading substitutes that do
+          exist from the same `raster-dem` source is correct and welcome — a
+          `hillshade` layer, or the `color-relief` layer available since
+          android-v13.0.0 / ios-v6.24.0 — provided the answer says plainly
+          that these shade a flat map and do not displace geometry into a 3D
+          mesh.
+
+  - description: implicit — class A — interpolate-hcl silently drops the layer on Native
+    vars:
+      prompt: >
+        One style JSON, shared between our web app and our Android app. On
+        Android this layer never draws, while every other layer in the style
+        is fine and there is no crash: `{"id": "density", "type": "fill",
+        "source": "tracts", "source-layer": "tracts", "paint": {"fill-color":
+        ["interpolate-hcl", ["linear"], ["get", "density"], 0, "#f7fbff",
+        5000, "#08306b"]}}`. The same style is correct in the browser. Where
+        do I look?
+    assert:
+      - type: not-icontains
+        value: 'MapboxLogger'
+      - type: llm-rubric
+        value: >
+          Must identify `interpolate-hcl` as the cause: MapLibre Native does
+          not implement `interpolate-hcl` or `interpolate-lab`, so this paint
+          property fails to parse and the layer does not render, while
+          MapLibre GL JS accepts it. Must cite the tracking issue
+          maplibre-native#2784, or state that the gap is still open as of
+          android-v13.6.0 / ios-v6.29.0. Must give the fix: swap in a plain
+          `["interpolate", ["linear"], ...]` ramp, adding intermediate stops
+          so the precomputed colors approximate the HCL path, rather than
+          asking MapLibre Native to interpolate in HCL or Lab. Must not claim
+          `interpolate-hcl` is supported in MapLibre Native, or that some
+          release of MapLibre Native added it and the fix is to upgrade. Must
+          answer for MapLibre Native, not for Mapbox's Maps SDK, and must not
+          give a Mapbox SDK version number as the boundary at which the
+          expression starts working. Must not blame the usual suspects instead
+          — a wrong `source-layer`, layer order, `fill-opacity`, a missing
+          `minzoom` / `maxzoom`, absent `density` values, or a tile-loading or
+          style-URL problem — as the explanation for the missing layer.
+
+  - description: anti-pattern — units — scaling a web style by display density
+    vars:
+      prompt: >
+        Android, MapLibre Native, Kotlin. I reused our web style verbatim and
+        the symbols come out the wrong size on a phone. So I wrote a pass over
+        the style JSON that multiplies every `text-size`, `circle-radius`,
+        `line-width`, and `icon-size` by `resources.displayMetrics.density`
+        before I load it. Is that the right fix?
+    assert:
+      - type: not-icontains
+        value: 'setPixelRatio'
+      - type: not-icontains
+        value: 'loadStyleUri'
+      - type: llm-rubric
+        value: >
+          Must say no, and explain why: MapLibre Native already applies the
+          display density itself. `MapView.getPixelRatio()` defaults to
+          `resources.displayMetrics.density` and MapLibre Native scales
+          rasterization by that pixel ratio, so multiplying the style values
+          by the same factor applies it twice — on a 3x phone a
+          `circle-radius` of 10 is drawn as if it were 30. Must tell the
+          reader to load the style unmodified and drop the scaling pass. Must
+          state that values the MapLibre Style Specification documents as
+          "pixels" are density-independent pixels (dp), not physical device
+          pixels, and must cite maplibre-style-spec#926 as where that wording
+          gap is tracked. Must not justify the rescale by claiming that
+          MapLibre Native reads the style specification's pixel unit as
+          physical device pixels while the web reads it as CSS pixels — that
+          is the misreading behind the bug, and MapLibre GL JS scales by
+          `devicePixelRatio` too. Must not present a `pixelRatio` style
+          expression, such as an `interpolate` over a `["pixelRatio"]` input:
+          the MapLibre Style Specification defines no such expression. Must
+          not present a runtime pixel-ratio setter on the map object —
+          MapLibre Android takes the ratio at construction, through
+          `MapLibreMapOptions.pixelRatio(float)`, and it already defaults to
+          the device's density. Must use MapLibre Android API names rather
+          than Mapbox Maps SDK ones. Must not endorse the
+          multiply-by-density pass, and must not offer a corrected scale
+          factor as the answer. If the answer addresses the size difference
+          the developer is actually seeing, it must do so by editing the
+          style's own values or using a zoom-dependent expression, not by
+          rescaling at load time.
+
+  - description: explicit — class B — color-relief exists on MapLibre Native
+    vars:
+      prompt: >
+        Android, MapLibre Native (Kotlin). I have Terrarium-encoded DEM tiles
+        and I want elevation-banded color under my vector layers — green
+        lowlands through brown to white peaks, with the breakpoints in the
+        style so our cartographer can tune them. Can I do that in a MapLibre
+        Android app, or do I have to pre-render colored raster tiles and ship
+        those instead?
+    assert:
+      - type: icontains
+        value: 'color-relief'
+      - type: not-icontains
+        value: '["band", 0]'
+      - type: llm-rubric
+        value: >
+          Must answer that this is possible in the style on MapLibre Native
+          and that pre-rendered colored raster tiles are not required. Must
+          name the `color-relief` layer type and its `color-relief-color`
+          paint property, driven by an `interpolate` expression over
+          `["elevation"]`, on a `raster-dem` source. Must give the release
+          boundary: the layer type is available in MapLibre Native from
+          android-v13.0.0 and ios-v6.24.0 (added by maplibre-native#3965,
+          "Update Hillshade Algorithms and add Color-Relief Layer support").
+          Must not claim elevation coloring or hypsometric tint is a MapLibre
+          GL JS-only feature, that MapLibre Native lacks it, or that a custom
+          layer or native rendering code is needed for it. Must not present
+          `raster-color`, `raster-value`, or `hillshade-color-ramp` as the
+          MapLibre property that does this, and must not build the answer
+          around decoding the Terrarium red, green, and blue channels in an
+          expression — MapLibre has no per-band accessor and the `raster-dem`
+          source already decodes elevation.
+
+  - description: explicit — class B — pmtiles:// is a built-in MapLibre Native scheme
+    vars:
+      prompt: >
+        iOS, Swift, MapLibre Native. Our basemap is one 3 GB `.pmtiles`
+        archive on Cloudflare R2. On the web we register the PMTiles protocol
+        with the `pmtiles` npm package and point the source at
+        `pmtiles://https://...`. What is the iOS equivalent — do I need to
+        stand up a tile server, convert the archive to MBTiles, or write a
+        custom source?
+    assert:
+      - type: icontains
+        value: 'pmtiles://'
+      - type: not-icontains
+        value: 'PMTilesArchive'
+      - type: not-icontains
+        value: 'pmtiles-swift'
+      - type: llm-rubric
+        value: >
+          Must state that MapLibre Native reads PMTiles archives directly
+          through a built-in `pmtiles://` URL scheme, so none of the three
+          options in the question is needed: no tile server, no MBTiles
+          conversion, no custom source, and no protocol registration of any
+          kind. Must give the release boundary: available since ios-v6.10.0
+          and android-v11.8.0 (maplibre-native#2882). Must show the URL form
+          as the `pmtiles://` prefix in front of the archive's full HTTPS URL
+          — `pmtiles://https://...` — used in the style JSON or passed as the
+          configuration URL of a tile source such as `MLNVectorTileSource`.
+          Must not claim MapLibre Native needs `addProtocol` for this — there
+          is no `addProtocol` in MapLibre Native at all (maplibre-native#3562)
+          — must not claim the `pmtiles` JavaScript package, a Swift PMTiles
+          package, or any other third-party library is required, must not
+          direct the reader to write a `URLProtocol` subclass, and must not
+          say PMTiles is unsupported on iOS or that MBTiles is the only
+          archive format MapLibre Native can read from disk.
+
+  - description: negative — registering a custom protocol in the browser
+    vars:
+      prompt: >
+        Browser app, MapLibre GL JS, TypeScript. I want to serve vector tiles
+        out of an in-browser IndexedDB cache under a `cache://` scheme, so my
+        style can reference `cache://tiles/{z}/{x}/{y}`. Show me how to
+        register the protocol.
+    assert:
+      - type: llm-rubric
+        value: >
+          Answers the browser question directly: registers a handler for the
+          `cache` scheme via MapLibre GL JS's `addProtocol` and reads the
+          tiles out of IndexedDB in that handler. Does not drag MapLibre
+          Native into the answer — no warning that `addProtocol` is missing on
+          iOS or Android, no maplibre-native issue links, no note about
+          density-independent pixels, no pointer at the js-parity tracker —
+          none of which applies to a browser app. Does not claim a custom
+          scheme is impossible in MapLibre GL JS or that a server is required.
