@@ -1,0 +1,145 @@
+# Baseline probes for a possible maplibre-leaflet-migration skill (issue #76).
+# See evals/README.md for run commands and provider setup.
+#
+# The skill does not exist yet. `skillFile` names where it would live; the baseline
+# command (`--var injectSkill=false`) never reads the file, so this config runs today
+# and can be re-run unchanged once the skill is written.
+#
+# Scope. The official Leaflet migration guide
+# (https://maplibre.org/maplibre-gl-js/docs/guides/leaflet-migration-guide/) already
+# shows source/layer separation, the `map.on('load')` wrapper and `event.lngLat` side
+# by side with their Leaflet equivalents, so none of those is probed on its own. Six
+# further probes were written and cut for passing at baseline. What is left are the
+# three questions the pinned model demonstrably gets wrong: a package name, a
+# package's API surface, and whether a capability exists at all. The cut probes, the
+# reason each was cut, and the source for every tripwire below are recorded in
+# evals/results/maplibre-leaflet-migration.md.
+
+description: Evals for the maplibre-leaflet-migration skill
+
+prompts:
+  - file://lib/skill-prompt.mjs
+
+providers:
+  - file://lib/providers.yaml
+
+evaluateOptions:
+  delay: 500
+
+defaultTest:
+  vars:
+    skillFile: skills/maplibre-leaflet-migration/SKILL.md
+
+tests:
+  - description: explicit — the Leaflet binding's package name and how to reach the MapLibre map
+    vars:
+      prompt: >
+        We are keeping our Leaflet app and adding the MapLibre GL binding just
+        for the basemap. Give me the exact npm install line for the binding,
+        and show me how to get from the Leaflet layer object it returns to the
+        MapLibre map underneath, because I need to call addSource on it.
+    assert:
+      - type: icontains
+        value: '@maplibre/maplibre-gl-leaflet'
+      # Tripwires from the baseline runs, which pinned a version that was never
+      # published (`maplibre-gl-leaflet@0.0.13`) and invented the accessor as
+      # `.getMap()`. The binding exposes `getMaplibreMap()`; see its API.md.
+      - type: not-icontains
+        value: 'maplibre-gl-leaflet@0.0'
+      - type: not-icontains
+        value: '.getMap()'
+      - type: llm-rubric
+        value: >
+          Must give the install line for the scoped package,
+          @maplibre/maplibre-gl-leaflet (alongside leaflet and maplibre-gl),
+          and must not present an unscoped `maplibre-gl-leaflet` package as
+          installable. Must create the layer with the maplibreGL({style: ...})
+          factory — equivalently L.maplibreGL(...) — and add it with
+          .addTo(map). Must name getMaplibreMap() as the accessor that returns
+          the underlying MapLibre GL JS Map, and must not invent a different
+          accessor such as getMap(), getMaplibreGLMap() or a `_maplibreMap`
+          property.
+
+  - description: implicit — leaflet-draw has no built-in MapLibre GL JS counterpart
+    vars:
+      prompt: >
+        Rebuilding a Leaflet editor on MapLibre GL JS. The old one used
+        leaflet-draw: new L.Control.Draw({draw: {polygon: true}}) added to the
+        map, then map.on(L.Draw.Event.CREATED, e => save(e.layer.toGeoJSON())).
+        I've gone through the controls MapLibre GL JS exports and cannot find
+        the one that does this. Where is it?
+    assert:
+      # Tripwire from the baseline runs, which cited both
+      # "@maplibre/maplibre-gl-draw" and "github.com/maplibre/maplibre-gl-draw".
+      # Neither exists; one substring catches both.
+      - type: not-icontains
+        value: 'maplibre/maplibre-gl-draw'
+      - type: llm-rubric
+        value: >
+          Must state that MapLibre GL JS ships no drawing or geometry-editing
+          control at all — the controls it exports are NavigationControl,
+          GeolocateControl, ScaleControl, FullscreenControl,
+          AttributionControl, LogoControl, TerrainControl and GlobeControl — so
+          this capability has to come from a third-party library. Must name at
+          least one drawing library that really exists for MapLibre GL JS:
+          Terra Draw, which ships a MapLibre GL JS adapter; maplibre-geoman;
+          or mapbox-gl-draw, which awesome-maplibre lists as
+          MapLibre-compatible. Must not present leaflet-draw itself as usable
+          against a MapLibre GL JS map, must not attribute a drawing package to
+          the MapLibre organization, and must not offer hand-rolling the editor
+          out of raw click handlers as the primary answer.
+
+  - description: anti-pattern — carrying a Leaflet CRS setting over, and there is no crs option
+    vars:
+      prompt: >
+        Our Leaflet map is created with crs: L.CRS.EPSG4326 because the tile
+        service our agency runs only publishes EPSG:4326. I am rewriting the
+        viewer on MapLibre GL JS and there is no crs option on the Map
+        constructor. Where do I set it?
+    assert:
+      # Tripwire from the baseline runs, which listed "Load proj4 +
+      # maplibre-gl-projection (or the older mapbox-gl-projection fork) and
+      # register EPSG:4326 as a custom projection" as a working option. Neither
+      # package exists on npm.
+      - type: not-icontains
+        value: 'maplibre-gl-projection'
+      - type: llm-rubric
+        value: >
+          Must state that MapLibre GL JS has no `crs` option and no L.CRS
+          equivalent: its tile sources are Web Mercator (EPSG:3857, the
+          XYZ/slippy tile scheme) and that is not configurable. Must state that
+          the style specification's `projection` property (default `mercator`,
+          with `globe` and `vertical-perspective` as the alternatives) changes
+          only how already-Mercator data is displayed and does not let the map
+          consume EPSG:4326 tiles. Must give real options for the EPSG:4326
+          service: request reprojected images from it per tile where it can do
+          that (a WMS GetMap in EPSG:3857 through a raster source's `tiles`
+          template), or reproject and re-tile the data into a Web Mercator
+          tileset. Must not invent a `crs`, `projection: 'EPSG:4326'`,
+          `tileScheme` or similar option that would make MapLibre GL JS read
+          EPSG:4326 tiles directly, and must not claim the 4326 tiles will line
+          up if simply pointed at as-is.
+
+  - description: negative — staying on Leaflet, adding a MapLibre vector basemap
+    vars:
+      prompt: >
+        Our Leaflet app leans on a pile of Leaflet plugins we are not going to
+        rewrite, and the team is happy with it. What I want is the vector
+        basemap look — a MapLibre style JSON in place of the raster tile layer
+        — with everything else left on Leaflet. What is the least invasive way
+        to get there?
+    assert:
+      - type: icontains
+        value: 'maplibre-gl-leaflet'
+      - type: llm-rubric
+        value: >
+          Must answer for the app as it stands, on Leaflet: the
+          maplibre-gl-leaflet binding renders a MapLibre GL JS style as a
+          Leaflet layer, created from a style URL or style JSON and added to
+          the existing L.Map with .addTo(map), leaving the app's other Leaflet
+          layers, controls and plugins in place. Grade only that: the exact
+          package scope and version are not the subject of this test. Must not
+          tell the reader to migrate the app to MapLibre GL JS, to rewrite or
+          replace their Leaflet plugins, or to run two maps in sync by hand, in
+          order to get a vector basemap, and must not claim Leaflet can consume
+          a MapLibre style JSON or vector tiles on its own.
