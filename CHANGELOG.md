@@ -11,6 +11,10 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 - `maplibre-terrain-patterns` replaced by `maplibre-terrain-rendering` (hillshade, color-relief, contours, 3D terrain and sky, `verified`), with its eval config split along the same seam and cross-references updated; the companion DEM-source content was withdrawn after a probe showed no gap to close ([#84](https://github.com/maplibre/maplibre-agent-skills/pull/84))
 - evals: rubrics for `maplibre-mapbox-migration` and `maplibre-pmtiles-patterns` now fail invented APIs; `maplibre-mapbox-migration` gains the Mapbox v2 → MapLibre API mapping, and both skills move to `verified` ([#85](https://github.com/maplibre/maplibre-agent-skills/pull/85))
 
+### Internal
+
+- `scripts/lib/changelog-field.js`: HTML comments in a PR body are stripped until none remain, closing the open CodeQL alert; `package-lock.json` moved past the `fast-uri` and `qs` advisories ([#88](https://github.com/maplibre/maplibre-agent-skills/pull/88))
+
 ## [0.2.0] - 2026-08-30
 
 ### Added
