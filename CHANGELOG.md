@@ -13,6 +13,7 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Internal
 
+- `eval.yml`: the weekly run is time-bounded per config and per run, records `error` (never a status flip) for infrastructure failures and cut-offs, publishes on the branch tip, and files a classified issue on any non-success run ([#89](https://github.com/maplibre/maplibre-agent-skills/pull/89))
 - `scripts/lib/changelog-field.js`: HTML comments in a PR body are stripped until none remain, closing the open CodeQL alert; `package-lock.json` moved past the `fast-uri` and `qs` advisories ([#88](https://github.com/maplibre/maplibre-agent-skills/pull/88))
 
 ## [0.2.0] - 2026-08-30
