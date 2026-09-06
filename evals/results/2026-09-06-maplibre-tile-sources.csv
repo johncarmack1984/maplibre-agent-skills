@@ -1,0 +1,226 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+explicit — GeoJSON vs tiles decision for a real scenario,skills/maplibre-tile-sources/SKILL.md,"I have about 8,000 hiking trail segments stored as GeoJSON, and users need to click a trail to see its name and distance. I also need a basemap showing terrain and roads. How should I set up the data sources in MapLibre — do I need vector tiles, or can I use GeoJSON?
+",,ERROR,0.00,,,
+implicit — dataset outgrew GeoJSON without the user naming tiles,skills/maplibre-tile-sources/SKILL.md,"My parcel layer is a 180 MB GeoJSON file with around 400,000 polygons. The browser hangs for ages on load and sometimes the tab just dies. I've already tried minifying the JSON. What now?
+","Thinking: We need to answer using the skill. Provide guidance: GeoJSON too large, need to tile it. Options: simplify geometries, reduce precision, split into multiple files, use vector tiles (tippecanoe, PMTiles, etc.), use server-side rendering, use raster tiles, use clustering, use feature reduction, use Web Workers, use maplibre's source type geojson with clustering? Actually clustering works for point data. For polygons, need vector tiles. Suggest using tippecanoe to generate vector tiles, possibly with PMTiles, host on static storage, use MapLibre vector source. Also can simplify with mapshaper, reduce coordinate precision, use TopoJSON, use compression (gzip). Also can use lazy loading with source-layer filters, use tilejson. Provide steps: preprocess with mapshaper to simplify, split into tiles, generate MBTiles/PMTiles, host, configure style. Also mention using raster tiles if needed. Provide code snippets. Also mention using Web Workers to parse GeoJSON off main thread, but still heavy. Suggest using vector tiles.
+
+Let's craft answer.
+
+### TL;DR  
+Your 180 MB / ≈ 400 k‑polygon GeoJSON is far beyond what a browser can parse and render in a single request. The only practical fix is **stop feeding it to a `geojson` source** and turn it into a tiled data set (vector tiles, PMTiles, or raster tiles).  
+
+Below is a step‑by‑step “road‑map” you can follow right now, plus a few quick‑win tricks you can try while you’re converting the data.
+
+---
+
+## 1. Why GeoJSON fails at this size
+
+| What you see | Why it happens |
+|--------------|----------------|
+| **Full download** (180 MB) | The whole file is fetched before any rendering can start. |
+| **JSON.parse on the main thread** | Parsing a 180 MB string blocks the UI thread for seconds → “tab hangs”. |
+| **All features in memory** | 400 k polygons → millions of vertices → huge JavaScript objects → GC pressure → eventual crash. |
+| **No level‑of‑detail** | Every polygon is drawn at every zoom, even when the map is zoomed out. |
+
+Even if you minify or gzip the file, the browser still has to **download → decompress → parse → build a giant feature collection** before MapLibre can draw anything. That is why the tab sometimes dies.
+
+---
+
+## 2. Quick‑win “pre‑flight” optimisations (still not enough for 400 k polygons)
+
+| Action | How to do it | What you gain |
+|--------|--------------|---------------|
+| **Coordinate precision reduction** | `mapshaper -i input.geojson -reduce-precision 5 -o out.geojson` (5‑digit decimal ≈ 1 m) | Cuts size 30‑50 % without visible loss at typical web scales. |
+| **Topology‑based simplification** | `mapshaper -i input.geojson -simplify dp 10% keep-shapes -o out.geojson` (or use `topojson` to share vertices) | Removes redundant vertices, reduces vertex count dramatically. |
+| **Feature splitting** | Split the dataset into logical chunks (e.g. by admin level, by tile grid, by state) and serve each chunk as a separate GeoJSON URL. | Allows you to load only the area the user is looking at (still heavy, but better). |
+| **Web‑Worker parsing** | `new Worker('geojson-worker.js')` that does `self.onmessage = e => self.postMessage(JSON.parse(e.data))` | Moves the parse cost off the UI thread, but you still end up with a 180 MB object in memory → not a long‑term solution. |
+| **GZIP/ Brotli on the server** | Ensure the HTTP response has `Content‑Encoding: gzip` (or `br`). | Reduces network transfer, but parsing cost stays the same. |
+
+> **Bottom line:** Even after all of the above you’ll still be loading a *single* 100‑150 MB JavaScript object into memory. That will never be smooth for a web map.
+
+---
+
+## 3. The right solution: **Tile the data**
+
+### 3.1. Choose a tile format
+
+| Format | When to pick it | Pros | Cons |
+|--------|----------------|------|------|
+| **Vector tiles (MVT / MapLibre Tile (MLT))** | Most common, you want interactivity, styling, and client‑side queries. | Small size, zoom‑dependent detail, style‑independent, queryable. | Requires a tile source (static or server). |
+| **PMTiles (single‑file archive)** | You want a *serverless* solution (static storage, CDN, GitHub Pages). | No tile server, range‑request only, works with MapLibre out‑of‑the‑box. | You must rebuild the file for any data change. |
+| **Raster tiles (PNG/JPEG/WebP)** | You only need a visual overlay, no feature interaction. | Simple to serve, works everywhere. | No interactivity, larger files, no styling on the client. |
+| **Hybrid** | E.g. raster satellite imagery + vector labels + your vector overlay. | Best of both worlds. | Slightly more complex style. |
+
+> **Most apps with polygons** use **vector tiles** (or PMTiles) because you still want to click a parcel, highlight it, show a popup, etc.
+
+---
+
+### 3.2. Turn your GeoJSON into vector tiles
+
+#### Option A – **Tippecanoe** (fast, works on any OS)
+
+```bash
+# Install tippecanoe (brew, apt, or from source)
+# Reduce precision & simplify on‑the‑fly (you can also pre‑process with mapshaper)
+tippecanoe \
+  --output parcels.mbtiles \
+  --layer parcels \
+  --minimum-zoom=5 \
+  --maximum-zoom=14 \
+  --drop-densest-as-needed \
+  --simplify-only-low-zooms \
+  --no-feature-limit \
+  --no-tile-size-limit \
+  --force \
+  parcels.geojson
+```
+
+*Key flags explained*
+
+| Flag | Why it matters |
+|------|----------------|
+| `--minimum-zoom / --maximum-zoom` | Limit the zoom range you actually need (e.g. you never show parcels at zoom 0‑4). |
+| `--drop-densest-as-needed` | Tippecanoe will automatically drop the most detailed features when a tile would exceed the size limit (default 500 KB). |
+| `--simplify-only-low-zooms` | Keeps full detail at high zooms, simplifies aggressively at low zooms. |
+| `--no-feature-limit` / `--no-tile-size-limit` | Turn off hard caps if you want to control them yourself (but keep an eye on tile size). |
+
+Result: `parcels.mbtiles` (SQLite‑based MBTiles) containing vector tiles for every zoom level you asked for.
+
+#### Option B – **Planetiler** (Java‑based, great for huge OSM extracts)
+
+If you already have an OSM‑derived extract or want to generate tiles from a PostGIS database, Planetiler can stream directly from the DB and produce **MLT** (MapLibre Tile) or **MVT** files. The workflow is similar to Tippecanoe but works better for > 10 M features.
+
+#### Option C – **PMTiles** (single‑file archive)
+
+```bash
+# Convert the MBTiles produced by tippecanoe to PMTiles
+# Install the pmtiles CLI (npm i -g @protomaps/pmtiles)
+pmtiles convert parcels.mbtiles parcels.pmtiles
+```
+
+Now you have a **180 MB → ~30 MB** (often 5‑10× smaller) archive that can be served from any static CDN.
+
+---
+
+### 3.3. Host the tiles
+
+| Hosting type | How to do it | Typical cost |
+|--------------|--------------|--------------|
+| **Static CDN (S3, Cloudflare R2, GitHub Pages, Netlify)** | Upload the `.pmtiles` file, enable CORS (`*` or your domain). | Free tier → a few dollars/month for > 10 TB egress. |
+| **Tile server (Martin, TileServer‑GL, Tileserver‑PHP)** | Deploy a Docker container or a small VM, point it at the MBTiles/PMTiles file. | $5‑20 / month for a small VPS. |
+| **Hosted provider (MapTiler Cloud, Protomaps, OpenFreeMap)** | Upload your MBTiles/PMTiles via their UI, get a style URL. | Pay‑as‑you‑go, often $10‑30 / month for a few hundred GB. |
+
+> **CORS is mandatory** – if you host the file on a different origin than your page, the server must send `Access-Control-Allow-Origin: *` (or your domain). Most CDNs let you set this in the bucket policy.
+
+---
+
+## 4. Wire the tiles into MapLibre
+
+### 4.1. Using a **PMTiles** source (no server)
+
+```html
+<script src=""https://unpkg.com/@protomaps/pmtiles@latest/dist/pmtiles.min.js""></script>
+<script>
+  // Register the PMTiles protocol handler
+  const pmtiles = new PMTiles('https://my-cdn.example.com/parcels.pmtiles');
+  maplibregl.addProtocol('pmtiles', (request) => pmtiles.get(request));
+
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://my-cdn.example.com/basemap-style.json', // any basemap you like
+    center: [-122.4, 37.8],
+    zoom: 12
+  });
+
+  map.on('load', () => {
+    map.addSource('parcels', {
+      type: 'vector',
+      url: 'pmtiles://parcels.pmtiles'   // <-- note the protocol
+    });
+
+    map.addLayer({
+      id: 'parcel-fill',
+      type: 'fill',
+      source: 'parcels',
+      'source-layer': 'parcels',          // matches the layer name you gave tippecanoe
+      paint: {
+        'fill-color': '#0066ff',
+        'fill-opacity': 0.3
+      }
+    });
+
+    // Optional: add a line layer for borders
+    map.addLayer({
+      id: 'parcel-line',
+      type: 'line',
+      source: 'parcels',
+      'source-layer': 'parcels',
+      paint: {
+        'line-color': '#003399',
+        'line-width': 1
+      }
+    });
+  });
+</script>
+```
+
+### 4.2. Using a **standard vector source** (MBTiles via a tile server)
+
+```json
+{
+  ""type"": ""vector"",
+  ""url"": ""https://tiles.myserver.com/parcels.json""   // TileJSON endpoint
+}
+```
+
+*If you run Martin:* `http://localhost:3000/tiles/parcels.json` will be auto‑generated.
+
+### 4.3. Adding interactivity (click to get parcel ID)
+
+```js
+map.on('click', 'parcel-fill', (e) => {
+  const props = e.features[0].properties;
+  new maplibregl.Popup()
+    .setLngLat(e.lngLat)
+    .setHTML(`<strong>Parcel ID:</strong> ${props.id}<br>
+              <strong>Owner:</strong> ${props.owner}`)
+    .addTo(map);
+});
+```
+
+Because the data is now **tiled**, only the tiles intersecting the current viewport are fetched, parsed, and kept in memory – a few hundred kilobytes at most, even at the highest zoom.
+
+---
+
+## 5. Optional: If you *must* keep a GeoJSON layer (e.g. for editing)
+
+| Technique | How it helps | Implementation notes |
+|-----------|--------------|----------------------|
+| **Chunked loading** (load one tile‑grid cell at a time) | Reduces memory per request. | Split the original GeoJSON into a folder structure like `z/x/y.geojson` (you can reuse the same tile grid you used for vector tiles). Load the appropriate file on `moveend` and add it as a temporary `geojson` source. |
+| **Web‑Worker + `geojson-vt`** | `geojson-vt` creates client‑side vector tiles from raw GeoJSON on the fly, keeping the data in a worker thread. | ```js\nimport GeoJSONVT from 'geojson-vt';\nconst worker = new Worker('geojson-worker.js');\nworker.postMessage(geojson);\n// worker returns tile data for {z,x,y} and you feed it to a vector source.\n``` |
+| **Feature reduction for low zoom** | Show only a simplified subset (e.g., centroids) when zoomed out. | Use `filter` expressions in the style: `""filter"": ["">"", [""zoom""], 12]` to hide the layer at low zooms, or generate a separate “overview” layer with simplified geometries. |
+
+These tricks can be useful for **editing** workflows where you need the full geometry client‑side, but they are **not a replacement** for proper tiling in a production viewer.
+
+---
+
+## 6. Checklist – What you should do next
+
+1. **Simplify & reduce precision** (mapshaper) – optional but cheap.  
+2. **Generate vector tiles** (Tippecanoe → MBTiles).  
+3. **Convert to PMTiles** (if you want a serverless static file).  
+4. **Upload the archive** to a CDN or static bucket with CORS enabled.  
+5. **Add a `vector` source** to your MapLibre style (using `pmtiles://` or a TileJSON URL).  
+6. **Create a fill/line layer** that points to the `source-layer` you named in Tippecanoe.  
+7. **Test**: open the map, open DevTools → Network → check that only a handful of `.pbf` (or `.pmtiles` range) requests are made when you pan/zoom.  
+8. **Add",ERROR,0.00,,,
+anti-pattern — merging basemap and application data into one tileset,skills/maplibre-tile-sources/SKILL.md,"I want my roads, water, labels, and my own delivery-zone polygons all in a single vector tileset so the map only hits one source. What's the best pipeline to merge OpenStreetMap data with my polygons and build that combined tileset?
+",,ERROR,0.00,,,
+"negative — small dataset, no tile server needed",skills/maplibre-tile-sources/SKILL.md,"I'm building a store locator for about 50 locations across the US. Do I need to set up a vector tile server for this?
+",,ERROR,0.00,,,
+"implicit — georeferencing a scanned image, not a tile or GeoJSON source",skills/maplibre-tile-sources/SKILL.md,"I have a scanned 1920s map of my city as a JPG, and I know the lat/lon coordinates of its four corners. I want to overlay it on my MapLibre map at the correct location and let users toggle its opacity. What's the right way to add this?
+",,ERROR,0.00,,,
+"explicit — vector tiles for a restylable basemap, not raw performance",skills/maplibre-tile-sources/SKILL.md,"I want to offer both a light and dark theme for my basemap, switchable at runtime, without hosting two separate sets of tiles. What tile type should my basemap use?
+",,ERROR,0.00,,,
+implicit — Leaflet cannot render vector tiles natively,skills/maplibre-tile-sources/SKILL.md,"My app is built on Leaflet and I want to add a MapLibre-style vector tile basemap to it. Is that possible, and how?
+",,ERROR,0.00,,,
