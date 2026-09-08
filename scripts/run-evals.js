@@ -19,6 +19,18 @@
  * ERROR rows have an empty output and an empty grader reason, so the sidecar is
  * the only place the error text survives.
  *
+ * The hard kill that backs that bound goes to the child's process group, never
+ * to the child alone. `npm run` forwards no signals, so a SIGTERM to the wrapper
+ * ends the wrapper and leaves promptfoo running: the three configs killed in the
+ * 2026-09-06 run outlived their kills by 2h40m (source-wiring), 36 minutes
+ * (terrain-rendering) and 13 minutes (tile-sources), all of them still spending
+ * the same Groq and Gemini keys, which rate-limited every config that came after
+ * them. So the child is spawned `detached` (its own group), signalled as `-pid`,
+ * and the group is SIGKILLed if it has not emptied SIGKILL_AFTER_MS later —
+ * promptfoo's backoff sleeps do not honor SIGTERM promptly. Because a detached
+ * child also survives a Ctrl-C on the runner, SIGINT, SIGTERM and SIGHUP on the
+ * parent SIGKILL the group before the runner exits.
+ *
  * After every config it appends `skill:pass|fail|error` to `<work>/verdicts.txt`
  * and rewrites `<work>/summary.json`, so a run cut off halfway still hands the
  * publish job a record it can report.
@@ -47,7 +59,7 @@ import {
   rmSync,
   writeFileSync
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { constants as osConstants, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -69,6 +81,15 @@ const MIN_CONFIG_MS = 5 * 60000;
 // honor the abort — so a hard kill follows it. That kill loses the config's CSV,
 // which is why it sits well past the bound rather than on it.
 const KILL_GRACE_MS = 10 * 60000;
+
+// How long the process group gets to exit on SIGTERM before it is SIGKILLed:
+// promptfoo's backoff sleeps do not honor SIGTERM promptly, and a survivor keeps
+// spending the run's API keys.
+export const SIGKILL_AFTER_MS = 30 * 1000;
+
+// A human abort has to take the group with it: `detached` puts the child
+// outside the terminal's foreground group, so Ctrl-C alone would not reach it.
+const ABORT_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];
 
 export function parseArgs(argv) {
   const args = { baseline: false, dryRun: false, configs: [] };
@@ -133,6 +154,12 @@ export function boundFor({ elapsedMs, budgetMs, capMs }) {
  * missing, unparseable, or not shaped like promptfoo's output is an `error` —
  * "no verdict" — and never a pass or a fail, so an unread run cannot move a
  * skill's status in either direction.
+ *
+ * A killed config is an `error` whatever its rows say, but promptfoo often has
+ * written its sidecar by then (its own PROMPTFOO_MAX_EVAL_TIME_MS timer fires
+ * before the hard kill), and that sidecar names why the config ran long. So the
+ * classified signatures are kept and `killed` is appended to them: the issue
+ * table then reads `rate-limit-exhausted, killed` rather than just `killed`.
  */
 export function verdictFor({
   exitCode = null,
@@ -140,15 +167,15 @@ export function verdictFor({
   sidecarText = null
 }) {
   const base = { counts: null, total: 0, errors: [], tokenUsage: null };
-  if (killed) {
-    return {
-      ...base,
-      verdict: 'error',
-      signatures: ['killed'],
-      reason: 'killed after the hard timeout; promptfoo wrote no output'
-    };
-  }
+  const killedBlind = (why) => ({
+    ...base,
+    verdict: 'error',
+    signatures: ['killed'],
+    reason: `killed after the hard timeout; ${why}`
+  });
+
   if (sidecarText === null || sidecarText === undefined) {
+    if (killed) return killedBlind('promptfoo wrote no output');
     return {
       ...base,
       verdict: 'error',
@@ -160,6 +187,10 @@ export function verdictFor({
   try {
     sidecar = JSON.parse(sidecarText);
   } catch (error) {
+    if (killed)
+      return killedBlind(
+        `the JSON output could not be parsed: ${error.message}`
+      );
     return {
       ...base,
       verdict: 'error',
@@ -169,8 +200,18 @@ export function verdictFor({
   }
   try {
     const classified = classifyEval(sidecar);
-    return { ...classified, reason: null };
+    if (!killed) return { ...classified, reason: null };
+    return {
+      ...classified,
+      verdict: 'error',
+      signatures: classified.signatures.includes('killed')
+        ? classified.signatures
+        : [...classified.signatures, 'killed'],
+      reason: 'killed after the hard timeout; promptfoo had written output'
+    };
   } catch (error) {
+    if (killed)
+      return killedBlind(`unreadable promptfoo output: ${error.message}`);
     return {
       ...base,
       verdict: 'error',
@@ -180,25 +221,95 @@ export function verdictFor({
   }
 }
 
-function spawnEval(command, args, { env, killAfterMs }) {
+/**
+ * One `npm run eval:graded` child, killed as a process group when it overruns.
+ *
+ * `npm run` is a wrapper: it spawns a shell, which spawns promptfoo, and it
+ * forwards nothing it receives. Signalling the child alone therefore reaps the
+ * wrapper and orphans the promptfoo process holding the API keys — the whole
+ * 2026-09-06 failure. `detached: true` gives the child its own process group so
+ * `-pid` reaches every descendant, and the promise is not resolved while that
+ * group still has members: SIGKILL follows SIGTERM `sigkillAfterMs` later, and
+ * the next config starts only once the group is gone.
+ *
+ * That same detachment takes the child out of the terminal's foreground group,
+ * so a Ctrl-C on the runner no longer reaches it: while a child is live the
+ * runner catches SIGINT, SIGTERM and SIGHUP, SIGKILLs the group — a human abort
+ * has no use for promptfoo's partial output, and SIGTERM would leave it asleep
+ * in backoff — and exits 128 + the signal number.
+ */
+export function spawnEval(
+  command,
+  args,
+  { env, killAfterMs, sigkillAfterMs = SIGKILL_AFTER_MS }
+) {
   return new Promise((resolve) => {
     const started = Date.now();
-    const child = spawnChild(command, args, { stdio: 'inherit', env });
+    const child = spawnChild(command, args, {
+      stdio: 'inherit',
+      env,
+      detached: true
+    });
     let settled = false;
     let killed = false;
-    const timer = setTimeout(() => {
-      killed = true;
-      child.kill('SIGTERM');
-    }, killAfterMs);
-    const finish = (result) => {
-      if (settled) return;
+    let escalated = false;
+    let pending = null;
+    let escalation = null;
+
+    // Signal 0 asks whether the group still has members. ESRCH — an empty group,
+    // or a child that never started — is the answer, not an error.
+    const signalGroup = (signal) => {
+      if (child.pid === undefined) return false;
+      try {
+        process.kill(-child.pid, signal);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    const unlisten = () =>
+      ABORT_SIGNALS.forEach((signal) => process.removeListener(signal, abort));
+    function abort(signal) {
+      signalGroup('SIGKILL');
+      unlisten();
+      process.exit(128 + (osConstants.signals[signal] ?? 0));
+    }
+    // No listener outlives its child: finish() takes these off again, so a
+    // runner aborted between configs dies of the signal as it always did.
+    ABORT_SIGNALS.forEach((signal) => process.on(signal, abort));
+
+    const finish = () => {
+      if (settled || pending === null) return;
       settled = true;
       clearTimeout(timer);
-      resolve({ ...result, killed, durationMs: Date.now() - started });
+      clearTimeout(escalation);
+      unlisten();
+      resolve({ ...pending, killed, durationMs: Date.now() - started });
     };
-    child.on('close', (code) => finish({ exitCode: code }));
+
+    const timer = setTimeout(() => {
+      killed = true;
+      signalGroup('SIGTERM');
+      escalation = setTimeout(() => {
+        escalated = true;
+        signalGroup('SIGKILL');
+        finish();
+      }, sigkillAfterMs);
+    }, killAfterMs);
+
+    const settle = (result) => {
+      pending = result;
+      // The wrapper exits on SIGTERM long before promptfoo does. Hold the result
+      // until the escalation has emptied the group rather than letting the run
+      // move on while the old config still spends the run's quota.
+      if (killed && !escalated && signalGroup(0)) return;
+      finish();
+    };
+
+    child.on('close', (code) => settle({ exitCode: code }));
     child.on('error', (error) =>
-      finish({ exitCode: null, spawnError: error.message })
+      settle({ exitCode: null, spawnError: error.message })
     );
   });
 }
