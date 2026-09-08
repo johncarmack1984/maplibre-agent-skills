@@ -17,6 +17,7 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Internal
 
+- `eval.yml`: the runner rejects config and output paths that are not plain `evals/prompts/<skill>.yaml` files or plain directories before they reach `npm run`, answering the CodeQL shell-command alert ([#95](https://github.com/maplibre/maplibre-agent-skills/pull/95))
 - evals: the judge and the deterministic assertions grade the generator's answer only; the reasoning trace is no longer prepended to the graded output ([#94](https://github.com/maplibre/maplibre-agent-skills/pull/94))
 - `eval.yml`: a config that overruns its bound is now actually stopped (process-group kill with SIGKILL escalation), and a killed config's sidecar still feeds the drift issue's signals ([#93](https://github.com/maplibre/maplibre-agent-skills/pull/93))
 - `eval.yml`: the weekly run is time-bounded per config and per run, records `error` (never a status flip) for infrastructure failures and cut-offs, publishes on the branch tip, and files a classified issue on any non-success run ([#89](https://github.com/maplibre/maplibre-agent-skills/pull/89))
