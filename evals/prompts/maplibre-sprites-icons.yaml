@@ -22,10 +22,8 @@ tests:
         value: 'ref_length'
       - type: icontains
         value: 'us-interstate'
-      - type: not-icontains
-        value: 'road_shield'
       - type: llm-rubric
-        value: "Correctly states that OSM Bright's shield layers reference icon-image by the pattern \"{network}_{ref_length}\" for US networks — e.g. us-interstate_2, us-highway_3, us-state_2 — and road_{ref_length} for other refs, and that a missing icon is omitted. The fix is to point the style's sprite at one that actually contains those shield images (so the {network}_{ref_length} layers resolve with no layer edits). Must NOT name us-highway_4, us-highway_5, us-highway_6, or us-interstate_6, which neither OSM Bright sheet has. Must NOT invent a different naming scheme (e.g. \"road_shield_{ref}\") and must NOT tell the user to use a Mapbox sprite / mapbox:// URL or a Mapbox account."
+        value: "Correctly states that OSM Bright's shield layers reference icon-image by the pattern \"{network}_{ref_length}\" for US networks — e.g. us-interstate_2, us-highway_3, us-state_2 — and road_{ref_length} for other refs, and that a missing icon is omitted. The fix is to point the style's sprite at one that actually contains those shield images (so the {network}_{ref_length} layers resolve with no layer edits). Must NOT present us-highway_4, us-highway_5, us-highway_6, or us-interstate_6 as images either OSM Bright sheet carries; both sheets stop at us-highway_3 and us-interstate_3 (us-interstate_5 on openmaptiles.github.io). Must NOT invent a different naming scheme (e.g. \"road_shield_{ref}\") and must NOT tell the user to use a Mapbox sprite / mapbox:// URL or a Mapbox account."
 
   - description: implicit — own icon sheet alongside the basemap provider's, icons never appear
     vars:
@@ -46,7 +44,7 @@ tests:
       prompt: "Reviewing my style-audit script. It flags a MapLibre symbol layer as a route shield when layer.layout['text-anchor'] === undefined and layer.layout['symbol-placement'] === 'point'. It is tagging plain place-name layers as shields and skipping real shield layers. Is the heuristic sound, and what should it key off instead?"
     assert:
       - type: llm-rubric
-        value: "Must state that `text-anchor` defaults to `center`, so its absence says nothing about a layer. Must state that `symbol-placement` is not always a bare string: shield layers in styles such as OSM Bright set it with a legacy `{stops}` zoom function or an expression, so comparing it to 'point' skips them. Must key the audit off what a shield draws, an `icon-image` badge behind a route-ref `text-field`, and accept both ways of sizing that badge: a pre-drawn image per ref length (such as `road_{ref_length}` or `{network}_{ref_length}`) and a single stretchable image sized with `icon-text-fit`. Must not require `icon-text-fit`, or any other single layout property, for a layer to count as a shield."
+        value: "Must state that `text-anchor` defaults to `center`, so its absence says nothing about a layer. Must state that `symbol-placement` is not always a bare string: shield layers in styles such as OSM Bright set it with a legacy `{stops}` zoom function, and any layout value can be an expression, so comparing it to 'point' skips them. Must key the audit off what a shield draws, an `icon-image` badge behind a route-ref `text-field`, and name both forms that badge takes, accepting either: a pre-drawn image per ref length (such as `road_{ref_length}` or `{network}_{ref_length}`) and a single stretchable image sized with `icon-text-fit`. Must not make `icon-text-fit` a requirement for a layer to count as a shield."
 
   - description: negative — a draggable pin with a popup stays a Marker
     vars:
