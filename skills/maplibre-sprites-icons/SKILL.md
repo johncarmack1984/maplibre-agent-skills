@@ -150,16 +150,16 @@ After the `load` event, `map.hasImage(id)` tells the two causes apart:[3]
 Broken-looking route shields (bare floating numbers, missing badges) are almost always a **missing sprite image**. The shield number is text (font) and usually renders fine; the badge behind it is an `icon-image` from the sprite. Diagnose in this order:
 
 1. **Confirm glyphs load.** Probe the `glyphs` server for the exact `text-font` names and expect HTTP 200. If they 200, the font is not the problem.
-2. **Confirm the sprite carries the shield images.** OpenMapTiles and OSM Liberty shield style layers use `icon-image: "{network}_{ref_length}"` for known networks (e.g. `us-interstate_2`, `us-highway_3`, `us-state_2`) and `road_{ref_length}` for generic refs. A missing icon is omitted, so grep the sprite JSON for those keys.
+2. **Confirm the sprite carries the shield images.** OSM Bright's shield layers use `icon-image: "{network}_{ref_length}"` for US networks (e.g. `us-interstate_2`, `us-highway_3`, `us-state_2`) and `road_{ref_length}` for other refs; OSM Liberty's use `default_{ref_length}`. A missing icon is omitted, so grep the sprite JSON for those keys.
 
-Not every sprite carries shields localized for the US, so grep the sprite JSON for the `{network}_{ref_length}` keys before assuming they exist. Both the `demotiles.maplibre.org/styles/osm-bright-gl-style/sprite` and `openmaptiles.github.io/osm-bright-gl-style/sprite` sheets currently include `us-interstate_*`, `us-highway_*`, and `us-state_*` (alongside the generic `road_1`–`road_6`), but a minimal or custom sprite may ship only the generic `road_*`. If yours lacks the shield images and your tiles populate `network`, `ref`, and `ref_length` (the OSM US OpenMapTiles tiles do), point `sprite` at one that has them — the `{network}_{ref_length}` style layers then resolve with no layer edits.
+The `demotiles.maplibre.org/styles/osm-bright-gl-style/sprite` and `openmaptiles.github.io/osm-bright-gl-style/sprite` sheets currently carry `road_1`–`_6`, `us-state_1`–`_6`, `us-highway_1`–`_3`, and `us-interstate_1`–`_3` (`_5` on openmaptiles.github.io), but a minimal or custom sprite may ship only the generic `road_*`. If yours lacks the shield images and your tiles populate `network`, `ref`, and `ref_length` (the OSM US OpenMapTiles tiles do), point `sprite` at one that has them — the `{network}_{ref_length}` style layers then resolve with no layer edits.
 
-**What makes a symbol a shield is `icon-text-fit`.** A shield is an icon scaled around its text, and `icon-text-fit` is the property that does that scaling: `"both"` (or `"width"`) with `icon-text-fit-padding` sizes one badge image to whatever number lands on it, so `I-5` and `I-405` both fit. Its default is `none`,[2] so a value other than `none` is the reliable signal when you are auditing or generating shield layers — not `text-anchor` (which defaults to `center`, so its absence tells you nothing) and not the sprite image name (an authoring convention that varies by style). Pair it with a **stretchable** sprite image (`stretchX`/`stretchY` + `content` in the sprite JSON)[1] so the badge's border stays undistorted as it widens; a shield without `icon-text-fit` renders the badge at its intrinsic size and wide refs overflow it.
+**A shield is a badge image behind the route ref, sized one of two ways.** OSM Bright and OSM Liberty pick a pre-drawn badge per ref length, which is what OpenMapTiles' `ref_length` is for.[9] A stretchable badge sizes one image to its text instead: `icon-text-fit` `"both"` (or `"width"`) with `icon-text-fit-padding`, on a sprite image with `stretchX`/`stretchY` + `content`,[1] [2] so `I-5` and `I-405` share one image. An audit or generator has to accept both: `icon-text-fit` other than `none` (its default) marks only the stretchable kind, and `text-anchor` (default `center`) marks neither.
 
 ```json
 {
   "layout": {
-    "icon-image": "us-interstate_{ref_length}",
+    "icon-image": "shield-badge",
     "icon-text-fit": "both",
     "icon-text-fit-padding": [1, 4, 1, 4],
     "text-field": "{ref}"
@@ -167,7 +167,7 @@ Not every sprite carries shields localized for the US, so grep the sprite JSON f
 }
 ```
 
-When reading layout values back out of a style, remember they are not always strings: `symbol-placement` and friends can hold an expression or a legacy `{stops: [...]}` zoom function, so `layout['symbol-placement'] === 'point'` silently skips those layers. Test the value's shape before comparing it.
+When reading layout values back out of a style, remember they are not always strings: all four shield layers in OSM Bright and OSM Liberty set `symbol-placement` with a legacy `{stops: [...]}` zoom function (point, then line), and any layout value can hold an expression, so `layout['symbol-placement'] === 'point'` silently skips them. Test the value's shape before comparing it.
 
 ## Related Skills
 
@@ -186,6 +186,7 @@ When reading layout values back out of a style, remember they are not always str
 6. [**`raw.githubusercontent.com` and private repositories (GitHub Community Discussion)**](https://github.com/orgs/community/discussions/69281) — private-repo raw URLs return 404/403 to anonymous requests
 7. [**`Marker` (MapLibre GL JS API)**](https://maplibre.org/maplibre-gl-js/docs/API/classes/Marker/) — the `draggable` option, `setLngLat`, and `setPopup`
 8. [**GL JS 6.11.2 `image_manager.ts`**](https://github.com/maplibre/maplibre-gl-js/blob/v6.11.2/src/render/image_manager.ts#L335-L338) — `styleimagemissing` and the missing-image warning; the duplicate-ID error is in [`style.ts`](https://github.com/maplibre/maplibre-gl-js/blob/v6.11.2/src/style/style.ts#L1004-L1007), and an `error` event with no listener goes to `console.error` in [`evented.ts`](https://github.com/maplibre/maplibre-gl-js/blob/v6.11.2/src/util/evented.ts#L191-L195)
+9. [**OpenMapTiles `transportation_name` layer**](https://github.com/openmaptiles/openmaptiles/blob/master/layers/transportation_name/transportation_name.yaml) — `ref_length`: "Useful for having a shield icon as background for labeling motorways."
 
 ---
 
