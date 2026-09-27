@@ -1,0 +1,412 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+implicit — SVG category icons for a GeoJSON venue layer,skills/maplibre-sprites-icons/SKILL.md,"MapLibre GL JS 6. I have about 40 category icons as SVG files served from my own site, and a GeoJSON source of roughly 5,000 venues, each with a `category` property. Every venue should show its category's icon, and zoomed out the icons shouldn't pile up on top of each other. Show me the code that loads the icons and draws the venues.","Below is a **complete, copy‑and‑paste‑ready** example that works with **MapLibre GL JS v6** (the current stable version at the time of writing).
+
+* 40 + SVG icons are fetched from your own domain (`https://my‑site.com/icons/…`).  
+* Each venue in the GeoJSON source has a `category` property that matches one of those icon file names (e.g. `""cafe""`, `""park""` …).  
+* The icons are added **at runtime** with `map.addImage()`.  
+* The symbol layer uses the expression `[""get"",""category""]` so the correct icon is chosen for each feature.  
+* Collision handling is left at the default (`icon‑allow‑overlap: false`) so icons that would overlap are automatically hidden when you zoom out.  
+* A tiny helper (`loadSvgImage`) rasterises the SVG into an `HTMLImageElement` that `addImage` can accept.  
+* The code also checks `map.hasImage()` first, so you can safely reload the page or add more icons later without “image already exists” errors.
+
+---
+
+## 1️⃣  HTML skeleton
+
+```html
+<!doctype html>
+<html lang=""en"">
+<head>
+  <meta charset=""utf-8"">
+  <title>MapLibre – 5 000 venues with SVG icons</title>
+  <meta name=""viewport"" content=""initial-scale=1, width=device-width"">
+  <link href=""https://unpkg.com/maplibre-gl@6.11.2/dist/maplibre-gl.css"" rel=""stylesheet""/>
+  <style>
+    body, html { margin:0; padding:0; height:100%; }
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script src=""https://unpkg.com/maplibre-gl@6.11.2/dist/maplibre-gl.js""></script>
+<script>
+/* --------------------------------------------------------------
+   CONFIGURATION
+   -------------------------------------------------------------- */
+const MAPBOX_ACCESS_TOKEN = '';               // not needed for plain MapLibre, keep empty
+const MAP_STYLE = 'https://demotiles.maplibre.org/style.json'; // any style you like
+const ICON_BASE_URL = 'https://my-site.com/icons/'; // <-- change to your domain
+const ICON_NAMES = [
+  // list every category name that has a matching SVG file
+  'cafe', 'park', 'restaurant', 'library', 'school',
+  'hospital', 'bank', 'pharmacy', 'hotel', 'bar',
+  // … add the rest (≈ 30 more) …
+];
+const VENUES_GEOJSON_URL = 'https://my-site.com/data/venues.geojson'; // <-- change
+
+/* --------------------------------------------------------------
+   HELPER – load an SVG, rasterise it, and return the Image element
+   -------------------------------------------------------------- */
+function loadSvgImage(url, width = 24, height = 24) {
+  return new Promise((resolve, reject) => {
+    const img = new Image(width, height);
+    img.crossOrigin = 'anonymous';          // required for cross‑origin SVGs
+    img.onload = () => resolve(img);
+    img.onerror = e => reject(new Error(`Failed to load SVG ${url}`));
+    img.src = url;
+  });
+}
+
+/* --------------------------------------------------------------
+   MAIN – initialise the map, load icons, then add source + layer
+   -------------------------------------------------------------- */
+(async () => {
+  // 1️⃣  Initialise the map
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: MAP_STYLE,
+    center: [-122.44, 37.76],   // pick a sensible start location
+    zoom: 12,
+    hash: true
+  });
+
+  // Wait for the style to be ready before we start adding images
+  await new Promise(resolve => map.once('styledata', resolve));
+
+  // 2️⃣  Load every SVG icon and register it with the map
+  //    (run them in parallel – Promise.all)
+  await Promise.all(
+    ICON_NAMES.map(async name => {
+      const id = name; // the ID we will reference in the style
+      if (map.hasImage(id)) return; // already present (e.g. from a sprite)
+
+      const url = `${ICON_BASE_URL}${name}.svg`;
+      const img = await loadSvgImage(url, 24, 24); // 24 px square – adjust if you like
+      // `addImage` options – we keep the defaults (pixelRatio: 1, sdf: false)
+      map.addImage(id, img);
+    })
+  );
+
+  // 3️⃣  Load the venues GeoJSON (you could also fetch it yourself and call
+  //    map.addSource('venues', {type:'geojson', data: geojsonObject}))
+  const venuesResponse = await fetch(VENUES_GEOJSON_URL);
+  if (!venuesResponse.ok) throw new Error('Failed to fetch venues GeoJSON');
+  const venuesGeojson = await venuesResponse.json();
+
+  // 4️⃣  Add the source
+  map.addSource('venues', {
+    type: 'geojson',
+    data: venuesGeojson
+  });
+
+  // 5️⃣  Add the symbol layer that draws the icons
+  map.addLayer({
+    id: 'venue-icons',
+    type: 'symbol',
+    source: 'venues',
+    // The icon name comes from the feature property `category`
+    layout: {
+      'icon-image': ['get', 'category'],   // e.g. ""cafe"", ""park"", …
+      'icon-size': 1,                      // scale factor – tweak as needed
+      // Default collision handling (icon‑allow‑overlap: false) already
+      // hides icons that would overlap.  You can fine‑tune it:
+      // 'icon-allow-overlap': false,
+      // 'icon-ignore-placement': false,
+      // 'icon-optional': true   // hide only the icon, keep text (if any)
+    },
+    paint: {
+      // optional: give the icons a subtle halo so they stand out on busy basemaps
+      'icon-halo-color': '#fff',
+      'icon-halo-width': 1
+    }
+  });
+
+  // OPTIONAL: if you ever get a missing‑image warning you can supply a fallback
+  // map.setMissingStyleImageResolver(async (id) => {
+  //   // try to load the SVG on‑the‑fly, add it, then return the image data
+  //   const img = await loadSvgImage(`${ICON_BASE_URL}${id}.svg`);
+  //   map.addImage(id, img);
+  //   return img;
+  // });
+
+  console.log('✅ All icons loaded, venues displayed');
+})();
+</script>
+</body>
+</html>
+```
+
+---
+
+## How it works, step‑by‑step
+
+| Step | What happens | Why it matters |
+|------|--------------|----------------|
+| **Map creation** | `new maplibregl.Map({ … })` | Starts the GL canvas and loads the base style. |
+| **`styledata` event** | Wait until the style (including any sprite) is parsed. | `addImage` can only be called **after** the style is ready. |
+| **Load each SVG** | `loadSvgImage()` creates an `Image` element, rasterising the SVG at the desired pixel size. | `Map.addImage()` expects an `HTMLImageElement` (or `ImageData`, `Canvas`, etc.). |
+| **`map.addImage(id, img)`** | Registers the rasterised SVG under the same ID as the category name. | Symbol layers later refer to this ID via `icon-image`. |
+| **`map.hasImage(id)` guard** | Prevents “image already exists” errors if the same icon is added twice (e.g. when hot‑reloading). |
+| **Add GeoJSON source** | `map.addSource('venues', …)` | Supplies the 5 000 point features. |
+| **Add symbol layer** | `icon-image: ['get','category']` picks the right icon per feature. | No need for a separate layer per category – one expression does it all. |
+| **Collision handling** | Default `icon-allow-overlap: false` → icons that would overlap are hidden. | Keeps the map readable when zoomed out. |
+| **Optional halo** | `icon-halo-color` / `icon-halo-width` improves contrast on busy basemaps. | Purely aesthetic, but often useful. |
+| **`setMissingStyleImageResolver` (commented)** | Provides a fallback for any icon that wasn’t pre‑loaded. | Handy for debugging or for truly dynamic categories. |
+
+---
+
+### Tweaking the appearance
+
+| Property | Typical values | Effect |
+|----------|----------------|--------|
+| `icon-size` | `0.8` – `1.5` | Scale the icons up or down. |
+| `icon-allow-overlap` | `false` (default) – hide colliding icons.<br>`true` – draw everything (may look cluttered). |
+| `icon-ignore-placement` | `true` – treat the icon as a “decorative” element that never blocks other symbols. |
+| `icon-optional` | `true` – hide only the icon when it collides, keep any `text-field`. |
+| `icon-halo-color` / `icon-halo-width` | `#fff` / `1` – a thin white outline that improves legibility. |
+| `icon-pitch-alignment` / `icon-rotation-alignment` | `""map""` or `""viewport""` – control how icons behave when the map is pitched/rotated. |
+
+---
+
+## What to change for your own project
+
+| Placeholder | What to replace |
+|-------------|-----------------|
+| `ICON_BASE_URL` | The absolute URL that points to the folder containing **`<category>.svg`** files. |
+| `ICON_NAMES` | The list of all category strings you have SVGs for (the file name **without** the `.svg` extension). |
+| `VENUES_GEOJSON_URL` | URL (or relative path) to the GeoJSON that contains the 5 000 venue features. |
+| `MAP_STYLE` | Any MapLibre style you prefer (OSM Bright, your own custom style, etc.). |
+| `center` / `zoom` | Initial view that makes sense for your data. |
+
+---
+
+### Gotchas & troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| **Console: “Image `<id>` could not be loaded”** | The SVG URL returned 404 or CORS blocked it. | Verify the URL works in a browser, and that the server sends `Access‑Control‑Allow‑Origin: *` (or your site’s origin). |
+| **Icons appear as blank squares** | The SVG was loaded but `addImage` was called **before** the style finished loading. | Ensure you wait for `styledata` (or `load`) before calling `addImage`. |
+| **Too many icons visible when zoomed out** | `icon-allow-overlap` was set to `true` (or `icon-ignore-placement`). | Remove that line or set it to `false`. |
+| **Icons are blurry on high‑DPI screens** | You loaded a 24 px rasterisation but the device pixel ratio is > 1. | Either provide higher‑resolution SVGs (same file, just rasterise at `width*devicePixelRatio`) or set `pixelRatio: window.devicePixelRatio` in the `addImage` options: `map.addImage(id, img, {pixelRatio: window.devicePixelRatio});` |
+| **Missing badge on a shield** | The `category` value does not match any loaded icon ID. | Double‑check that every possible `category` appears in `ICON_NAMES` (or add a fallback via `setMissingStyleImageResolver`). |
+
+---
+
+## TL;DR – Minimal version (no optional extras)
+
+```js
+// after map has loaded …
+await Promise.all(
+  ['cafe','park','restaurant',/* … */].map(async id => {
+    if (!map.hasImage(id)) {
+      const img = await loadSvgImage(`${ICON_BASE_URL}${id}.svg`);
+      map.addImage(id, img);
+    }
+  })
+);
+
+map.addSource('venues', {type:'geojson', data: venuesGeojson});
+map.addLayer({
+  id: 'venue-icons',
+  type: 'symbol',
+  source: 'venues',
+  layout: {
+    'icon-image': ['get','category']   // auto‑selects the right icon
+    // default collision handling hides overlaps
+  }
+});
+```
+
+That’s all you need to display 5 000 points with 40 different SVG icons, while keeping the map readable at every zoom level. Happy mapping!",PASS,1.00,,All assertions passed,
+implicit — SVG category icons for a GeoJSON venue layer,skills/maplibre-sprites-icons/SKILL.md,"MapLibre GL JS 6. I have about 40 category icons as SVG files served from my own site, and a GeoJSON source of roughly 5,000 venues, each with a `category` property. Every venue should show its category's icon, and zoomed out the icons shouldn't pile up on top of each other. Show me the code that loads the icons and draws the venues.","Below is a **complete, copy‑and‑paste‑ready** example that works with **MapLibre GL JS v6** (the current stable version at the time of writing).
+
+* 40 + SVG icons are fetched from your own domain (`https://my‑site.com/icons/…`).  
+* Each icon is rasterised once with an `Image` element and registered with `map.addImage`.  
+* The venues are stored in a GeoJSON source (`venues.geojson`).  
+* The symbol layer uses the `category` property to pick the right icon (`icon-image: ['get','category']`).  
+* Collision handling is left at the default (`icon‑allow‑overlap: false`) so that, when you are zoomed out, icons that would overlap are automatically hidden.  
+* A tiny helper (`loadSvgIcon`) makes the SVG‑to‑Image conversion reusable and safe for CORS.
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"">
+  <title>MapLibre – 5 000 venues with SVG icons</title>
+  <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
+  <!-- MapLibre GL JS v6 -->
+  <link href=""https://unpkg.com/maplibre-gl@6.11.2/dist/maplibre-gl.css"" rel=""stylesheet""/>
+  <script src=""https://unpkg.com/maplibre-gl@6.11.2/dist/maplibre-gl.js""></script>
+
+  <style>
+    body, html { margin:0; padding:0; height:100%; }
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+  </style>
+</head>
+
+<body>
+<div id=""map""></div>
+
+<script>
+/* --------------------------------------------------------------
+   1️⃣  Initialise the map
+   -------------------------------------------------------------- */
+const map = new maplibregl.Map({
+  container: 'map',
+  style: 'https://demotiles.maplibre.org/style.json',   // any style you like
+  center: [-122.42, 37.77],   // San Francisco (lon, lat)
+  zoom: 12
+});
+
+/* --------------------------------------------------------------
+   2️⃣  Helper – load an SVG, rasterise it, and return the Image
+   -------------------------------------------------------------- */
+function loadSvgIcon(url, width = 24, height = 24) {
+  return new Promise((resolve, reject) => {
+    const img = new Image(width, height);
+    // Important for cross‑origin SVGs – otherwise addImage throws
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = (e) => reject(new Error(`Failed to load SVG ${url}`));
+    img.src = url;
+  });
+}
+
+/* --------------------------------------------------------------
+   3️⃣  Load all SVG icons (once) and register them with the map
+   -------------------------------------------------------------- */
+async function registerIcons() {
+  // -----------------------------------------------------------------
+  //  a)  List every category name that appears in your data.
+  //      The name must match the value stored in the GeoJSON's
+  //      `category` property *exactly* (case‑sensitive).
+  // -----------------------------------------------------------------
+  const categories = [
+    'cafe', 'restaurant', 'park', 'library', 'museum',
+    'school', 'hospital', 'pharmacy', 'bank', 'atm',
+    'post_office', 'hotel', 'bar', 'nightclub', 'cinema',
+    'theatre', 'gallery', 'parking', 'fuel', 'bicycle_rental',
+    'bus_stop', 'train_station', 'subway_entrance', 'taxi',
+    'toilets', 'bench', 'drinking_water', 'playground',
+    'waste_basket', 'information', 'post_box', 'police',
+    'fire_station', 'embassy', 'church', 'mosque', 'temple',
+    'stadium', 'airport', 'harbor'
+  ];
+
+  // -----------------------------------------------------------------
+  //  b)  Build an array of promises that load each SVG.
+  // -----------------------------------------------------------------
+  const loadPromises = categories.map(cat => {
+    const url = `https://my-site.com/icons/${cat}.svg`;   // <-- change to your domain
+    return loadSvgIcon(url).then(img => ({ id: cat, img }));
+  });
+
+  // -----------------------------------------------------------------
+  //  c)  Wait for every icon to finish loading.
+  // -----------------------------------------------------------------
+  const loaded = await Promise.all(loadPromises);
+
+  // -----------------------------------------------------------------
+  //  d)  Register each image with the map (once the style is ready).
+  // -----------------------------------------------------------------
+  loaded.forEach(({ id, img }) => {
+    if (!map.hasImage(id)) {
+      // `addImage` options are optional – you can add `sdf:true` etc.
+      map.addImage(id, img);
+    }
+  });
+}
+
+/* --------------------------------------------------------------
+   4️⃣  Add the GeoJSON source and the symbol layer (after the map
+       and the icons are ready)
+   -------------------------------------------------------------- */
+async function addVenueLayer() {
+  // 1️⃣  Load the icons first – they must exist before the layer is added
+  await registerIcons();
+
+  // 2️⃣  Add the GeoJSON source (replace the URL with your own)
+  map.addSource('venues', {
+    type: 'geojson',
+    data: 'https://my-site.com/data/venues.geojson'   // <-- change to your data URL
+  });
+
+  // 3️⃣  Add the symbol layer that draws the icons
+  map.addLayer({
+    id: 'venue-icons',
+    type: 'symbol',
+    source: 'venues',
+    // The icon name comes from the feature property `category`
+    layout: {
+      'icon-image': ['get', 'category'],   // <-- matches the IDs we added above
+      'icon-size': 1,                      // tweak if you want larger/smaller icons
+      // Default is `icon-allow-overlap: false`.  We keep that so that
+      // overlapping icons are hidden when you are zoomed out.
+      // If you *do* want every icon to be drawn regardless of collisions,
+      // set `icon-allow-overlap: true` (or `icon-overlap: ""always""`).
+      // For this use‑case we keep the default behaviour.
+      // 'icon-allow-overlap': false,
+      // Optional: give a small halo so icons stay visible on busy basemaps
+      'icon-halo-color': '#fff',
+      'icon-halo-width': 1
+    },
+    // Paint properties are optional – you can colour the halo, etc.
+    paint: {}
+  });
+}
+
+/* --------------------------------------------------------------
+   5️⃣  Kick everything off once the map style has loaded
+   -------------------------------------------------------------- */
+map.on('load', () => {
+  // If any icon fails to load we still want to see the rest, so we
+  // catch errors per‑icon inside `registerIcons`.  Here we just log.
+  addVenueLayer().catch(err => console.error('Failed to add venue layer:', err));
+});
+
+/* --------------------------------------------------------------
+   6️⃣  (Optional)  Graceful fallback for missing icons
+   -------------------------------------------------------------- */
+map.on('styleimagemissing', e => {
+  // This fires for any `icon-image` that the map cannot find.
+  // You could supply a generic placeholder here instead of silently
+  // dropping the symbol.
+  console.warn(`Missing icon ""${e.id}"" – you may want to add a fallback.`);
+  // Example fallback (uncomment if you have a generic “unknown” icon):
+  // if (!map.hasImage('unknown')) {
+  //   loadSvgIcon('https://my-site.com/icons/unknown.svg')
+  //     .then(img => map.addImage('unknown', img));
+  // }
+  // map.setLayoutProperty('venue-icons', 'icon-image', [
+  //   'case',
+  //   ['has', e.id],
+  //   ['get', 'category'],
+  //   'unknown'
+  // ]);
+});
+</script>
+</body>
+</html>
+```
+
+### How it works
+
+| Step | What happens | Why it matters |
+|------|--------------|----------------|
+| **Map init** | `new maplibregl.Map({ … })` | Loads a base style (any style you like). |
+| **`loadSvgIcon`** | Creates an `Image` element, sets `crossOrigin='anonymous'`, waits for `onload`. | `Map.addImage` only accepts raster images (`Image`, `HTMLCanvasElement`, `ImageBitmap`). The helper rasterises the SVG once, then re‑uses the same bitmap for every feature. |
+| **`registerIcons`** | Loops over every category, loads the SVG, registers it with `map.addImage`. | Icons must exist **before** the layer that references them is added; otherwise the map will emit `styleimagemissing`. |
+| **GeoJSON source** | `map.addSource('venues', …)` | Supplies the 5 000 point features. |
+| **Symbol layer** | `icon-image: ['get','category']` | The expression pulls the `category` property from each feature and looks up the image with that ID. |
+| **Collision handling** | Default `icon-allow-overlap: false`. | When you are zoomed out, overlapping icons are automatically hidden, preventing a “piled‑up” look. |
+| **`styleimagemissing` listener** | Logs any missing icon and (optionally) injects a fallback. | Helpful during development; you can also supply a generic “unknown” icon so nothing disappears. |
+
+### Tweaking the appearance
+
+* **Icon size** – change `'icon-size': 1` to `0.8`, `1.2`, etc.  
+* **Halo** – adjust `'icon-halo-color'` and `'icon-halo-width'` to improve contrast on busy basemaps.  
+* **Overlap override** – if you ever want *all* icons to be drawn (e.g., for a very sparse zoom level), set `'icon-allow-overlap': true` or `'icon-overlap': 'always'`.  
+* **Text labels** – you can add a `text-field` that shows the venue name, and use `'icon-text-fit'` if you ever need shield‑style badges.
+
+That’s it! With the code above you’ll see 5 000 venues, each rendered with its own SVG‑derived icon, and the map will automatically hide icons that would otherwise collide when you zoom out. Happy mapping!",PASS,1.00,,All assertions passed,
