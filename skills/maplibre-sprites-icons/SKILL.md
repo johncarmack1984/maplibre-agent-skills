@@ -12,9 +12,8 @@ An icon on a MapLibre GL JS map is either part of the map, drawn by a symbol lay
 
 - Choosing between a `Marker`, a sprite, and `addImage` for icons on a map
 - A symbol layer's icons do not render
-- Setting up `sprite` for a custom or self-hosted style (for `glyphs`, see [maplibre-fonts-glyphs](../maplibre-fonts-glyphs/SKILL.md))
 - Adding your own icon sheet to a style whose `sprite` you do not control
-- Self-hosting sprite assets, or generating a sprite from a directory of SVGs
+- Setting up, self-hosting, or building a `sprite` from SVGs (for `glyphs`, see [maplibre-fonts-glyphs](../maplibre-fonts-glyphs/SKILL.md))
 - Registering icons, including SVGs, for a layer your app adds at runtime
 - Route shields render as bare numbers or missing badges
 - Writing tooling that reads or generates symbol layers and has to recognize a shield
@@ -69,7 +68,6 @@ Rules that follow from that form:
 - **All ids and all URLs must be unique.** Duplicates are a validation error (`all the sprites' ids must be unique, but <id> is duplicated`), not a last-one-wins merge.
 - **Each URL is still extension-less** — MapLibre appends `.json`, `.png`, and the `@2x` variants per entry, exactly as for the string form.
 - **From code, `map.addSprite('my-icons', 'https://example.com/sprites/poi')` adds a sheet** once the style has loaded; a string `sprite` becomes the array's `default` entry.[3]
-- ✅ `{ "id": "my-icons", "url": "https://example.com/sprites/poi" }` → `"icon-image": "my-icons:cafe"`
 - ❌ `{ "id": "my-icons", "url": "https://example.com/sprites/poi.json" }` → requests `poi.json.json`
 - ❌ Typing `sprite` as `string` in your own tooling: an array value stringifies to `[object Object]`, and the loader rejects it with `Invalid sprite URL "[object Object]", must be absolute`. Handle both shapes wherever you read a style's `sprite`.
 
@@ -121,7 +119,7 @@ map.on('load', async () => {
 - **A symbol layer hides icons that collide by default** (`icon-allow-overlap` is `false`, and `icon-overlap` overrides it when set); `symbol-sort-key` decides which survive. Turning overlap on (`icon-allow-overlap: true`, or `icon-overlap: "always"`) draws every icon without checking collisions, which the GL JS [large-data guide](https://maplibre.org/maplibre-gl-js/docs/guides/large-data/) suggests at high feature counts; the icons then stack.
 - ❌ `"icon-optional": true` to make colliding icons disappear. It applies only to a symbol with both an icon and text, letting the text show without its icon when the icon collides and the text does not; on a layer with no `text-field` it changes nothing.
 
-`addImage`'s options carry the same per-image metadata the sprite index does — `pixelRatio`, `sdf`, `stretchX`, `stretchY`, `content`, `textFitWidth`, and `textFitHeight` — so a runtime image built as an SDF takes `icon-color` and `icon-halo-color`, and one with `stretchX`/`stretchY` stretches as a badge, exactly like an image baked into a sheet.[3]
+`addImage`'s options take the same per-image metadata as the sprite index: `pixelRatio`, `sdf`, `stretchX`, `stretchY`, `content`, `textFitWidth`, and `textFitHeight`.[3]
 
 ## Markers
 
@@ -152,22 +150,31 @@ Broken-looking route shields (bare floating numbers, missing badges) are almost 
 1. **Confirm glyphs load.** Probe the `glyphs` server for the exact `text-font` names and expect HTTP 200. If they 200, the font is not the problem.
 2. **Confirm the sprite carries the shield images.** OSM Bright's shield layers use `icon-image: "{network}_{ref_length}"` for US networks (e.g. `us-interstate_2`, `us-highway_3`, `us-state_2`) and `road_{ref_length}` for other refs; OSM Liberty's use `default_{ref_length}`. A missing icon is omitted, so grep the sprite JSON for those keys.
 
-The `demotiles.maplibre.org/styles/osm-bright-gl-style/sprite` and `openmaptiles.github.io/osm-bright-gl-style/sprite` sheets currently carry `road_1`–`_6`, `us-state_1`–`_6`, `us-highway_1`–`_3`, and `us-interstate_1`–`_3` (`_1`–`_5` on openmaptiles.github.io), but a minimal or custom sprite may ship only the generic `road_*`. If yours lacks the shield images and your tiles populate `network`, `ref`, and `ref_length` (the OSM US OpenMapTiles tiles do), point `sprite` at one that has them — the `{network}_{ref_length}` style layers then resolve with no layer edits.
+The `https://demotiles.maplibre.org/styles/osm-bright-gl-style/sprite` and `https://openmaptiles.github.io/osm-bright-gl-style/sprite` sheets currently carry `road_1`–`_6`, `us-state_1`–`_6`, `us-highway_1`–`_3`, and `us-interstate_1`–`_3` (`_1`–`_5` on openmaptiles.github.io), but a minimal or custom sprite may ship only the generic `road_*`. If yours lacks the shield images and your tiles populate `network`, `ref`, and `ref_length` (the OSM US OpenMapTiles tiles do), point `sprite` at one that has them — the `{network}_{ref_length}` style layers then resolve with no layer edits.
 
-**A shield is a badge image behind the route ref, sized one of two ways.** OSM Bright and OSM Liberty pick a pre-drawn badge per ref length, which is what OpenMapTiles' `ref_length` is for.[9] A stretchable badge sizes one image to its text instead: `icon-text-fit` `"both"` (or `"width"`) with `icon-text-fit-padding`, on a sprite image with `stretchX`/`stretchY` + `content`,[1] [2] so `I-5` and `I-405` share one image. An audit or generator has to accept both: `icon-text-fit` other than `none` (its default) marks only the stretchable kind, and `text-anchor` (default `center`) marks neither.
+**A shield is a badge image behind the route ref, sized one of two ways.** OSM Bright and OSM Liberty pick a pre-drawn badge per ref length, which is what OpenMapTiles' `ref_length` is for.[9] OSM Bright's interstate shield layer, abridged:
 
 ```json
 {
+  "id": "highway-shield-us-interstate",
   "layout": {
-    "icon-image": "shield-badge",
-    "icon-text-fit": "both",
-    "icon-text-fit-padding": [1, 4, 1, 4],
+    "icon-image": "{network}_{ref_length}",
+    "symbol-placement": {
+      "base": 1,
+      "stops": [
+        [7, "point"],
+        [7, "line"],
+        [8, "line"]
+      ]
+    },
     "text-field": "{ref}"
   }
 }
 ```
 
-When reading layout values back out of a style, remember they are not always strings: OSM Bright's three shield layers and OSM Liberty's one set `symbol-placement` with a legacy `{stops: [...]}` zoom function (point, then line), and any layout value can hold an expression, so `layout['symbol-placement'] === 'point'` silently skips them. Test the value's shape before comparing it.
+A stretchable badge sizes one image to its text instead: `icon-text-fit` `"both"` (or `"width"`) with `icon-text-fit-padding`, on a sprite image with `stretchX`/`stretchY` + `content`,[1] [2] so `I-5` and `I-405` share one image. Neither OSM Bright nor OSM Liberty uses it. An audit or generator has to accept both: `icon-text-fit` other than `none` (its default) marks only the stretchable kind, and `text-anchor` (default `center`) marks neither.
+
+When reading layout values back out of a style, remember they are not always strings: `symbol-placement` above is a legacy `{stops: [...]}` zoom function, as in OSM Bright's three shield layers and OSM Liberty's one, and any layout value can hold an expression, so `layout['symbol-placement'] === 'point'` silently skips them. Test the value's shape before comparing it.
 
 ## Related Skills
 
