@@ -1,53 +1,57 @@
 ---
 name: maplibre-sprites-icons
-description: Sprites and icon images for MapLibre GL JS — choosing between a sprite, `addImage`, and a `Marker`, the style's `sprite` base URL, loading several sheets at once with the `{id, url}` array form, self-hosting sprite assets, building a sprite from SVGs, registering images (including SVGs) at runtime with `addImage`, and diagnosing route shields that render as bare numbers. Use when deciding how to put icons on a map, when a symbol layer's icons never appear, when adding your own icons to a style whose sprite you do not control, when setting up or self-hosting a sprite, or when shields are missing their badge.
+description: Sprites and icon images for MapLibre GL JS — choosing a `Marker`, a sprite, or `addImage`; the `sprite` base URL and its `{id, url}` array form for several sheets; self-hosting and building sprites; runtime images, SVGs included, with `addImage`; and route shields that render as bare numbers. Use when deciding how to put icons on a map, when a symbol layer's icons never appear, when adding your own icons to a style whose sprite you do not control, or when shields are missing their badge.
 status: verified
 ---
 
 # MapLibre Sprites and Icons
 
-Every icon a symbol layer draws comes from a **sprite** — a PNG atlas plus a JSON index served from the style's `sprite` URL — or from an image registered at runtime with `addImage`. A `Marker` is the third way to put an icon on a map, outside the style. This skill covers which of the three to use, where the images come from, how one style loads more than one sheet, how to host or build your own, and why a route shield loses its badge. For icon color, halos, and figure-ground against imagery, see [maplibre-cartography](../maplibre-cartography/SKILL.md); for text and glyph setup, see [maplibre-fonts-glyphs](../maplibre-fonts-glyphs/SKILL.md).
+An icon on a MapLibre GL JS map is either part of the map, drawn by a symbol layer from a **sprite** (a PNG atlas plus a JSON index served from the style's `sprite` URL) or from an image registered at runtime with `addImage`, or on top of the map as a `Marker`, outside the style. For icon color, halos, and figure-ground against imagery, see [maplibre-cartography](../maplibre-cartography/SKILL.md); for text and glyph setup, see [maplibre-fonts-glyphs](../maplibre-fonts-glyphs/SKILL.md).
 
 ## When to Use This Skill
 
-- Choosing between a sprite, `addImage`, and a `Marker` for icons on a map
+- Choosing between a `Marker`, a sprite, and `addImage` for icons on a map
 - A symbol layer's icons do not render
 - Setting up `sprite` for a custom or self-hosted style (for `glyphs`, see [maplibre-fonts-glyphs](../maplibre-fonts-glyphs/SKILL.md))
 - Adding your own icon sheet to a style whose `sprite` you do not control
 - Self-hosting sprite assets, or generating a sprite from a directory of SVGs
-- Adding a handful of custom images at runtime instead of rebuilding a sprite
+- Registering icons, including SVGs, for a layer your app adds at runtime
 - Route shields render as bare numbers or missing badges
 - Writing tooling that reads or generates symbol layers and has to recognize a shield
 
-## Sprite, `addImage`, or `Marker`
+## Choosing a `Marker`, a sprite, or `addImage`
 
-| Drawing                                                                                             | Use                                                                                                    | Why                                                                                                                                                                         |
-| --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Icons the style itself draws: POIs, town dots, shields, pattern textures                            | A sprite, named in `icon-image` or a `*-pattern` property                                              | One sheet fetched once for every icon; symbols are placed together with the labels, so collisions and draw order follow the style's hierarchy                               |
-| Icons for a data layer you add at runtime, such as a GeoJSON source, that the sprite does not carry | A set: build a sprite and load it as a second sheet with the `{id, url}` array form. A few: `addImage` | A symbol layer draws them either way, with the same collision handling and layer order as sprite icons; see [Runtime images with `addImage`](#runtime-images-with-addimage) |
-| A few annotations the user works with: a pin to drag, arbitrary HTML                                | `Marker`                                                                                               | An HTML element over the canvas, outside the style: drawn above every layer, labels included, and never part of collision detection                                         |
+Two questions, in order; the sections below follow them.
 
-- **A `Marker` is one DOM element, repositioned on every camera move.** Fine for a handful; for a point dataset, put the points in a GeoJSON source and draw them with a symbol layer.
-- **A symbol layer hides icons that collide by default** (`icon-allow-overlap` is `false`, and `icon-overlap` overrides it when set); `symbol-sort-key` decides which survive. Turning overlap on (`icon-allow-overlap: true`, or `icon-overlap: "always"`) draws every icon without checking collisions, which the GL JS [large-data guide](https://maplibre.org/maplibre-gl-js/docs/guides/large-data/) suggests at high feature counts; the icons then stack.
-- ❌ `"icon-optional": true` to make colliding icons disappear. It applies only to a symbol with both an icon and text, letting the text show without its icon when the icon collides and the text does not; on a layer with no `text-field` it changes nothing.
-- ✅ A runtime icon layer needs nothing beyond the image id; collisions are already handled:
+1. **Is the icon part of the map, or on top of it?** Part of the map means a symbol layer's `icon-image`: placed together with the labels, hidden when it collides, and drawn in layer order, for a point dataset of any size. A small number of annotations on top of the map, that people drag or click or that need their own HTML, are [`Marker`s](#markers).
+2. **For a symbol layer, where does the image come from?**
+   - **The style.** POIs, town spots, shields, pattern textures, and any other icon or texture layered into the style, where it takes part in the visual hierarchy and collisions: a [sprite](#sprites). Your own set on a basemap whose sprite you do not control is a [second sheet](#multiple-sprite-sheets-in-one-style), still a sprite.
+   - **Your app, at runtime.** Icons for a layer the app adds, such as a GeoJSON source, that no sheet carries: [`addImage`](#runtime-images-with-addimage). Use it deliberately. Each image is its own request and `addImage` call, where a sprite arrives as one PNG and one JSON, and its icons collide with the style's labels and with each other like sprite icons.
 
-```js
-map.addLayer({
-  id: 'venues',
-  type: 'symbol',
-  source: 'venues',
-  layout: { 'icon-image': ['get', 'category'] } // ids registered with addImage
-});
+## Sprites
+
+The style's `sprite` value is a **base URL with no file extension**; MapLibre appends `.json`, `.png`, and `@2x` variants itself.[1] A symbol layer names a sprite image in `icon-image` (a fill, line, or background layer in its `*-pattern` property), and the name must exactly match an ID in the sprite JSON index or the icon is not drawn.
+
+```json
+{
+  "sprite": "https://example.com/sprites/poi",
+  "layers": [
+    {
+      "id": "cafes",
+      "type": "symbol",
+      "source": "places",
+      "source-layer": "poi",
+      "layout": { "icon-image": "cafe" }
+    }
+  ]
+}
 ```
 
-## The `sprite` value is a base URL
+`https://demotiles.maplibre.org/styles/osm-bright-gl-style/sprite` works for testing; do not use it in production.
 
-The style's `sprite` value is a **base URL with no file extension** (e.g. `https://demotiles.maplibre.org/styles/osm-bright-gl-style/sprite`, for testing purposes only, do not use in production); MapLibre appends `.json`, `.png`, and `@2x` variants itself.[1] Symbol layers reference sprite images by ID with `icon-image`; the value must exactly match an ID in the sprite JSON index or the icon is not rendered.
+### Multiple sprite sheets in one style
 
-## Multiple sprite sheets in one style
-
-`sprite` is not limited to a single string. Since MapLibre GL JS 3.0 ([#1805](https://github.com/maplibre/maplibre-gl-js/pull/1805)) it also accepts an **array of `{id, url}` objects**,[1] so a style can load its own icons alongside a basemap provider's sheet without merging the two. Use the array form whenever you are adding icons to a style whose sprite you do not control — merging sheets, or falling back to `addImage()` for everything, is the workaround for a limit that no longer exists.
+`sprite` is not limited to a single string. Since MapLibre GL JS 3.0 ([#1805](https://github.com/maplibre/maplibre-gl-js/pull/1805)) it also accepts an **array of `{id, url}` objects**,[1] so a style can load its own icons alongside a basemap provider's sheet. Before 3.0 a style could name only one sprite, so adding your own icons meant merging them into the provider's sheet; with the array form, each sheet stays where it is hosted.
 
 ```json
 {
@@ -64,17 +68,18 @@ Rules that follow from that form:
 - **The `id` `default` is the one exception**: its images take no prefix, which is what keeps an existing style's `icon-image` values working when you convert its string `sprite` to the array form. Give the basemap's sheet `id: "default"` and the shield and POI layers already in the style keep resolving unchanged.
 - **All ids and all URLs must be unique.** Duplicates are a validation error (`all the sprites' ids must be unique, but <id> is duplicated`), not a last-one-wins merge.
 - **Each URL is still extension-less** — MapLibre appends `.json`, `.png`, and the `@2x` variants per entry, exactly as for the string form.
+- **From code, `map.addSprite('my-icons', 'https://example.com/sprites/poi')` adds a sheet** once the style has loaded; a string `sprite` becomes the array's `default` entry.[3]
 - ✅ `{ "id": "my-icons", "url": "https://example.com/sprites/poi" }` → `"icon-image": "my-icons:cafe"`
 - ❌ `{ "id": "my-icons", "url": "https://example.com/sprites/poi.json" }` → requests `poi.json.json`
 - ❌ Typing `sprite` as `string` in your own tooling: an array value stringifies to `[object Object]`, and the loader rejects it with `Invalid sprite URL "[object Object]", must be absolute`. Handle both shapes wherever you read a style's `sprite`.
 
-## Self-hosted sprites
+### Self-hosted sprites
 
 To avoid third-party dependencies, copy an existing sprite directory (PNG + JSON, plus any @2x files) from a style or tileset provider and host it under your own domain, pointing the style's `sprite` property at its base URL. Always check the provider's license before republishing and add attribution if required.
 
 Host sprite assets on a static host you control (GitHub Pages, Netlify, Vercel, S3, same origin as the style). **Do not point production styles at `raw.githubusercontent.com`** Raw is for serving repository blobs, not production assets: anonymous requests are aggressively rate-limited so real users see intermittent HTTP 429s [5], caching is fixed at five minutes with no control, there is no SLA, and private-repo URLs return 404 to everyone but authenticated collaborators (it works for you while logged in, then fails for every other user) [6].
 
-## Building a sprite from SVGs
+### Building a sprite from SVGs
 
 Generate sprite assets from a directory of SVGs with tools such as [spritezero](https://github.com/mapbox/spritezero), [spreet](https://github.com/flother/spreet), or [Martin](https://maplibre.org/martin/sources-sprites/).
 
@@ -82,13 +87,55 @@ Useful icon sources include [Maki](https://github.com/mapbox/maki) and [Temaki](
 
 ## Runtime images with `addImage`
 
-For a few custom icons, `addImage` saves building a sprite: a PNG, WebP, or JPEG through `map.loadImage()`, an SVG through an `Image` element (below).[3] For a larger reusable set, build a sprite.
+For a layer your app adds at runtime, register each image under an ID once the style has loaded, then name that ID in the layer's `icon-image`. Check the ID with `hasImage()` first: `addImage` on an ID the style already has fires an error (`An image named "<id>" already exists.`) instead of replacing it.[3]
 
-- **Since GL JS 4.0.0, `map.loadImage()` returns a promise.** 4.0.0 removed the callback form,[4] so `map.loadImage(url, callback)` never calls back; `await` it and pass `response.data` to `addImage`.[3]
-- **An SVG goes through an `HTMLImageElement`, not `loadImage`.** Set an `Image`'s `src` to the SVG, wait for it to load, and pass the element to `map.addImage(id, image)`; `addImage` rasterizes it at the element's `width` and `height`. MapLibre's [Display a remote SVG symbol](https://maplibre.org/maplibre-gl-js/docs/examples/display-a-remote-svg-symbol/) example does this inside GL JS 6's `setMissingStyleImageResolver`.
-- **Leave `sdf` off for an ordinary SVG.** An image marked `sdf` has its alpha read as a distance field and every opaque pixel painted `icon-color` (default black), so a multicolor icon turns into a one-color silhouette.
+```js
+map.on('load', async () => {
+  // PNG, WebP, or JPEG: loadImage() resolves to a response whose data is the image
+  const { data } = await map.loadImage('https://example.com/icons/cafe.png');
+  if (!map.hasImage('cafe')) map.addImage('cafe', data);
+
+  // SVG: an Image element, rasterized at its width and height
+  const park = new Image(24, 24);
+  park.crossOrigin = 'anonymous';
+  await new Promise((resolve, reject) => {
+    park.onload = resolve;
+    park.onerror = reject;
+    park.src = 'https://example.com/icons/park.svg';
+  });
+  if (!map.hasImage('park')) map.addImage('park', park);
+
+  map.addSource('venues', { type: 'geojson', data: 'https://example.com/venues.geojson' });
+  map.addLayer({
+    id: 'venues',
+    type: 'symbol',
+    source: 'venues',
+    layout: { 'icon-image': ['get', 'category'] } // 'cafe' or 'park'
+  });
+});
+```
+
+- ❌ `map.loadImage(url, callback)`. GL JS 4.0.0 removed the callback form,[4] so the callback never runs; `await` the promise.[3]
+- ❌ An SVG through `map.loadImage()`, which takes PNG, WebP, or JPEG.[3] To load SVGs on demand, GL JS 6's `setMissingStyleImageResolver` takes the same `Image` route, as in MapLibre's [Display a remote SVG symbol](https://maplibre.org/maplibre-gl-js/docs/examples/display-a-remote-svg-symbol/) example.
+- ❌ `sdf: true` on an ordinary SVG. An image marked `sdf` has its alpha read as a distance field and every opaque pixel painted `icon-color` (default black), so a multicolor icon turns into a one-color silhouette.
+- **A symbol layer hides icons that collide by default** (`icon-allow-overlap` is `false`, and `icon-overlap` overrides it when set); `symbol-sort-key` decides which survive. Turning overlap on (`icon-allow-overlap: true`, or `icon-overlap: "always"`) draws every icon without checking collisions, which the GL JS [large-data guide](https://maplibre.org/maplibre-gl-js/docs/guides/large-data/) suggests at high feature counts; the icons then stack.
+- ❌ `"icon-optional": true` to make colliding icons disappear. It applies only to a symbol with both an icon and text, letting the text show without its icon when the icon collides and the text does not; on a layer with no `text-field` it changes nothing.
 
 `addImage`'s options carry the same per-image metadata the sprite index does — `pixelRatio`, `sdf`, `stretchX`, `stretchY`, `content`, `textFitWidth`, and `textFitHeight` — so a runtime image built as an SDF takes `icon-color` and `icon-halo-color`, and one with `stretchX`/`stretchY` stretches as a badge, exactly like an image baked into a sheet.[3]
+
+## Markers
+
+A `Marker` is an HTML element over the map canvas, outside the style: drawn above every layer, labels included, and never part of collision detection.
+
+```js
+new maplibregl.Marker({ draggable: true })
+  .setLngLat([-122.42, 37.77])
+  .setPopup(new maplibregl.Popup().setText('Pickup point'))
+  .addTo(map);
+```
+
+- **A `Marker` is one DOM element, repositioned on every camera move.** Fine for a small number of annotations on top of the map; for a point dataset, put the points in a GeoJSON source and draw them as a symbol layer.
+- Custom marker art is your own element, `new maplibregl.Marker({ element })`, not a sprite image.[7]
 
 ## Broken route shields
 
@@ -125,10 +172,11 @@ When reading layout values back out of a style, remember they are not always str
 
 1. [**Style Spec: `sprite`**](https://maplibre.org/maplibre-style-spec/sprite/) — the string and `{id, url}` array forms, image-name prefixing, the `default` id, and the sprite index file's `content`, `stretchX`/`stretchY`, and `textFitWidth`/`textFitHeight` fields
 2. [**Style Spec: symbol layer layout properties**](https://maplibre.org/maplibre-style-spec/layers/#icon-text-fit) — `icon-text-fit` values (`none` default, `width`, `height`, `both`) and `icon-text-fit-padding`
-3. [**`Map.addImage()` (MapLibre GL JS API)**](https://maplibre.org/maplibre-gl-js/docs/API/classes/Map/#addimage) — with [`Map.loadImage()`](https://maplibre.org/maplibre-gl-js/docs/API/classes/Map/#loadimage) on the same page: PNG, WebP, or JPEG, resolving to a response whose `data` is the image
+3. [**`Map.addImage()` (MapLibre GL JS API)**](https://maplibre.org/maplibre-gl-js/docs/API/classes/Map/#addimage) — with `hasImage()`, `listImages()`, `addSprite()`, and `loadImage()` on the same page: `loadImage` takes PNG, WebP, or JPEG and resolves to a response whose `data` is the image
 4. [**MapLibre GL JS CHANGELOG**](https://github.com/maplibre/maplibre-gl-js/blob/main/CHANGELOG.md) — "Add support for multiple `sprite` declarations in one style file" ships in 3.0.0; `map.loadImage` returns a `Promise` and drops its callback in 4.0.0 ([#3233](https://github.com/maplibre/maplibre-gl-js/pull/3233), [#3422](https://github.com/maplibre/maplibre-gl-js/pull/3422))
 5. [**Unauthenticated rate limits on `raw.githubusercontent.com` (GitHub Community Discussion)**](https://github.com/orgs/community/discussions/159123) — anonymous requests are rate-limited; production traffic sees intermittent HTTP 429
 6. [**`raw.githubusercontent.com` and private repositories (GitHub Community Discussion)**](https://github.com/orgs/community/discussions/69281) — private-repo raw URLs return 404/403 to anonymous requests
+7. [**`Marker` (MapLibre GL JS API)**](https://maplibre.org/maplibre-gl-js/docs/API/classes/Marker/) — the `draggable` and `element` options, `setLngLat`, and `setPopup`
 
 ---
 
