@@ -23,14 +23,14 @@ An icon on a MapLibre GL JS map is either part of the map, drawn by a symbol lay
 
 Two questions, in order; the sections below follow them.
 
-1. **Is the icon part of the map, or on top of it?** Part of the map means a symbol layer's `icon-image`: placed together with the labels, hidden when it collides, and drawn in layer order, for a point dataset of any size. A small number of annotations on top of the map, that people drag or click or that need their own HTML, are [`Marker`s](#markers).
+1. **Is the icon part of the map, or on top of it?** Part of the map means a symbol layer's `icon-image`: placed together with the labels, hidden when it collides, and drawn in layer order, for a point dataset of any size. A small number of annotations on top of the map, that people drag or that need their own HTML, are [`Marker`s](#markers).
 2. **For a symbol layer, where does the image come from?**
    - **The style.** POIs, town spots, shields, pattern textures, and any other icon or texture layered into the style, where it takes part in the visual hierarchy and collisions: a [sprite](#sprites). Your own set on a basemap whose sprite you do not control is a [second sheet](#multiple-sprite-sheets-in-one-style), still a sprite.
    - **Your app, at runtime.** Icons for a layer the app adds, such as a GeoJSON source, that no sheet carries: [`addImage`](#runtime-images-with-addimage). Use it deliberately. Each image is its own request and `addImage` call, where a sprite arrives as one PNG and one JSON, and its icons collide with the style's labels and with each other like sprite icons.
 
 ## Sprites
 
-The style's `sprite` value is a **base URL with no file extension**; MapLibre appends `.json`, `.png`, and `@2x` variants itself.[1] A symbol layer names a sprite image in `icon-image` (a fill, line, or background layer in its `*-pattern` property), and the name must exactly match an ID in the sprite JSON index or the icon is not drawn.
+The style's `sprite` value is a **base URL with no file extension**; MapLibre appends `.json`, `.png`, and `@2x` variants itself.[1] A symbol layer names a sprite image in `icon-image` (other layers in their `*-pattern` property), and the name must exactly match an ID in the sprite JSON index or the icon is not drawn.
 
 ```json
 {
@@ -97,7 +97,7 @@ map.on('load', async () => {
 
   // SVG: an Image element, rasterized at its width and height
   const park = new Image(24, 24);
-  park.crossOrigin = 'anonymous';
+  park.crossOrigin = 'anonymous'; // or addImage throws on a cross-origin SVG
   await new Promise((resolve, reject) => {
     park.onload = resolve;
     park.onerror = reject;
@@ -125,7 +125,7 @@ map.on('load', async () => {
 
 ## Markers
 
-A `Marker` is an HTML element over the map canvas, outside the style: drawn above every layer, labels included, and never part of collision detection.
+A `Marker`[7] is an HTML element over the map canvas, outside the style: drawn above every layer, labels included, and never part of collision detection.
 
 ```js
 new maplibregl.Marker({ draggable: true })
@@ -135,7 +135,6 @@ new maplibregl.Marker({ draggable: true })
 ```
 
 - **A `Marker` is one DOM element, repositioned on every camera move.** Fine for a small number of annotations on top of the map; for a point dataset, put the points in a GeoJSON source and draw them as a symbol layer.
-- Custom marker art is your own element, `new maplibregl.Marker({ element })`, not a sprite image.[7]
 
 ## When an icon does not render
 
@@ -185,7 +184,7 @@ When reading layout values back out of a style, remember they are not always str
 4. [**MapLibre GL JS CHANGELOG**](https://github.com/maplibre/maplibre-gl-js/blob/main/CHANGELOG.md) — "Add support for multiple `sprite` declarations in one style file" ships in 3.0.0; `map.loadImage` returns a `Promise` and drops its callback in 4.0.0 ([#3233](https://github.com/maplibre/maplibre-gl-js/pull/3233), [#3422](https://github.com/maplibre/maplibre-gl-js/pull/3422))
 5. [**Unauthenticated rate limits on `raw.githubusercontent.com` (GitHub Community Discussion)**](https://github.com/orgs/community/discussions/159123) — anonymous requests are rate-limited; production traffic sees intermittent HTTP 429
 6. [**`raw.githubusercontent.com` and private repositories (GitHub Community Discussion)**](https://github.com/orgs/community/discussions/69281) — private-repo raw URLs return 404/403 to anonymous requests
-7. [**`Marker` (MapLibre GL JS API)**](https://maplibre.org/maplibre-gl-js/docs/API/classes/Marker/) — the `draggable` and `element` options, `setLngLat`, and `setPopup`
+7. [**`Marker` (MapLibre GL JS API)**](https://maplibre.org/maplibre-gl-js/docs/API/classes/Marker/) — the `draggable` option, `setLngLat`, and `setPopup`
 8. [**GL JS 6.11.2 `image_manager.ts`**](https://github.com/maplibre/maplibre-gl-js/blob/v6.11.2/src/render/image_manager.ts#L335-L338) — `styleimagemissing` and the missing-image warning; the duplicate-ID error is in [`style.ts`](https://github.com/maplibre/maplibre-gl-js/blob/v6.11.2/src/style/style.ts#L1004-L1007), and an `error` event with no listener goes to `console.error` in [`evented.ts`](https://github.com/maplibre/maplibre-gl-js/blob/v6.11.2/src/util/evented.ts#L191-L195)
 
 ---

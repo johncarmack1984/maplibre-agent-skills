@@ -14,4 +14,4 @@ Run: baseline 2026-09-09 (tests 2, 4, 5) and 2026-09-25 (test 1; test 3, three r
 
 **Result: baseline 4 FAIL + 1 correct negative / with-skill 5/5 PASS as judged (test 2 misses its URL-uniqueness item on reading). `status: verified`.**
 
-Tests 3 and 4 had their rubrics revised before the runs above, after reading answers the judge had passed. Probes of the choice itself (a `Marker` collision option, a draggable pin beside 3,000 depots) passed at baseline, so the decision table stays short.
+Tests 3 and 4 had their rubrics revised before the runs above, after reading answers the judge had passed. Probes of the choice itself (a `Marker` collision option, a draggable pin beside 3,000 depots) passed at baseline, so the decision tree stays short.
