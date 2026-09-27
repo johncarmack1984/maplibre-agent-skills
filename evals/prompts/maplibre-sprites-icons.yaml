@@ -25,7 +25,7 @@ tests:
       - type: not-icontains
         value: 'road_shield'
       - type: llm-rubric
-        value: "Correctly states that OpenMapTiles/OSM Liberty shield layers reference icon-image by the pattern \"{network}_{ref_length}\" for known networks — e.g. us-interstate_2, us-highway_3, us-state_2 — and road_{ref_length} for generic refs, and that a missing icon is omitted. The fix is to point the style's sprite at one that actually contains those shield images (so the {network}_{ref_length} layers resolve with no layer edits). Must NOT invent a different naming scheme (e.g. \"road_shield_{ref}\") and must NOT tell the user to use a Mapbox sprite / mapbox:// URL or a Mapbox account."
+        value: "Correctly states that OSM Bright's shield layers reference icon-image by the pattern \"{network}_{ref_length}\" for US networks — e.g. us-interstate_2, us-highway_3, us-state_2 — and road_{ref_length} for other refs, and that a missing icon is omitted. The fix is to point the style's sprite at one that actually contains those shield images (so the {network}_{ref_length} layers resolve with no layer edits). Must NOT name us-highway_4, us-highway_5, us-highway_6, or us-interstate_6, which neither OSM Bright sheet has. Must NOT invent a different naming scheme (e.g. \"road_shield_{ref}\") and must NOT tell the user to use a Mapbox sprite / mapbox:// URL or a Mapbox account."
 
   - description: implicit — own icon sheet alongside the basemap provider's, icons never appear
     vars:
@@ -41,14 +41,12 @@ tests:
       - type: llm-rubric
         value: "Must draw the venues with a symbol layer on the GeoJSON source whose `icon-image` is data-driven from `category` (for example `['get', 'category']`), not with one `Marker` per venue. Must turn each SVG into a style image by loading it into an `HTMLImageElement` (`new Image()`), waiting for it to load, and passing that element, or pixels drawn from it, to `map.addImage`, or else by building a sprite from the SVGs ahead of time. Must not pass an SVG file or a `data:image/svg+xml` URL to `map.loadImage()`, which accepts only PNG, WebP, and JPEG. Must not call `map.loadImage(url, callback)`: since MapLibre GL JS 4.0.0 it returns a promise and takes no callback. Must state that icons which collide are hidden by default (`icon-allow-overlap` defaults to `false`). Must not present `icon-optional` as what hides overlapping icons; it only lets a symbol's text show without its icon. Must register the SVG rasters as ordinary images (`sdf` off or omitted), and must not set `sdf: true` on them: an ordinary image marked SDF has its alpha read as a distance field and every opaque pixel painted `icon-color`, so the category icons lose their colors."
 
-  - description: anti-pattern — shield detection heuristic that ignores icon-text-fit
+  - description: anti-pattern — shield detection that compares symbol-placement as a string
     vars:
       prompt: "Reviewing my style-audit script. It flags a MapLibre symbol layer as a route shield when layer.layout['text-anchor'] === undefined and layer.layout['symbol-placement'] === 'point'. It is tagging plain place-name layers as shields and skipping real shield layers. Is the heuristic sound, and what should it key off instead?"
     assert:
-      - type: icontains
-        value: 'icon-text-fit'
       - type: llm-rubric
-        value: "Must name `icon-text-fit` set to a value other than `none` (its default) as THE definitional property that identifies a shield — the badge is an icon scaled around the text, which is what `icon-text-fit` does, so no other layout property is definitional. Must NOT put forward a sprite or `icon-image` name pattern (e.g. matching /shield/), a `text-field` token such as {ref}, an overlap flag, or a layer-id naming convention as the primary discriminator, and must NOT demote `icon-text-fit` to one optional cue in a list of equally weighted signals. May also note that `text-anchor` defaults to `center` so its absence carries no information, and that `symbol-placement` can be an expression or legacy zoom function rather than a bare string."
+        value: "Must state that `text-anchor` defaults to `center`, so its absence says nothing about a layer. Must state that `symbol-placement` is not always a bare string: shield layers in styles such as OSM Bright set it with a legacy `{stops}` zoom function or an expression, so comparing it to 'point' skips them. Must key the audit off what a shield draws, an `icon-image` badge behind a route-ref `text-field`, and accept both ways of sizing that badge: a pre-drawn image per ref length (such as `road_{ref_length}` or `{network}_{ref_length}`) and a single stretchable image sized with `icon-text-fit`. Must not require `icon-text-fit`, or any other single layout property, for a layer to count as a shield."
 
   - description: negative — a draggable pin with a popup stays a Marker
     vars:
