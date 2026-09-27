@@ -1,6 +1,6 @@
 ---
 name: maplibre-sprites-icons
-description: Sprites and icon images for MapLibre GL JS — choosing a `Marker`, a sprite, or `addImage`; the `sprite` base URL and its `{id, url}` array form for several sheets; self-hosting and building sprites; runtime images, SVGs included, with `addImage`; and route shields that render as bare numbers. Use when deciding how to put icons on a map, when a symbol layer's icons never appear, when adding your own icons to a style whose sprite you do not control, or when shields are missing their badge.
+description: Sprites and icon images for MapLibre GL JS — choosing a `Marker`, a sprite, or `addImage`; the `sprite` base URL and its `{id, url}` array form for several sheets; self-hosting and building sprites; runtime images, SVGs included, with `addImage`; finding a missing icon with the console warning and `hasImage`; and route shields that render as bare numbers. Use when deciding how to put icons on a map, when a symbol layer's icons never appear, when adding your own icons to a style whose sprite you do not control, or when shields are missing their badge.
 status: verified
 ---
 
@@ -87,7 +87,7 @@ Useful icon sources include [Maki](https://github.com/mapbox/maki) and [Temaki](
 
 ## Runtime images with `addImage`
 
-For a layer your app adds at runtime, register each image under an ID once the style has loaded, then name that ID in the layer's `icon-image`. Check the ID with `hasImage()` first: `addImage` on an ID the style already has fires an error (`An image named "<id>" already exists.`) instead of replacing it.[3]
+For a layer your app adds at runtime, register each image under an ID once the style has loaded, then name that ID in the layer's `icon-image`. Check the ID with `hasImage()` first: `addImage` on an ID the style already has fires an error (`An image named "<id>" already exists.`) instead of replacing it.[3] [8]
 
 ```js
 map.on('load', async () => {
@@ -137,6 +137,15 @@ new maplibregl.Marker({ draggable: true })
 - **A `Marker` is one DOM element, repositioned on every camera move.** Fine for a small number of annotations on top of the map; for a point dataset, put the points in a GeoJSON source and draw them as a symbol layer.
 - Custom marker art is your own element, `new maplibregl.Marker({ element })`, not a sprite image.[7]
 
+## When an icon does not render
+
+GL JS reports every icon it cannot find: the map fires `styleimagemissing`, and the console warns once per image ID, `Image "<id>" could not be loaded`.[8] A `sprite` URL that fails to load also fires the map's `error` event, which goes to `console.error` when nothing listens for it.[8]
+
+After the `load` event, `map.hasImage(id)` tells the two causes apart:[3]
+
+- **The sheet never loaded** when `hasImage()` is `false` for IDs the sprite JSON does contain. Check that the style sets `sprite`, that its URL has no extension, that its `.json` and `.png` return 200, and CORS.
+- **The sheet loaded without that ID** when other sprite IDs return `true`. Compare the `icon-image` value with the sprite JSON's keys, including the `id:` prefix of a non-default sheet; `map.listImages()` returns every ID the map has.
+
 ## Broken route shields
 
 Broken-looking route shields (bare floating numbers, missing badges) are almost always a **missing sprite image**. The shield number is text (font) and usually renders fine; the badge behind it is an `icon-image` from the sprite. Diagnose in this order:
@@ -177,6 +186,7 @@ When reading layout values back out of a style, remember they are not always str
 5. [**Unauthenticated rate limits on `raw.githubusercontent.com` (GitHub Community Discussion)**](https://github.com/orgs/community/discussions/159123) — anonymous requests are rate-limited; production traffic sees intermittent HTTP 429
 6. [**`raw.githubusercontent.com` and private repositories (GitHub Community Discussion)**](https://github.com/orgs/community/discussions/69281) — private-repo raw URLs return 404/403 to anonymous requests
 7. [**`Marker` (MapLibre GL JS API)**](https://maplibre.org/maplibre-gl-js/docs/API/classes/Marker/) — the `draggable` and `element` options, `setLngLat`, and `setPopup`
+8. [**GL JS 6.11.2 `image_manager.ts`**](https://github.com/maplibre/maplibre-gl-js/blob/v6.11.2/src/render/image_manager.ts#L335-L338) — `styleimagemissing` and the missing-image warning; the duplicate-ID error is in [`style.ts`](https://github.com/maplibre/maplibre-gl-js/blob/v6.11.2/src/style/style.ts#L1004-L1007), and an `error` event with no listener goes to `console.error` in [`evented.ts`](https://github.com/maplibre/maplibre-gl-js/blob/v6.11.2/src/util/evented.ts#L191-L195)
 
 ---
 
