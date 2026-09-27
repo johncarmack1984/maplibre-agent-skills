@@ -1,0 +1,914 @@
+Description,skillFile,injectSkill,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+explicit — route shields missing badge on the open OpenMapTiles stack,skills/maplibre-sprites-icons/SKILL.md,false,"I'm using an open OpenMapTiles / OSM-based vector basemap with MapLibre GL JS (no Mapbox account). My interstate and US highway shields render as bare floating numbers with no shield badge behind them; the numbers are fine. My tiles do populate network, ref, and ref_length. Which exact sprite image names do the shield layers expect, and how do I get the badges to appear without editing the layers?","### Short answer  
+
+The shield layers that come with the **OpenMapTiles** (or any MapLibre‑GL style that was copied from Mapbox‑Streets) look for **exactly the following sprite‑image keys**:
+
+| Shield type | Sprite name (key) |
+|-------------|-------------------|
+| Generic numeric shields (1 – 20) | `road-shield-1`, `road-shield-2`, `road-shield-3`, … `road-shield-20` |
+| US Interstate (red “I‑xx”) | `road-shield-us-interstate` |
+| US Highway (black “US xx”) | `road-shield-us-us` |
+| US Highway alternate / business (white “US xx‑A”) | `road-shield-us-us-2` |
+
+If those four‑digit keys are present in the **sprite sheet** (the `*.png` + `*.json` pair that you point to with the `sprite` property of the style), the numbers you already see in the `ref`/`ref_length` fields will automatically be drawn on top of the correct badge.
+
+---
+
+## Why the badges disappear
+
+When you use the OpenMapTiles vector tiles **without** the accompanying sprite sheet, the style still creates the text‑symbol layers (`road-number-*`) but it can’t find any image to use as a background. The result is exactly what you described: floating numbers with no badge.
+
+The fix is **only** to supply a sprite sheet that contains the keys above – you do **not** have to touch the style JSON at all.
+
+---
+
+## How to get a working sprite sheet (no layer editing required)
+
+### 1. Grab the official OpenMapTiles sprite
+
+The OpenMapTiles repository already ships a ready‑made sprite that contains every shield the style expects.
+
+```text
+https://github.com/openmaptiles/openmaptiles/tree/master/styles/positron/sprite
+```
+
+Download the two files:
+
+* `sprite@2x.png` (high‑DPI version) – **or** `sprite.png` for normal DPI  
+* `sprite@2x.json` (or `sprite.json`)
+
+Place them on a web‑accessible location (e.g. your own CDN, GitHub Pages, or the same server that serves the style JSON) and point the style at them:
+
+```json
+{
+  ""version"": 8,
+  ""sprite"": ""https://my.cdn.com/omt-sprite/sprite"",
+  ...
+}
+```
+
+> **Note:** The URL must **not** include the file extension; MapLibre will automatically request `sprite.json` and `sprite.png` (or the `@2x` versions when the device pixel ratio > 1).
+
+### 2. If you want a custom colour/size – generate your own
+
+If you prefer a different colour palette or need extra shields (e.g. state‑level shields), you can generate a sprite yourself:
+
+| Tool | What it does |
+|------|--------------|
+| **openmaptiles/shields** (GitHub) | Contains the SVG source for every US shield (interstate, US‑highway, US‑alternate) plus a tiny Node script (`generate-sprite.js`) that rasterises the SVGs into a Mapbox‑compatible sprite (`png + json`). |
+| **mapbox‑shield‑generator** (npm) | A more generic generator that can take any SVG set and output a sprite. |
+| **SpriteZero** (online) | Drag‑and‑drop PNGs + names and it builds the JSON for you. |
+
+Typical workflow with the official repo:
+
+```bash
+git clone https://github.com/openmaptiles/shields.git
+cd shields
+npm install   # installs sharp, mapbox‑sprite, etc.
+node generate-sprite.js   # creates sprite.png + sprite.json
+```
+
+The script already names the images exactly as the style expects (`road-shield-us-interstate`, `road-shield-us-us`, `road‑shield‑us‑us‑2`, plus `road‑shield‑1` … `road‑shield‑20`). Just copy the resulting files to your server and reference them as shown above.
+
+### 3. Verify the sprite contains the required keys
+
+Open the generated `sprite.json` in a text editor or in the browser (`https://my.cdn.com/omt-sprite/sprite.json`). You should see entries like:
+
+```json
+{
+  ""road-shield-1"": {""width"":30,""height"":30,""x"":0,""y"":0,""pixelRatio"":2},
+  ""road-shield-2"": {""width"":30,""height"":30,""x"":30,""y"":0,""pixelRatio"":2},
+  ...
+  ""road-shield-us-interstate"": {""width"":30,""height"":30,""x"":600,""y"":0,""pixelRatio"":2},
+  ""road-shield-us-us"": {""width"":30,""height"":30,""x"":630,""y"":0,""pixelRatio"":2},
+  ""road-shield-us-us-2"": {""width"":30,""height"":30,""x"":660,""y"":0,""pixelRatio"":2}
+}
+```
+
+If those keys are present, the style will automatically pick the right badge for each feature based on the `network` and `ref` properties that you already have in the tiles.
+
+---
+
+## Quick checklist – get shields working in < 5 minutes
+
+1. **Download** the official sprite (`sprite.png` + `sprite.json`) from the OpenMapTiles repo (or generate your own).  
+2. **Host** the two files on a URL that is reachable from the page that loads the map.  
+3. **Edit the style JSON** (once) to point to that URL:
+
+   ```json
+   ""sprite"": ""https://my.cdn.com/omt-sprite/sprite""
+   ```
+
+4. **Reload** the page. The numbers should now appear on top of the proper shield background (interstate red, US black, generic gray, etc.).
+
+That’s it – no need to touch any of the `road-number-*` layers, `filter`s, or `icon-image` expressions. The style does all the work; it just needs the sprite sheet that contains the exact image names listed above. Happy mapping!",PASS,1.00,,All assertions passed,
+explicit — route shields missing badge on the open OpenMapTiles stack,skills/maplibre-sprites-icons/SKILL.md,false,"I'm using an open OpenMapTiles / OSM-based vector basemap with MapLibre GL JS (no Mapbox account). My interstate and US highway shields render as bare floating numbers with no shield badge behind them; the numbers are fine. My tiles do populate network, ref, and ref_length. Which exact sprite image names do the shield layers expect, and how do I get the badges to appear without editing the layers?","## TL;DR  
+The shield layers in the **OpenMapTiles “streets” style** look for the following sprite names:
+
+```
+road-shield-1
+road-shield-2
+road-shield-3
+road-shield-4
+road-shield-5
+road-shield-6
+road-shield-7
+road-shield-8
+road-shield-9
+road-shield-10
+road-shield-11
+road-shield-12
+```
+
+If those images are missing from the sprite sheet that your MapLibre GL JS map is using, the style can still read the `ref`/`network` values (so you see the numbers) but it has nothing to draw **behind** the numbers – you get “floating digits”.
+
+All you have to do is point the style at a sprite sheet that contains those 12 images (or add them yourself). No layer‑style changes are required.
+
+Below is a short guide that tells you:
+
+1. **What each sprite name represents** (so you know which badge you’re getting).  
+2. **Where to obtain the official sprite sheet** that already contains them.  
+3. **How to host your own sprite sheet** if you need a custom one.  
+4. **A quick sanity‑check** to make sure the style is actually loading the sprite.
+
+---
+
+## 1. What the 12 sprite names mean
+
+| Sprite name | Typical badge that appears | Network values that map to it (as used by the default style) |
+|-------------|---------------------------|--------------------------------------------------------------|
+| `road-shield-1` | **US Interstate** (red‑white‑red) | `US:I` (e.g. `I‑5`, `I‑95`) |
+| `road-shield-2` | **US U.S. Highway** (black‑white) | `US:US` (e.g. `US‑20`, `US‑101`) |
+| `road-shield-3` | **US State Highway** (blue‑white) | `US:AL`, `US:CA`, … (any `US:<state‑abbr>`) |
+| `road-shield-4` | **US County Road** (green‑white) | `US:CO`, `US:TX`, … (any `US:<state‑abbr>` that is not a state‑highway) – the style falls back to this for most county roads |
+| `road-shield-5` | **Canadian Provincial** (white‑red) | `CA:AB`, `CA:BC`, … |
+| `road-shield-6` | **Canadian National** (black‑white) | `CA:CN` |
+| `road-shield-7` | **European (E‑road)** (blue‑white) | `EU:E` |
+| `road-shield-8` | **International (A‑road, B‑road, etc.)** | `EU:A`, `EU:B`, `EU:D` |
+| `road-shield-9` | **Australian / New‑Zealand** | `AU:NR`, `NZ:SH` |
+| `road-shield-10` | **Asian (AH‑road)** | `AS:AH` |
+| `road-shield-11` | **Other / generic** (white‑black) | Any network that does not match the above (fallback) |
+| `road-shield-12` | **No‑badge (transparent)** – used when the style wants to hide the badge entirely | `none` (the style never actually picks this, but it is kept for completeness) |
+
+> **Note:** The mapping is performed in the style’s `icon-image` expression (see the style source below). If you add a custom network value you want to display, you must add a matching entry to that expression **or** add a sprite with the same name you reference manually.
+
+---
+
+## 2. Get the official sprite sheet (the easiest way)
+
+The OpenMapTiles “streets” style ships with a ready‑made sprite that already contains the 12 shield images, plus all the other icons the style uses (poi symbols, building icons, etc.).
+
+### Hosted version (no build step)
+
+```
+https://openmaptiles.org/sprites/streets-v8/sprite.json
+https://openmaptiles.org/sprites/streets-v8/sprite.png
+```
+
+If you need the high‑DPI version (2× for Retina / high‑resolution displays):
+
+```
+https://openmaptiles.org/sprites/streets-v8/sprite@2x.json
+https://openmaptiles.org/sprites/streets-v8/sprite@2x.png
+```
+
+Just set the `sprite` property of your style (or the `sprite` option you pass to `maplibregl.Map`) to the base URL **without** the file extension:
+
+```js
+const map = new maplibregl.Map({
+  container: 'map',
+  style: 'https://openmaptiles.org/styles/streets/style.json',
+  // <-- the style already points to the correct sprite, but if you override it:
+  // sprite: 'https://openmaptiles.org/sprites/streets-v8/sprite',
+  center: [-122.44, 37.76],
+  zoom: 12
+});
+```
+
+That URL will automatically load the `*.json` and `*.png` (or the `@2x` pair if the browser reports a device pixel ratio ≥ 1.5).
+
+### From the GitHub repo (if you want to host it yourself)
+
+1. Clone the repo (or just download the folder)  
+
+   ```bash
+   git clone https://github.com/openmaptiles/openmaptiles.git
+   cd openmaptiles/styles/streets
+   ```
+
+2. The sprite files live in `sprite/`:
+
+   ```
+   sprite/sprite.json
+   sprite/sprite.png
+   sprite/sprite@2x.json
+   sprite/sprite@2x.png
+   ```
+
+3. Upload those four files to your static‑file host (e.g. S3, GitHub Pages, Netlify) and point the style’s `sprite` property at the base URL you chose.
+
+---
+
+## 3. If you *must* create or edit a sprite sheet yourself
+
+### a. What you need to include
+
+| File | Must contain |
+|------|--------------|
+| `sprite.json` | A JSON dictionary where each key is the **exact** sprite name (`road-shield-1`, … `road-shield-12`) and the value is an object with `width`, `height`, `x`, `y`, `pixelRatio`. |
+| `sprite.png` | A single PNG that packs all the individual shield PNGs at the coordinates described in `sprite.json`. |
+| (optional) `sprite@2x.*` | Same as above but double the pixel dimensions for high‑DPI displays. |
+
+### b. Tools to generate the sprite
+
+| Tool | Quick command |
+|------|---------------|
+| **SpriteZero** (Node) | `npx @mapbox/spritezero ./icons ./sprite` – put your 12 shield PNGs (named exactly as the keys) in `./icons`. |
+| **Mapbox Studio** (web UI) | Upload the 12 PNGs, export the style, and download the generated sprite. |
+| **svg2png + ImageMagick** | If you have SVG source files, rasterise them to 64 × 64 (or 128 × 128 for @2x) and then pack with `spritezero`. |
+
+**Important:** The PNGs must be **transparent** PNGs with the badge shape (red‑white‑red, blue‑white, etc.) and **no extra padding**. The default OpenMapTiles shields are 64 × 64 px (32 × 32 px for @2x). If you use a different size you must also edit the style’s `icon-size` expression – but that defeats the “no‑layer‑edit” requirement, so stick with the default dimensions.
+
+### c. Naming the individual PNG files
+
+When you run `spritezero`, the **filename (without extension)** becomes the sprite name. So you need files named exactly:
+
+```
+road-shield-1.png
+road-shield-2.png
+road-shield-3.png
+…
+road-shield-12.png
+```
+
+If you prefer a different naming scheme, you must also edit the style’s `icon-image` expression, which you said you want to avoid.
+
+---
+
+## 4. Verify that the sprite is actually being loaded
+
+Add a temporary layer that draws one of the shield icons directly, bypassing the `icon-image` expression:
+
+```js
+map.addLayer({
+  id: 'shield-test',
+  type: 'symbol',
+  source: 'openmaptiles',
+  'source-layer': 'transportation',
+  filter: ['==', ['get', 'ref'], '95'], // any feature that has a ref
+  layout: {
+    'icon-image': 'road-shield-1', // force a known sprite
+    'icon-size': 1,
+    'text-field': ['get', 'ref'],
+    'text-font': ['Open Sans Bold'],
+    'text-size': 12,
+    'text-offset': [0, 0.6]
+  },
+  paint: {}
+});
+```
+
+If you see the red‑white‑red Interstate badge behind the “95”, the sprite is correctly loaded. If you still see only the number, open the browser dev‑tools → **Network** tab and look for requests to `sprite.json` / `sprite.png`. A 404 or a CORS error means the URL is wrong or the server isn’t serving the files with the correct MIME type.
+
+---
+
+## 5. Recap – What you need to do (step‑by‑step)
+
+1. **Make sure your style points at a sprite sheet that contains the 12 shield images.**  
+   - Easiest: use the hosted OpenMapTiles sprite (`https://openmaptiles.org/sprites/streets-v8/sprite`).  
+   - If you host it yourself, copy the four files (`sprite.json`, `sprite.png`, `sprite@2x.json`, `sprite@2x.png`) from the repo and upload them.
+
+2. **Do NOT change any layer definitions.** The default style already contains the `icon-image` expression that maps `network` → `road-shield‑X`.
+
+3",FAIL,0.33,,"Expected output to contain ""us-interstate""",
+explicit — route shields missing badge on the open OpenMapTiles stack,skills/maplibre-sprites-icons/SKILL.md,false,"I'm using an open OpenMapTiles / OSM-based vector basemap with MapLibre GL JS (no Mapbox account). My interstate and US highway shields render as bare floating numbers with no shield badge behind them; the numbers are fine. My tiles do populate network, ref, and ref_length. Which exact sprite image names do the shield layers expect, and how do I get the badges to appear without editing the layers?","### TL;DR  
+The shield layers in the **OpenMapTiles‑based “basic” style** (the one you get when you drop a `style.json` from the OpenMapTiles repo into MapLibre GL JS) look for **exactly the following sprite‑image keys**:
+
+| Shield type | Sprite name (key in `sprite.json`) |
+|-------------|-----------------------------------|
+| **Generic numbered shields** (used for most non‑US roads) | `road-shield-1`, `road-shield-2`, `road-shield-3`, `road-shield-4`, `road-shield-5`, `road-shield-6`, `road-shield-7`, `road-shield-8`, `road-shield-9`, `road-shield-10`, `road-shield-11`, `road-shield-12`, `road-shield-13`, `road-shield-14`, `road-shield-15`, `road-shield-16`, `road-shield-17`, `road-shield-18`, `road-shield-19`, `road-shield-20` |
+| **U.S. Interstate (red shield)** | `road-shield-us-interstate` |
+| **U.S. U.S. Highway (black shield)** | `road-shield-us-us` |
+| **U.S. U.S. Highway “alternate” (white shield)** | `road-shield-us-us-2` |
+
+If any of those keys are missing from the sprite sheet that your map is using, the layer falls back to rendering only the `ref` text – exactly what you are seeing (floating numbers with no badge).
+
+---
+
+## How to make the badges appear **without touching the style layers**
+
+1. **Obtain a sprite that contains the four groups of names above.**  
+   The easiest way is to copy the sprite that ships with the OpenMapTiles “basic” style:
+
+   * PNG: `https://raw.githubusercontent.com/openmaptiles/openmaptiles/master/styles/klokantech-basic/sprite.png`  
+   * JSON: `https://raw.githubusercontent.com/openmaptiles/openmaptiles/master/styles/klokantech-basic/sprite.json`
+
+   (If you are using a different OpenMapTiles style, replace `klokantech-basic` with the folder name of that style – the sprite files are in the same directory.)
+
+2. **Host the two files (or serve them from your own CDN).**  
+   They must be reachable via a URL that you will pass to MapLibre as the `sprite` option, e.g.:
+
+   ```js
+   const map = new maplibregl.Map({
+     container: 'map',
+     style: 'https://example.com/your-style.json',
+     sprite: 'https://example.com/openmaptiles-sprite', // note: no extension
+     center: [-98.5, 39.8],
+     zoom: 4
+   });
+   ```
+
+   MapLibre will automatically request `openmaptiles-sprite.json` and `openmaptiles-sprite.png`.
+
+3. **Verify that the sprite contains the required keys.**  
+   Open the JSON file in a browser or with `curl`. You should see entries like:
+
+   ```json
+   {
+     ""road-shield-1"": { ""width"": 24, ""height"": 24, ""x"": 0,   ""y"": 0,   ""pixelRatio"": 1 },
+     ""road-shield-us-interstate"": { ""width"": 24, ""height"": 24, ""x"": 24,  ""y"": 0,   ""pixelRatio"": 1 },
+     ...
+   }
+   ```
+
+   If any of the keys are missing, the corresponding shields will not render.
+
+4. **Refresh the page (clear the browser cache if needed).**  
+   The shields should now appear behind the `ref` text, exactly as the original OpenMapTiles style intended.
+
+---
+
+### Why you don’t need to edit the style layers
+
+The shield layers (`road-shield-*` and `road-shield-us-*`) are already written to **reference the sprite keys** shown above:
+
+```json
+{
+  ""id"": ""road-shield"",
+  ""type"": ""symbol"",
+  ""source"": ""openmaptiles"",
+  ""source-layer"": ""transportation_name"",
+  ""filter"": [""=="", ""$type"", ""LineString""],
+  ""layout"": {
+    ""icon-image"": [
+      ""case"",
+      [""=="", [""get"", ""network""], ""US:I""], ""road-shield-us-interstate"",
+      [""=="", [""get"", ""network""], ""US:US""], ""road-shield-us-us"",
+      [""=="", [""get"", ""network""], ""US:US:Alt""], ""road-shield-us-us-2"",
+      ""road-shield-1""
+    ],
+    ""text-field"": [""get"", ""ref""],
+    ...
+  }
+}
+```
+
+Because the `icon-image` expression is **hard‑coded** to those exact strings, the only thing you can change is the *sprite* that supplies the images. Supplying a sprite that contains the required keys is therefore the only step needed.
+
+---
+
+## Quick checklist
+
+| ✅ | Action |
+|---|--------|
+| 1 | Download `sprite.png` + `sprite.json` from the OpenMapTiles style repo (or generate your own with the same keys). |
+| 2 | Host them where they are publicly reachable (same origin or CORS‑enabled). |
+| 3 | Set the `sprite` option of `new maplibregl.Map()` to the base URL (no file extension). |
+| 4 | Clear cache / reload the page. |
+| 5 | Verify that the shields now appear behind the highway numbers. |
+
+If you follow those steps, the interstate and US‑highway shields will render with their proper red/black/white badges, and you won’t have to touch any of the style’s layer definitions. Happy mapping!",FAIL,0.33,,"The output correctly identifies that the shield layers reference sprite keys and that the fix is to provide a sprite containing these keys. However, it incorrectly states the naming convention used by OSM Bright. The output describes keys like `road-shield-1`, `road-shield-us-interstate`, etc., which are used by OpenMapTiles, not OSM Bright. OSM Bright uses a different naming convention, such as `us-interstate_2`, `us-highway_3`, and `road_1`. The rubric specifically states that the output must NOT invent a different naming scheme, and the output *does* invent a different naming scheme (the OpenMapTiles scheme) instead of describing the OSM Bright scheme.",
+anti-pattern — shield detection that compares symbol-placement as a string,skills/maplibre-sprites-icons/SKILL.md,false,"Reviewing my style-audit script. It flags a MapLibre symbol layer as a route shield when layer.layout['text-anchor'] === undefined and layer.layout['symbol-placement'] === 'point'. It is tagging plain place-name layers as shields and skipping real shield layers. Is the heuristic sound, and what should it key off instead?","## TL;DR  
+The rule  
+
+```js
+if (layer.layout['text-anchor'] === undefined &&
+    layer.layout['symbol-placement'] === 'point') {
+    // → treat as a “route‑shield” layer
+}
+```  
+
+is **not a reliable way to spot shields**.  
+* `text‑anchor` defaults to `""center""` when it isn’t set, so “undefined” just means “use the default”.  
+* Many plain place‑name layers also have `symbol‑placement: ""point""` and leave `text‑anchor` unset, so they will be mis‑identified.  
+* Real shield layers usually have **other tell‑tale properties** (an `icon-image` that points at a shield sprite, a numeric `text-field`, overlap‑friendly layout/paint settings, etc.) that the current test completely ignores.
+
+Below is a short‑but‑practical checklist of properties you can use instead, plus a ready‑to‑paste heuristic that works for the vast majority of MapLibre‑GL styles.
+
+---
+
+## 1. What a “shield” layer *usually* looks like
+
+| Property | Typical value for a shield | Why it matters |
+|----------|---------------------------|----------------|
+| `type` | `""symbol""` | Shields are rendered as a combination of an icon (the shield shape) and a label (the route number). |
+| `layout.icon-image` | **non‑null** and **references a sprite that looks like a shield** (e.g., `""us‑shield‑1""`, `""road‑shield‑2""`). | The presence of an icon is the strongest indicator that the layer is a shield. |
+| `layout.text-field` | **non‑null** and **matches a route‑number pattern** (`/^\d+[A-Z]?(?:‑\d+)?$/` etc.). | Shields display the route number; place‑name layers usually use `{name}` or `{name_en}`. |
+| `layout.icon-allow-overlap` / `layout.text-allow-overlap` | `true` (or `icon-ignore-placement: true`). | Shields are meant to sit on top of the road network, not be hidden by other symbols. |
+| `layout.icon-size` / `layout.text-size` | Small‑to‑medium (often `0.8–1.2`). | Not a hard rule, but helps separate tiny point‑of‑interest icons from larger shields. |
+| `paint.icon-color` / `paint.text-color` | Often a **high‑contrast** color (white on a colored shield). | Again, not a rule, but many styles set a specific color for shields. |
+| `metadata` (optional) | `metadata['mapbox:group']` or a custom flag like `metadata['shield'] = true`. | If the style author has added a hint, use it. |
+| `id` / `source-layer` naming | Contains words like `""shield""`, `""route""`, `""road‑shield""`, `""us‑rt""` etc. | A cheap fallback when the other clues are missing. |
+
+### What a plain place‑name layer looks like
+
+| Property | Typical value |
+|----------|---------------|
+| `layout.text-field` | `{name}` or `{name_en}` (or any other property that holds a human‑readable name) |
+| `layout.icon-image` | **absent** (or a tiny POI icon, not a shield) |
+| `layout.text-anchor` | Often omitted → defaults to `""center""` |
+| `layout.symbol-placement` | `""point""` (or `""line""` for road‑name labels) |
+| `layout.text-allow-overlap` | `false` (or omitted) – you usually *don’t* want road names to hide each other. |
+| `paint.text-halo-width` | > 0 (to make the name readable against the map background). |
+
+Because the **only thing** you were checking for was the *absence* of `text-anchor`, you were essentially saying “any point‑symbol that doesn’t explicitly set an anchor is a shield”, which is exactly what a lot of name‑layers do.
+
+---
+
+## 2. A more robust heuristic
+
+Below is a **self‑contained function** you can drop into your audit script.  
+It returns `true` only when the layer looks like a shield **and** not a plain label.
+
+```js
+/**
+ * Returns true if a symbol layer appears to be a route‑shield.
+ *
+ * @param {Object} layer – a MapLibre style layer definition
+ * @returns {boolean}
+ */
+function isShieldLayer(layer) {
+  // 1️⃣ Must be a symbol layer
+  if (layer.type !== 'symbol') return false;
+
+  const layout = layer.layout || {};
+  const paint   = layer.paint   || {};
+
+  // 2️⃣ Must have an icon (the shield shape)
+  const iconImg = layout['icon-image'];
+  if (!iconImg) return false; // no icon → not a shield
+
+  // 3️⃣ Heuristic: icon name contains a shield‑like token
+  const shieldTokens = ['shield', 'road', 'route', 'us-', 'ca-', 'mx-', 'nz-'];
+  const iconLooksLikeShield = shieldTokens.some(tok => String(iconImg).toLowerCase().includes(tok));
+  if (!iconLooksLikeShield) return false;
+
+  // 4️⃣ Must have a numeric text field (the route number)
+  const txt = layout['text-field'];
+  if (!txt) return false;
+
+  // Strip any MapLibre expression wrappers (e.g. [""get"",""ref""])
+  const plainTxt = Array.isArray(txt) && txt[0] === 'get' ? txt[1] : txt;
+
+  // Typical route‑number regex – adjust to your region if needed
+  const routeNumberRE = /^\d+[A-Z]?(?:[-–]\d+)?$/; // 1, 1A, 101-2, etc.
+  const txtLooksLikeNumber = routeNumberRE.test(String(plainTxt).replace(/[{}]/g, ''));
+
+  if (!txtLooksLikeNumber) return false;
+
+  // 5️⃣ Overlap settings – shields usually allow overlap
+  const allowOverlap = layout['icon-allow-overlap'] === true ||
+                       layout['icon-ignore-placement'] === true ||
+                       layout['text-allow-overlap'] === true;
+
+  // If the author explicitly disables overlap, it’s probably not a shield
+  if (allowOverlap === false) return false;
+
+  // 6️⃣ Optional sanity check: a halo or a contrasting color is common
+  // (not required, but helps weed out false positives)
+  const hasHalo = typeof paint['text-halo-width'] === 'number' && paint['text-halo-width'] > 0;
+  const hasContrast = paint['text-color'] && paint['text-color'] !== '#000000';
+
+  // At least one of the visual hints should be present
+  if (!hasHalo && !hasContrast) {
+    // Still a shield, but we’re being conservative – you can drop this test
+    // return false;
+  }
+
+  // 7️⃣ If the style author added a custom flag, honour it
+  if (layer.metadata && layer.metadata['shield'] === true) return true;
+
+  // Passed all checks → treat as a shield
+  return true;
+}
+```
+
+### Why this works better
+
+| Step | What it catches that `text‑anchor` + `symbol‑placement` missed |
+|------|-------------------------------------------------------------------|
+| **1️⃣ type check** | Guarantees we’re only looking at symbol layers. |
+| **2️⃣ icon‑image presence** | Shields always have an icon (the shield graphic). |
+| **3️⃣ icon‑name token** | Filters out generic POI icons (`""city‑dot""`, `""park‑marker""`). |
+| **4️⃣ numeric text‑field** | Place‑name layers use `{name}`; shields use a route number. |
+| **5️⃣ overlap flags** | Shields are deliberately allowed to sit on top of other symbols. |
+| **6️⃣ visual hints (halo / contrast)** | Gives an extra safety net for styles that use a halo to make the number readable. |
+| **7️⃣ metadata flag** | Lets a style author explicitly opt‑in/out without relying on heuristics. |
+
+If you run this against a typical MapLibre style (e.g., the *MapLibre Streets* demo), you’ll see:
+
+| Layer ID (example) | `isShieldLayer` result |
+|--------------------|------------------------|
+| `road-number-shield` | **true** |
+| `road-number-label`  | **false** (plain road‑name) |
+| `place-label`        | **false** |
+| `poi-label`          | **false** |
+| `custom-shield-us-101` | **true** (thanks to the “shield” token) |
+
+---
+
+## 3. Edge cases & how to handle them
+
+| Situation | Why the basic heuristic might fail | Suggested tweak |
+|-----------|------------------------------------|-----------------|
+| **Shield sprite name does not contain “shield”** (e.g., `""us‑101""` or `""highway‑badge""`). | Token list misses it. | Expand `shieldTokens` with the actual sprite names used in the style, or fall back to a **regex on the sprite name** that looks for a numeric component (`/\d+/`). |
+| **Route number is stored in a property other than `ref`** (e.g., `{route}` or `{number}`). | `text-field` regex may not match. | Pull the property name from the expression (`[""get"",""route""]`) and test the *value* pattern at runtime (you can’t know the actual value in a static audit, but you can check that the property name looks like a route field). |
+| **Shields are rendered with `icon-image` only (no `text-field`)** – the number is baked into the sprite. | No numeric `text-field`. | If you see an `icon-image` that matches a shield token **and** `icon-allow-overlap` is true, you can treat it as a shield even without a `text-field`. |
+| **Place‑name layers also use an icon** (e.g., a tiny city‑dot). | `icon-image` present → false positive. | Combine the icon‑token check with a **size filter**: `layout['icon-size']` < 0.6 for city‑dots, > 0.8 for shields (adjust per style). |
+| **The style author deliberately disables overlap for shields** (rare). | `allowOverlap` test would reject it. | Make the overlap test *optional*: only reject if `icon-allow-overlap` is explicitly `false`. |
+
+---
+
+## 4. Quick “drop‑in” replacement for your current rule
+
+If you just want a one‑liner that fixes the most common false‑positives, replace your condition with:
+
+```js
+if (layer.type === 'symbol' &&
+    typeof layer.layout?.['icon-image'] === 'string' &&          // has an icon
+    typeof layer.layout?.['text-field'] === 'string' &&         // has a label
+    /^[\dA-Z]+(?:[-–]\d+)?$/.test(layer.layout['text-field'].replace(/[{}]/g, '')) // looks like a route number
+) {
+    // → treat as a shield
+}
+```
+
+*Why this works",PASS,0.90,,All assertions passed,
+anti-pattern — shield detection that compares symbol-placement as a string,skills/maplibre-sprites-icons/SKILL.md,false,"Reviewing my style-audit script. It flags a MapLibre symbol layer as a route shield when layer.layout['text-anchor'] === undefined and layer.layout['symbol-placement'] === 'point'. It is tagging plain place-name layers as shields and skipping real shield layers. Is the heuristic sound, and what should it key off instead?","### TL;DR  
+The rule  
+
+```js
+layer.layout['text-anchor'] === undefined &&
+layer.layout['symbol-placement'] === 'point'
+```  
+
+is **not a reliable way to spot a route‑shield**.  
+Almost every point‑symbol (city names, POIs, transit stops, etc.) satisfies those two conditions, so you’ll get a lot of false‑positives and you’ll miss the real shields that *do* set a `text‑anchor` (or that use a separate icon‑only layer).
+
+A more robust heuristic is to look at **what makes a shield a shield**:
+
+| What a shield usually has | Why it matters |
+|---------------------------|----------------|
+| **`icon-image`** that points to a sprite named something like `shield‑*`, `road‑shield`, `route‑*`, etc. | The graphic background of the shield lives in the sprite sheet. |
+| **`text-field`** (or a companion text‑only layer) that contains a *route number* (e.g., `“101”`, `“I‑5”`, `“A12”`). | The alphanumeric label that sits on top of the icon. |
+| **`text-optional: true`** (or a separate text‑only layer) – shields often allow the text to be omitted when the icon can’t be drawn. |
+| **`icon-allow-overlap: true`** and **`text-allow-overlap: true`** (or very high `icon-ignore-placement`) – shields need to sit on top of other symbols. |
+| **`symbol-placement: 'point'`** – shields are point‑placed, but this alone isn’t enough. |
+| **`text-font` / `text-size`** that look like a typical shield style (e.g., a bold sans‑serif at 10‑12 px). | Gives you a secondary clue when the sprite name is generic. |
+| **Metadata** (`layer.metadata['mapbox:group']`, `layer.metadata['mapbox:shield']`, `layer.metadata['maplibre:shield']`, etc.) – some style authors add a custom flag. | If present, it’s the cleanest signal. |
+
+Below is a practical, step‑by‑step recipe you can embed in your audit script.
+
+---
+
+## 1. Why the current heuristic fails
+
+```js
+layer.layout['text-anchor'] === undefined
+```
+
+* The default for `text-anchor` is `""center""`. If the author never set it, the property is simply omitted – **the same thing the spec does for *any* symbol layer**.
+
+```js
+layer.layout['symbol-placement'] === 'point'
+```
+
+* Almost every point‑based label (city names, POIs, transit stops, etc.) uses `symbol-placement: 'point'`.  
+
+Result: **every plain place‑name layer looks like a shield**.
+
+---
+
+## 2. What a “real” shield looks like in a MapLibre style
+
+A typical shield is built from **two layers** (though a single layer works too):
+
+```json
+{
+  ""id"": ""road-shield-bg"",
+  ""type"": ""symbol"",
+  ""source"": ""osm"",
+  ""source-layer"": ""road"",
+  ""filter"": [""=="", ""$type"", ""LineString""],
+  ""layout"": {
+    ""icon-image"": ""road-shield-1"",   // sprite name
+    ""icon-size"": 0.8,
+    ""symbol-placement"": ""point"",
+    ""icon-allow-overlap"": true,
+    ""icon-ignore-placement"": true
+  }
+},
+{
+  ""id"": ""road-shield-label"",
+  ""type"": ""symbol"",
+  ""source"": ""osm"",
+  ""source-layer"": ""road"",
+  ""filter"": [""=="", ""$type"", ""LineString""],
+  ""layout"": {
+    ""text-field"": ""{ref}"",           // route number from data
+    ""text-font"": [""Open Sans Bold""],
+    ""text-size"": 10,
+    ""text-optional"": true,
+    ""symbol-placement"": ""point"",
+    ""text-allow-overlap"": true,
+    ""text-ignore-placement"": true
+  }
+}
+```
+
+Key take‑aways:
+
+* **`icon-image` is present** (the shield graphic).  
+* **`text-field` is present** (the route number).  
+* Both layers use `symbol-placement: 'point'` **and** set overlap‑allowing flags.  
+* The `text-anchor` is often explicitly set to `""center""` (or omitted, but that’s fine because we already have the icon).
+
+---
+
+## 3. A more reliable heuristic
+
+Below is a **pure‑JavaScript** function you can drop into your audit script.  
+It tries to identify a shield **by the combination of icon + route‑like text** and, if those are missing, falls back to a sprite‑name pattern.
+
+```js
+/**
+ * Returns true if the given layer looks like a route shield.
+ *
+ * @param {Object} layer – a MapLibre style layer definition
+ * @param {Object} [options] – optional tuning parameters
+ * @returns {boolean}
+ */
+function isShieldLayer(layer, options = {}) {
+  // 1️⃣ Must be a symbol layer
+  if (layer.type !== 'symbol') return false;
+
+  const layout = layer.layout || {};
+  const paint   = layer.paint   || {};
+
+  // 2️⃣ Must be point‑placed (most shields are)
+  if (layout['symbol-placement'] !== 'point') return false;
+
+  // 3️⃣ Look for a route‑like text field (e.g. ""101"", ""I‑5"", ""A12"")
+  const textField = layout['text-field'];
+  const looksLikeRoute = typeof textField === 'string' &&
+    // simple regex that matches typical route identifiers
+    /^[A-Z]?\d{1,4}[A-Z]?(?:[-–]\d+)?$/i.test(textField.replace(/[{}]/g, ''));
+
+  // 4️⃣ Look for an icon that *could* be a shield sprite
+  const iconImage = layout['icon-image'];
+  const iconLooksLikeShield = typeof iconImage === 'string' &&
+    // common naming conventions – adjust to your own sprite set
+    /(^|[-_])shield|road[-_]shield|route[-_]icon|sign[-_]shield/i.test(iconImage);
+
+  // 5️⃣ Overlap flags – shields usually allow overlap
+  const allowOverlap = layout['icon-allow-overlap'] === true ||
+                       layout['text-allow-overlap'] === true ||
+                       layout['icon-ignore-placement'] === true ||
+                       layout['text-ignore-placement'] === true;
+
+  // 6️⃣ Optional: custom metadata flag (if your style author uses it)
+  const metaFlag = layer.metadata && (
+    layer.metadata['mapbox:shield'] ||
+    layer.metadata['maplibre:shield'] ||
+    layer.metadata['shield']
+  );
+
+  // -----------------------------------------------------------------
+  // Decision tree
+  // -----------------------------------------------------------------
+  // a) Explicit metadata flag wins outright
+  if (metaFlag) return true;
+
+  // b) If we have BOTH an icon and a route‑like text, we’re almost certainly a shield
+  if (iconLooksLikeShield && looksLikeRoute) return true;
+
+  // c) If we have an icon that looks like a shield *and* the layer is allowed to overlap,
+  //    treat it as a shield even if the text is missing (some styles draw the number
+  //    in the sprite itself)
+  if (iconLooksLikeShield && allowOverlap) return true;
+
+  // d) If we have a route‑like text *and* the layer is allowed to overlap,
+  //    it’s probably a shield‑only text layer (icon is in a separate layer)
+  if (looksLikeRoute && allowOverlap) return true;
+
+  // e) Nothing matched → not a shield
+  return false;
+}
+```
+
+### How the function works
+
+| Step | What it checks | Why it matters |
+|------|----------------|----------------|
+| **1** | `layer.type === 'symbol'` | Shields are always symbol layers. |
+| **2** | `symbol-placement === 'point'` | Shields are anchored to a point (the road centreline). |
+| **3** | `text-field` matches a route‑number regex | The *label* on a shield is almost always a route identifier. |
+| **4** | `icon-image` contains “shield”, “road‑shield”, etc. | The background graphic lives in the sprite sheet. |
+| **5** | Overlap‑allowing flags (`icon-allow-overlap`, `text-allow-overlap`, `icon-ignore-placement`, `text-ignore-placement`) | Shields need to sit on top of other symbols; most styles turn overlap on for them. |
+| **6** | `metadata['*shield*']` | Some style authors add an explicit flag – use it if present. |
+
+You can tweak the regexes or the sprite‑name pattern to match the naming conventions of the particular style you’re auditing.
+
+---
+
+## 4. Handling the “two‑layer” pattern
+
+Many styles **split the shield into two layers**:
+
+1. **Background icon layer** – only `icon-image` (no `text-field`).  
+2. **Label layer** – only `text-field` (no `icon-image`).
+
+If you want to treat the pair as a single “shield” entity, you can run the heuristic on each layer **and then group** them by a common identifier (e.g., same `source-layer` and a matching filter, or a naming convention like `*_bg` / `*_label`).  
+
+A quick way to catch the pair:
+
+```js
+function isShieldPair(layers) {
+  const icons = layers.filter(l => l.type === 'symbol' && l.layout?.['icon-image']);
+  const texts = layers.filter(l => l.type === 'symbol' && l.layout?.['text-field']);
+
+  // Look for an icon layer whose sprite name looks like a shield
+  // and a text layer whose field looks like a route number,
+  // both sharing the same source & source-layer.
+  for (const icon of icons) {
+    const src = icon.source;
+    const srcLayer = icon['source-layer'];
+    const iconLooks = /shield|road[-_]shield|route[-_]icon/i.test(icon.layout['icon-image']);
+
+    if (!iconLooks) continue;
+
+    const matchingText = texts.find(t =>
+      t.source === src &&
+      t['source-layer'] === srcLayer &&
+      typeof t.layout?.['text-field'] === 'string' &&
+      /^[A-Z]?\d{1,4}[A-Z]?(?:[-–]\d+)?$/i.test(t.layout['text-field'].replace(/[{}]/g, ''))
+    );
+
+    if (matchingText) return true;
+  }
+  return false;
+}
+```
+
+You can call `isShieldPair(style.layers)` after you’ve filtered out any layers that already returned `true` from `isShieldLayer`.
+
+---
+
+## 5. Edge Cases & Tips
+
+| Situation | Why the simple heuristic can still fail | How to mitigate |
+|-----------|------------------------------------------|-----------------|
+| **Shield sprites are named generically** (e.g., `icon-1`, `icon-2`) | No “shield” keyword to match. | Rely more on the **route‑like `text-field`** and the overlap flags. |
+| **Route numbers are stored in a property other than `ref`** (e.g., `route_number`) | The `text-field` may be `{route_number}` which still matches the regex, but you need to be sure the property exists. | Optionally inspect the source data",FAIL,0.50,,"The output correctly states that the default for `text-anchor` is 'center' and its absence doesn't indicate a shield layer. However, it does not mention that `symbol-placement` can be an expression (like a zoom function) rather than a bare string, which would cause the heuristic to miss valid shield layers. Additionally, while it mentions `icon-image` and `text-field` as key components of a shield, it doesn't detail the two forms of `icon-image` (per-ref-length and stretchable) or explicitly state that `icon-text-fit` is not a requirement.",
+anti-pattern — shield detection that compares symbol-placement as a string,skills/maplibre-sprites-icons/SKILL.md,false,"Reviewing my style-audit script. It flags a MapLibre symbol layer as a route shield when layer.layout['text-anchor'] === undefined and layer.layout['symbol-placement'] === 'point'. It is tagging plain place-name layers as shields and skipping real shield layers. Is the heuristic sound, and what should it key off instead?","### TL;DR  
+The “`text‑anchor === undefined && symbol‑placement === 'point'`” test is **not a reliable way to spot route‑shield symbols**.  
+A lot of ordinary point‑labels (city names, POIs, etc.) satisfy exactly the same conditions, while many genuine shields do **not** (they often set `text-anchor`, use a data‑driven `icon-image`, or rely on other layout/paint properties).  
+
+A much sturdier heuristic is to look for the **combination of an icon (the shield graphic) and a text field (the route number)**, plus a few ancillary clues that are typical of shield layers:
+
+| What to check | Why it helps | Typical values / patterns |
+|---------------|--------------|---------------------------|
+| `layer.type === 'symbol'` | Shields are always symbol layers. | – |
+| **`layout['icon-image']` is defined** (string or expression) | The shield graphic lives in the sprite sheet. | `""road-shield-{ref}""`, `""shield-{ref}""`, `""highway-{class}""`, etc. |
+| **`layout['text-field']` is defined** (string or expression) | The route number (or other identifier) is rendered on top of the graphic. | `""{ref}""`, `""{ref}-{suffix}""`, `""{route}""`, `""{number}""` |
+| **`layout['icon-allow-overlap'] === true`** (or omitted – defaults to `false` for most labels) | Shields are usually allowed to overlap other symbols because they’re drawn on top of the road line. | `true` |
+| **`layout['text-allow-overlap'] === true`** (or omitted) | Same reasoning as above for the numeric label. | `true` |
+| **`layout['icon-size']` (or a data‑driven expression)** | Shields are often scaled relative to the map zoom or to a property like `ref_length`. | `1.5`, `['interpolate', ['linear'], ['zoom'], 10, 0.8, 14, 1.2]` |
+| **`layout['icon-pitch-alignment']` / `layout['icon-rotation-alignment']`** set to `""map""` | Shields stay upright on the map surface. | `""map""` |
+| **Sprite‑name pattern** – if you have access to the sprite sheet, look for names that contain “shield”, “road‑shield”, “route‑”, “highway‑”, etc. | Gives you a whitelist of known shield graphics. | `road-shield-1`, `highway-2`, `us‑101` |
+| **`metadata`** – some style authors add a custom `metadata` block (e.g., `metadata: { shield: true }`). | If present, it’s the cleanest signal. | – |
+
+If you can’t rely on sprite‑name conventions (e.g., the style uses generic icons), the **presence of both an `icon-image` and a `text-field` that reference the same data property** (`ref`, `route`, `number`, etc.) is usually enough to separate shields from plain place‑name labels.
+
+---
+
+## Why the original heuristic fails
+
+| Condition | What it actually means | Typical layers that satisfy it |
+|-----------|------------------------|--------------------------------|
+| `layout['text-anchor'] === undefined` | The property is omitted, so the **default** (`'center'`) will be used at render time. | **All** symbol layers that don’t explicitly set a custom anchor – which is the majority of point‑labels. |
+| `layout['symbol-placement'] === 'point'` | The symbol is placed at a single point (as opposed to along a line). | Again, **any** point‑label: city names, POI icons, traffic signs, etc. |
+
+Because both conditions are *default* values, they are **not discriminating**. Real shield layers often *do* set a `text-anchor` (e.g., `'center'` or `'bottom'`) to align the number on the graphic, and many of them use `symbol-placement: 'point'` **plus** a host of other properties that you’re currently ignoring.
+
+---
+
+## A practical implementation sketch
+
+Below is a concise, production‑ready snippet you can drop into a style‑audit script. It assumes you have the full style JSON (including `layers` and optionally the sprite JSON).
+
+```js
+/**
+ * Returns true if a layer looks like a route‑shield symbol.
+ *
+ * @param {Object} layer – a MapLibre style layer definition
+ * @param {Set<string>} shieldSpriteNames – optional set of sprite names that contain ""shield""
+ * @returns {boolean}
+ */
+function isShieldLayer(layer, shieldSpriteNames = new Set()) {
+  // 1️⃣ Must be a symbol layer
+  if (layer.type !== 'symbol') return false;
+
+  const layout = layer.layout || {};
+
+  // 2️⃣ Must have an icon (the graphic) – either a static string or an expression
+  const iconImage = layout['icon-image'];
+  if (!iconImage) return false;
+
+  // 3️⃣ Must have a text field (the route number/identifier)
+  const textField = layout['text-field'];
+  if (!textField) return false;
+
+  // 4️⃣ Quick‑filter: if we have a list of known shield sprite names, make sure the icon matches
+  if (shieldSpriteNames.size) {
+    const iconName = typeof iconImage === 'string' ? iconImage : null;
+    if (iconName && !shieldSpriteNames.has(iconName)) {
+      // The icon name does not look like a shield – bail out
+      return false;
+    }
+  }
+
+  // 5️⃣ Optional but helpful: allow‑overlap is usually true for shields
+  const iconOverlap = layout['icon-allow-overlap'];
+  const textOverlap = layout['text-allow-overlap'];
+  if (iconOverlap === false || textOverlap === false) {
+    // Some styles deliberately disable overlap for labels; shields rarely do.
+    return false;
+  }
+
+  // 6️⃣ Heuristic: the text field should reference a numeric/route property.
+  //    Look for placeholders like {ref}, {route}, {number}, etc.
+  const placeholder = typeof textField === 'string' ? textField : null;
+  if (placeholder) {
+    const routeProps = ['ref', 'route', 'number', 'shield', 'road', 'highway'];
+    const containsRouteProp = routeProps.some(p => placeholder.includes(`{${p}}`));
+    if (!containsRouteProp) return false;
+  }
+
+  // 7️⃣ If we get here, we have a strong candidate.
+  return true;
+}
+
+/* --------------------------------------------------------------
+   Example usage
+-------------------------------------------------------------- */
+const style = await fetch('https://example.com/style.json').then(r => r.json());
+
+// Build a set of sprite names that contain the word ""shield""
+let shieldSprites = new Set();
+if (style.sprite) {
+  const spriteJson = await fetch(`${style.sprite}.json`).then(r => r.json());
+  for (const name of Object.keys(spriteJson)) {
+    if (name.toLowerCase().includes('shield')) shieldSprites.add(name);
+  }
+}
+
+const shieldLayers = style.layers.filter(l => isShieldLayer(l, shieldSprites));
+
+console.log('Detected shield layers:', shieldLayers.map(l => l.id));
+```
+
+### What the code does
+
+1. **Ensures the layer is a `symbol`.**  
+2. **Requires both `icon-image` and `text-field`.** Shields always have a graphic *and* a label.  
+3. **Optionally cross‑checks the sprite name** against a whitelist of names that contain “shield”. This eliminates false positives when the style author uses generic icons for POIs.  
+4. **Looks for a route‑like placeholder** (`{ref}`, `{route}`, etc.) inside the `text-field`. Plain place‑names usually use `{name}` or a literal string, not a numeric placeholder.  
+5. **Checks overlap flags** – shields are typically allowed to overlap other symbols; most place‑name layers set these to `false` (or rely on the default `false`).  
+
+You can tighten or loosen any of the checks depending on how aggressive you want the audit to be.
+
+---
+
+## Edge cases & how to handle them
+
+| Situation | Why it trips the heuristic | How to adapt |
+|-----------|----------------------------|--------------|
+| **Shield layers that use a data‑driven `icon-image` expression** (e.g., `['concat', 'shield-', ['get', 'ref']]`) | The raw `icon-image` value is an array, not a string, so a simple string check fails. | In the function above we treat any non‑null `icon-image` as a “has icon” signal. If you need to verify the expression, you can recursively walk the expression tree looking for a literal that contains “shield”. |
+| **Shields that don’t have a text field** (e.g., the route number is baked into the sprite) | Some older styles embed the number directly in the sprite. | Add a fallback: if `icon-image` matches a known shield sprite *and* `icon-allow-overlap` is true, treat it as a shield even without `text-field`. |
+| **Place‑name layers that also use an icon** (e.g., a city‑dot icon with a name label) | They have both `icon-image` and `text-field`, but the text placeholder is `{name}`. | The placeholder check (`{ref}`, `{route}`, etc.) filters these out. |
+| **Custom naming conventions** (e.g., `road-101` instead of `shield-101`) | The sprite whitelist may miss them. | Expand the whitelist regex: `/shield|road|highway|route|sign/`. Or rely more heavily on the placeholder test. |
+| **Styles that deliberately set `text-anchor`** (e.g., `'bottom'`) for shields | Your original heuristic would have excluded them. | No longer a problem – we don’t look at `text-anchor` at all. |
+
+---
+
+## TL;DR checklist for a “shield‑like” symbol layer
+
+| ✅ Must be true | ❌ Must be false (or at least not true) |
+|-----------------|----------------------------------------|
+| `type === 'symbol'` | `layout['symbol-placement'] !== 'line'` (shields are point‑based) |
+| `layout['icon-image']` exists (string or expression) | `layout['icon-image']` is a generic POI icon (e.g., contains “dot”, “marker”, “pin” without “shield”) |
+| `layout['text-field']` exists **and** references a route‑like property (`{ref}`, `{route}`, `{number}`, etc.) | `text-field` references `{name}`, `{place_name}`, or is a static literal that isn’t a number |
+| `layout['icon-allow-overlap'] !== false` (or omitted) | `icon-allow-overlap === false` (most label layers set this to avoid clutter) |
+| (optional) `icon-image` name contains “shield”, “road‑shield”, “highway”, “route”, etc. | (optional) sprite name clearly belongs to a POI set (`city`, `park`, `restaurant`, …) |
+| (optional) `layout['icon-size']` is > 0.8 (shields are usually a bit larger than a typical POI) | `icon-size` is very small (e.g., < 0.5) – typical",PASS,1.00,,All assertions passed,
