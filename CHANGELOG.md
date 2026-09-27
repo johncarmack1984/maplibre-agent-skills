@@ -6,6 +6,10 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 <!-- bump: minor -->
 
+### Added
+
+- `maplibre-running-evals` process skill: the step-by-step procedure for running the Promptfoo evals; `evals/README.md` now treats the pinned judge as the default and says when another judge is legitimate ([#81](https://github.com/maplibre/maplibre-agent-skills/pull/81))
+
 ### Changed
 
 - `maplibre-terrain-patterns` replaced by `maplibre-terrain-rendering` (hillshade, color-relief, contours, 3D terrain and sky, `verified`), with its eval config split along the same seam and cross-references updated; the companion DEM-source content was withdrawn after a probe showed no gap to close ([#84](https://github.com/maplibre/maplibre-agent-skills/pull/84))
@@ -17,6 +21,7 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Internal
 
+- `scripts/setup-hooks.js`: `npm install` from a git worktree installs the pre-push hook instead of failing ([#103](https://github.com/maplibre/maplibre-agent-skills/pull/103))
 - `eval.yml`: the runner rejects config and output paths that are not plain `evals/prompts/<skill>.yaml` files or plain directories before they reach `npm run`, answering the CodeQL shell-command alert ([#95](https://github.com/maplibre/maplibre-agent-skills/pull/95))
 - evals: the judge and the deterministic assertions grade the generator's answer only; the reasoning trace is no longer prepended to the graded output ([#94](https://github.com/maplibre/maplibre-agent-skills/pull/94))
 - `eval.yml`: a config that overruns its bound is now actually stopped (process-group kill with SIGKILL escalation), and a killed config's sidecar still feeds the drift issue's signals ([#93](https://github.com/maplibre/maplibre-agent-skills/pull/93))
