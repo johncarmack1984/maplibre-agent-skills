@@ -152,7 +152,7 @@ Broken-looking route shields (bare floating numbers, missing badges) are almost 
 1. **Confirm glyphs load.** Probe the `glyphs` server for the exact `text-font` names and expect HTTP 200. If they 200, the font is not the problem.
 2. **Confirm the sprite carries the shield images.** OSM Bright's shield layers use `icon-image: "{network}_{ref_length}"` for US networks (e.g. `us-interstate_2`, `us-highway_3`, `us-state_2`) and `road_{ref_length}` for other refs; OSM Liberty's use `default_{ref_length}`. A missing icon is omitted, so grep the sprite JSON for those keys.
 
-The `demotiles.maplibre.org/styles/osm-bright-gl-style/sprite` and `openmaptiles.github.io/osm-bright-gl-style/sprite` sheets currently carry `road_1`–`_6`, `us-state_1`–`_6`, `us-highway_1`–`_3`, and `us-interstate_1`–`_3` (`_5` on openmaptiles.github.io), but a minimal or custom sprite may ship only the generic `road_*`. If yours lacks the shield images and your tiles populate `network`, `ref`, and `ref_length` (the OSM US OpenMapTiles tiles do), point `sprite` at one that has them — the `{network}_{ref_length}` style layers then resolve with no layer edits.
+The `demotiles.maplibre.org/styles/osm-bright-gl-style/sprite` and `openmaptiles.github.io/osm-bright-gl-style/sprite` sheets currently carry `road_1`–`_6`, `us-state_1`–`_6`, `us-highway_1`–`_3`, and `us-interstate_1`–`_3` (`_1`–`_5` on openmaptiles.github.io), but a minimal or custom sprite may ship only the generic `road_*`. If yours lacks the shield images and your tiles populate `network`, `ref`, and `ref_length` (the OSM US OpenMapTiles tiles do), point `sprite` at one that has them — the `{network}_{ref_length}` style layers then resolve with no layer edits.
 
 **A shield is a badge image behind the route ref, sized one of two ways.** OSM Bright and OSM Liberty pick a pre-drawn badge per ref length, which is what OpenMapTiles' `ref_length` is for.[9] A stretchable badge sizes one image to its text instead: `icon-text-fit` `"both"` (or `"width"`) with `icon-text-fit-padding`, on a sprite image with `stretchX`/`stretchY` + `content`,[1] [2] so `I-5` and `I-405` share one image. An audit or generator has to accept both: `icon-text-fit` other than `none` (its default) marks only the stretchable kind, and `text-anchor` (default `center`) marks neither.
 
@@ -167,7 +167,7 @@ The `demotiles.maplibre.org/styles/osm-bright-gl-style/sprite` and `openmaptiles
 }
 ```
 
-When reading layout values back out of a style, remember they are not always strings: all four shield layers in OSM Bright and OSM Liberty set `symbol-placement` with a legacy `{stops: [...]}` zoom function (point, then line), and any layout value can hold an expression, so `layout['symbol-placement'] === 'point'` silently skips them. Test the value's shape before comparing it.
+When reading layout values back out of a style, remember they are not always strings: OSM Bright's three shield layers and OSM Liberty's one set `symbol-placement` with a legacy `{stops: [...]}` zoom function (point, then line), and any layout value can hold an expression, so `layout['symbol-placement'] === 'point'` silently skips them. Test the value's shape before comparing it.
 
 ## Related Skills
 
@@ -179,7 +179,7 @@ When reading layout values back out of a style, remember they are not always str
 ## References
 
 1. [**Style Spec: `sprite`**](https://maplibre.org/maplibre-style-spec/sprite/) — the string and `{id, url}` array forms, image-name prefixing, the `default` id, and the sprite index file's `content`, `stretchX`/`stretchY`, and `textFitWidth`/`textFitHeight` fields
-2. [**Style Spec: symbol layer layout properties**](https://maplibre.org/maplibre-style-spec/layers/#icon-text-fit) — `icon-text-fit` values (`none` default, `width`, `height`, `both`) and `icon-text-fit-padding`; `icon-color` and `icon-halo-*` are SDF-only
+2. [**Style Spec: symbol layer properties**](https://maplibre.org/maplibre-style-spec/layers/#icon-text-fit) — `icon-text-fit` values (`none` default, `width`, `height`, `both`) and `icon-text-fit-padding`; `icon-color` and `icon-halo-*` are SDF-only
 3. [**`Map.addImage()` (MapLibre GL JS API)**](https://maplibre.org/maplibre-gl-js/docs/API/classes/Map/#addimage) — with `hasImage()`, `listImages()`, `addSprite()`, and `loadImage()` on the same page: `loadImage` takes PNG, WebP, or JPEG and resolves to a response whose `data` is the image
 4. [**MapLibre GL JS CHANGELOG**](https://github.com/maplibre/maplibre-gl-js/blob/main/CHANGELOG.md) — "Add support for multiple `sprite` declarations in one style file" ships in 3.0.0; `map.loadImage` returns a `Promise` and drops its callback in 4.0.0 ([#3233](https://github.com/maplibre/maplibre-gl-js/pull/3233), [#3422](https://github.com/maplibre/maplibre-gl-js/pull/3422))
 5. [**Unauthenticated rate limits on `raw.githubusercontent.com` (GitHub Community Discussion)**](https://github.com/orgs/community/discussions/159123) — anonymous requests are rate-limited; production traffic sees intermittent HTTP 429
