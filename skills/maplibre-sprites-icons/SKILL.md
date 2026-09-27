@@ -117,7 +117,7 @@ map.on('load', async () => {
 
 - ❌ `map.loadImage(url, callback)`. GL JS 4.0.0 removed the callback form,[4] so the callback never runs; `await` the promise.[3]
 - ❌ An SVG through `map.loadImage()`, which takes PNG, WebP, or JPEG.[3] To load SVGs on demand, GL JS 6's `setMissingStyleImageResolver` takes the same `Image` route, as in MapLibre's [Display a remote SVG symbol](https://maplibre.org/maplibre-gl-js/docs/examples/display-a-remote-svg-symbol/) example.
-- ❌ `sdf: true` on an ordinary SVG. An image marked `sdf` has its alpha read as a distance field and every opaque pixel painted `icon-color` (default black), so a multicolor icon turns into a one-color silhouette.
+- ❌ `sdf: true` on an ordinary SVG. An image marked `sdf` has its alpha read as a distance field and every opaque pixel painted `icon-color` (default black), so a multicolor icon turns into a one-color silhouette. Without `sdf`, `icon-color` and `icon-halo-*` do nothing: they only work on SDF icons.[2]
 - **A symbol layer hides icons that collide by default** (`icon-allow-overlap` is `false`, and `icon-overlap` overrides it when set); `symbol-sort-key` decides which survive. Turning overlap on (`icon-allow-overlap: true`, or `icon-overlap: "always"`) draws every icon without checking collisions, which the GL JS [large-data guide](https://maplibre.org/maplibre-gl-js/docs/guides/large-data/) suggests at high feature counts; the icons then stack.
 - ❌ `"icon-optional": true` to make colliding icons disappear. It applies only to a symbol with both an icon and text, letting the text show without its icon when the icon collides and the text does not; on a layer with no `text-field` it changes nothing.
 
@@ -179,7 +179,7 @@ When reading layout values back out of a style, remember they are not always str
 ## References
 
 1. [**Style Spec: `sprite`**](https://maplibre.org/maplibre-style-spec/sprite/) — the string and `{id, url}` array forms, image-name prefixing, the `default` id, and the sprite index file's `content`, `stretchX`/`stretchY`, and `textFitWidth`/`textFitHeight` fields
-2. [**Style Spec: symbol layer layout properties**](https://maplibre.org/maplibre-style-spec/layers/#icon-text-fit) — `icon-text-fit` values (`none` default, `width`, `height`, `both`) and `icon-text-fit-padding`
+2. [**Style Spec: symbol layer layout properties**](https://maplibre.org/maplibre-style-spec/layers/#icon-text-fit) — `icon-text-fit` values (`none` default, `width`, `height`, `both`) and `icon-text-fit-padding`; `icon-color` and `icon-halo-*` are SDF-only
 3. [**`Map.addImage()` (MapLibre GL JS API)**](https://maplibre.org/maplibre-gl-js/docs/API/classes/Map/#addimage) — with `hasImage()`, `listImages()`, `addSprite()`, and `loadImage()` on the same page: `loadImage` takes PNG, WebP, or JPEG and resolves to a response whose `data` is the image
 4. [**MapLibre GL JS CHANGELOG**](https://github.com/maplibre/maplibre-gl-js/blob/main/CHANGELOG.md) — "Add support for multiple `sprite` declarations in one style file" ships in 3.0.0; `map.loadImage` returns a `Promise` and drops its callback in 4.0.0 ([#3233](https://github.com/maplibre/maplibre-gl-js/pull/3233), [#3422](https://github.com/maplibre/maplibre-gl-js/pull/3422))
 5. [**Unauthenticated rate limits on `raw.githubusercontent.com` (GitHub Community Discussion)**](https://github.com/orgs/community/discussions/159123) — anonymous requests are rate-limited; production traffic sees intermittent HTTP 429
