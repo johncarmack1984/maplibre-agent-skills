@@ -133,7 +133,8 @@ tests:
           Must answer that this works in the style on MapLibre Native, with no
           pre-rendered tiles: a `color-relief` layer on a `raster-dem` source,
           whose `color-relief-color` is an `interpolate` over `["elevation"]`,
-          available on Android since android-v13.0.0 (maplibre-native#3965).
+          available on Android since android-v13.0.0
+          (https://github.com/maplibre/maplibre-native/pull/3965).
           Must not claim elevation coloring is GL JS-only or needs a custom
           layer, and must not build it from `raster-color` or from decoding the
           Terrarium channels in an expression.
@@ -157,7 +158,8 @@ tests:
           Must state that MapLibre Native reads PMTiles directly through its
           built-in `pmtiles://` scheme, so no tile server, MBTiles conversion,
           custom source, or protocol registration is needed, and that iOS has
-          it since ios-v6.10.0 (maplibre-native#2882). Must show the URL as
+          it since ios-v6.10.0
+          (https://github.com/maplibre/maplibre-native/pull/2882). Must show the URL as
           `pmtiles://` in front of the archive's full HTTPS URL, used in the
           style JSON or passed as a string with `MLNVectorTileSource`'s
           `configurationURLString:` initializer; must not build it with
