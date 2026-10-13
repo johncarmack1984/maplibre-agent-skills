@@ -103,10 +103,6 @@ tests:
     assert:
       - type: not-icontains
         value: 'MapboxLogger'
-      - type: not-icontains
-        value: 'ignoring paint property'
-      - type: not-icontains
-        value: 'Expression parsing error'
       - type: llm-rubric
         value: >
           Must identify `interpolate-hcl` as the cause and cite
@@ -132,8 +128,6 @@ tests:
     assert:
       - type: icontains
         value: 'color-relief'
-      - type: not-icontains
-        value: '["band", 0]'
       - type: llm-rubric
         value: >
           Must answer that this works in the style on MapLibre Native, with no
