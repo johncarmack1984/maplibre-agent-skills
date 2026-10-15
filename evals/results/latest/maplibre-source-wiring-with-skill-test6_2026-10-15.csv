@@ -1,0 +1,469 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+implicit — literal {z}/{x}/{y} template fetched directly is not a server outage,skills/maplibre-source-wiring/SKILL.md,"My vector source uses tiles: ['https://tiles.example.com/{z}/{x}/{y}.pbf']. I pasted that exact URL into my browser address bar to check it works, and got an HTTP 500 error. Does this mean the tile server is down or broken?
+","### Short answer  
+No – the **500** you see is almost certainly because you asked the server for a *template* URL (`{z}/{x}/{y}` still in the path). The server receives a request that it can’t interpret, so it returns an error. It does **not** prove that the tile service is down.
+
+---
+
+## Why the 500 happens
+
+| What you typed | What the server receives | Why it fails |
+|----------------|--------------------------|--------------|
+| `https://tiles.example.com/{z}/{x}/{y}.pbf` | `…/{z}/{x}/{y}.pbf` (the literal characters `{`, `z`, `}`, …) | Tile servers expect **numeric** zoom, column and row values. The placeholders are not replaced, so the request is malformed or points outside the tile matrix, and the server returns a 500 (or sometimes 404/400). |
+
+MapLibre (and any other slippy‑map client) replaces `{z}`, `{x}`, and `{y}` **before** it makes the HTTP request. When you copy‑paste the template into a browser you skip that substitution step.
+
+---
+
+## How to verify the tile endpoint really works
+
+1. **Pick a real tile coordinate** that you know exists in the source’s zoom range.  
+   - The most universal test tile is the *root* tile at zoom 0: `z = 0, x = 0, y = 0`.  
+   - If the source’s `minzoom` is higher (e.g., 2), use the lowest allowed zoom instead.
+
+2. **Construct the concrete URL** by replacing the placeholders:
+
+   ```text
+   https://tiles.example.com/0/0/0.pbf   # zoom 0
+   https://tiles.example.com/2/1/1.pbf   # zoom 2, column 1, row 1
+   ```
+
+3. **Open that concrete URL in the browser** (or use `curl`/`wget`).  
+   - You should get a **200 OK** with a binary response (the PBF file).  
+   - If you still get a 500, then the server is indeed mis‑behaving for that tile (maybe the tile is missing, the server is mis‑configured, or there’s an internal error).  
+
+4. **Check the network tab in DevTools** while the map is loading:  
+   - Look for requests to `…/0/0/0.pbf` (or whatever zoom you’re at).  
+   - Verify the status code, response size, and **CORS** headers (`Access‑Control‑Allow‑Origin`).  
+
+5. **If the concrete tile works but the template still returns 500**, you can safely conclude the server is fine; the error was just caused by using the placeholder URL.
+
+---
+
+## Common follow‑up pitfalls (and how to spot them)
+
+| Symptom | What to check next |
+|---------|--------------------|
+| **All tiles load, but the map is blank** | Verify the source is added with `type: ""vector""` and that each style layer has the correct `source-layer` name (see the “source‑layer” section of the skill). |
+| **Tiles load, but at the wrong zoom/scale** | If you used a `tiles` array, make sure you also supplied `minzoom` / `maxzoom` (otherwise MapLibre assumes `maxzoom: 22` and may request tiles that don’t exist). |
+| **Network shows 200s but nothing draws** | Look at the TileJSON `vector_layers` list (or provider docs) to confirm the exact `source-layer` names. |
+| **Requests are blocked** | Check CORS headers on the tile responses (`Access-Control-Allow-Origin`). If missing, the browser will silently block the tiles and you’ll see “blocked by CORS policy” in the console. |
+| **Icons or labels missing** | Ensure the style’s `glyphs` and `sprite` URLs are reachable and CORS‑enabled. |
+
+---
+
+## Quick checklist you can run in the console
+
+```js
+// 1. Verify the source definition
+console.log(map.getSource('my-vector-source'));
+
+// 2. List the source‑layers that MapLibre thinks exist
+fetch('https://tiles.example.com/tiles.json')   // if you have a TileJSON endpoint
+  .then(r => r.json())
+  .then(j => console.log('TileJSON vector_layers:', j.vector_layers))
+  .catch(() => console.warn('No TileJSON endpoint – you may need to inspect a real tile.'));
+
+ // 3. Test a concrete tile
+fetch('https://tiles.example.com/0/0/0.pbf')
+  .then(r => console.log('Tile 0/0/0 status:', r.status))
+  .catch(err => console.error('Fetch error:', err));
+```
+
+If step 3 returns `200`, the server is healthy; the 500 you saw earlier was just the result of using the placeholder URL.
+
+---
+
+## TL;DR
+
+- **Do not** paste the `{z}/{x}/{y}` template directly into a browser.  
+- Replace the placeholders with real numbers (e.g., `0/0/0`) and request that tile.  
+- A 200 response means the tile server is fine; a 500 after substitution means the server has a problem for that specific tile.  
+- After confirming the tile endpoint works, move on to the other wiring steps (source‑layer names, layer order, CORS, glyphs/sprites, `promoteId`, etc.) if the map still isn’t drawing.",PASS,1.00,,All assertions passed,
+implicit — literal {z}/{x}/{y} template fetched directly is not a server outage,skills/maplibre-source-wiring/SKILL.md,"My vector source uses tiles: ['https://tiles.example.com/{z}/{x}/{y}.pbf']. I pasted that exact URL into my browser address bar to check it works, and got an HTTP 500 error. Does this mean the tile server is down or broken?
+","### Short answer  
+No – the **`{z}/{x}/{y}` placeholders are not meant to be sent to the server as‑is**.  
+If you paste the literal string
+
+```
+https://tiles.example.com/{z}/{x}/{y}.pbf
+```
+
+into a browser you are asking the server for a tile whose name literally contains the characters `{`, `z`, `}`, … . Most tile servers do not recognise that path and will return a generic *500 Internal Server Error* (or 404, 400, etc.). That response does **not** prove that the tile service is down; it only tells you that the request you made is malformed.
+
+---
+
+## How to verify a vector‑tile endpoint correctly
+
+| Step | What to do | Why it matters |
+|------|------------|----------------|
+| **1️⃣ Pick a real tile coordinate** | Choose a zoom level that you know the source actually provides (e.g., `z = 0`, `x = 0`, `y = 0` for the whole world, or `z = 5`, `x = 10`, `y = 12` for a more detailed area). | Tile servers only serve tiles that exist in their dataset. Requesting a tile outside the source’s `minzoom`/`maxzoom` range will return an empty tile or a 404/500. |
+| **2️⃣ Build the concrete URL** | Replace the placeholders with the numbers you chose: <br>`https://tiles.example.com/0/0/0.pbf` <br>or <br>`https://tiles.example.com/5/10/12.pbf`. | This is the exact request MapLibre will make when it needs that tile. |
+| **3️⃣ Open the concrete URL** | Paste the concrete URL into the browser (or use `curl`/Postman). You should see a binary download (a `.pbf` file) or, in the network tab of DevTools, a **200 OK** with `Content‑Type: application/x-protobuf`. | A successful 200 tells you the server is reachable and the tile exists. |
+| **4️⃣ Check the response size** | If you get a **tiny (≈0 B) file** or a **204 No Content**, the tile exists but is empty for that zoom/area (common at very low zooms). | Empty tiles are normal; they just contain no features. |
+| **5️⃣ Look at the HTTP status** | - **200** → good. <br>- **404** → tile does not exist (maybe you’re outside the zoom range). <br>- **500** → the server threw an error for that specific tile (could be a bug, a request for a tile it doesn’t have, or a mis‑configured backend). | A 500 on a concrete tile *does* indicate a problem, but only for that tile. It may be a sign the dataset is missing that tile or the server is mis‑configured. |
+| **6️⃣ Verify CORS (if you’ll request from a browser)** | In the network tab, check the response headers for `Access-Control-Allow-Origin: *` (or your domain). | Without CORS the browser will block the tile even if the request succeeded, and MapLibre will show a blank map with no error in the console. |
+
+### Quick test script (optional)
+
+If you have `curl` handy, you can script a sanity check:
+
+```bash
+# Replace with a zoom you know exists
+Z=0; X=0; Y=0
+curl -I ""https://tiles.example.com/${Z}/${X}/${Y}.pbf""
+```
+
+You should see something like:
+
+```
+HTTP/2 200 
+content-type: application/x-protobuf
+content-length: 1234
+access-control-allow-origin: *
+```
+
+If you get `500`, try a different zoom/xy pair. If *all* concrete tiles return 500, the server is likely mis‑configured or down.
+
+---
+
+## Common pitfalls that look like “the server is broken”
+
+| Symptom | Typical cause | How to confirm |
+|---------|----------------|----------------|
+| **500 on every concrete tile** | Backend error, missing tile data, or wrong MIME type. Check server logs or contact the provider. |
+| **200 but the map stays blank** | • CORS missing → browser blocks the response.<br>• `source-layer` mismatch → vector source loads but style can’t find the layer.<br>• `tileSize` wrong (for raster) → zoom offset. |
+| **200 with a tiny (0 B) file** | Tile exists but contains no features at that zoom (normal for low‑zoom tiles). |
+| **404 on a tile you think should exist** | You’re requesting outside the source’s `minzoom`/`maxzoom` range, or the tile coordinates are wrong (e.g., using Web Mercator vs. another projection). |
+| **Network tab shows “blocked by CORS policy”** | Server didn’t send `Access‑Control‑Allow‑Origin`. Add the header or proxy the tiles. |
+
+---
+
+## What to do next
+
+1. **Replace the placeholders** with a real tile coordinate and test again.  
+2. If you get **200** → the server is fine; move on to other wiring steps (source‑layer, layer order, promoteId, etc.).  
+3. If you still get **500** for several valid tiles → contact the tile‑service maintainer or check server logs.  
+4. If you get **200** but the map is still blank → follow the *diagnosing a blank map* checklist in the **MapLibre Source Wiring** skill (source‑layer names, CORS, glyphs/sprite, layer order, etc.).
+
+---
+
+### TL;DR checklist for your current situation
+
+- **Do not** test the literal `https://tiles.example.com/{z}/{x}/{y}.pbf`.  
+- **Pick a concrete tile** (e.g., `https://tiles.example.com/0/0/0.pbf`).  
+- **Check the response**: 200 OK → server works; 500 → server error for that tile.  
+- **If 200**, verify CORS headers; then continue wiring the source (source‑layer, layer order, etc.).  
+
+If after testing concrete tiles you still see 500 for every request, the tile service is indeed broken or mis‑configured and you’ll need to fix it on the server side or switch to a working endpoint.",PASS,1.00,,All assertions passed,
+implicit — literal {z}/{x}/{y} template fetched directly is not a server outage,skills/maplibre-source-wiring/SKILL.md,"My vector source uses tiles: ['https://tiles.example.com/{z}/{x}/{y}.pbf']. I pasted that exact URL into my browser address bar to check it works, and got an HTTP 500 error. Does this mean the tile server is down or broken?
+","### Short answer  
+No – the 500 you see is **not** proof that the tile server is down. You are asking the server for a tile that literally contains the `{z}/{x}/{y}` placeholders, which most servers cannot resolve and will return an error (often 500). To know whether the service is healthy you have to request a **real tile** – i.e. replace the placeholders with concrete numbers that are inside the source’s zoom range.
+
+---
+
+## Why the “raw” URL fails
+
+| What you typed | What the server receives |
+|----------------|--------------------------|
+| `https://tiles.example.com/{z}/{x}/{y}.pbf` | The literal string `{z}` etc. – the server has no way to map that to a tile coordinate, so it usually throws an internal‑server error (500) or a 404. |
+| Expected pattern | `https://tiles.example.com/12/3456/7890.pbf` (or any other valid Z/X/Y) |
+
+MapLibre (and any other slippy‑map client) substitutes the three tokens **before** it makes the HTTP request. When you paste the template into a browser you skip that substitution step, so you are testing the wrong thing.
+
+---
+
+## How to verify the tile endpoint correctly
+
+1. **Pick a zoom level that you know the source supports.**  
+   - If you have a TileJSON, look at its `minzoom` / `maxzoom`.  
+   - If you don’t, start with a low zoom like `0` (the whole world) or `1`. Most basemap tilesets have data at those levels.
+
+2. **Construct a concrete URL.**  
+   ```text
+   https://tiles.example.com/0/0/0.pbf   # zoom 0, column 0, row 0
+   https://tiles.example.com/5/10/12.pbf # zoom 5, column 10, row 12
+   ```
+   (Replace the numbers with any valid combination for the chosen zoom.)
+
+3. **Open that URL in the browser or curl it.**  
+   - You should get a **200 OK** response with a binary PBF payload (you’ll see “download” or a garbled file).  
+   - If you still get 500/404, then the server *is* failing for that tile coordinate, and you need to investigate the server side (logs, authentication, rate‑limits, etc.).
+
+4. **Check the network tab in DevTools while the map loads.**  
+   - Look for the actual tile requests that MapLibre makes (they will have concrete numbers).  
+   - Verify they return 200 and that the **CORS** headers (`Access-Control-Allow-Origin: *` or your domain) are present. Missing CORS will also make the map appear blank even though the tiles are fetched successfully.
+
+5. **If you have a TileJSON endpoint, use it instead of hand‑wiring `tiles`.**  
+   ```json
+   {
+     ""type"": ""vector"",
+     ""url"": ""https://tiles.example.com/tiles.json""
+   }
+   ```
+   MapLibre will fetch the TileJSON, read the proper `tiles` template, the zoom range, and the list of `vector_layers`. This eliminates the “I typed the wrong template” problem and also gives you the authoritative source‑layer names.
+
+---
+
+## Quick checklist for a healthy vector source
+
+| ✅ Check | How to verify |
+|---------|----------------|
+| **Concrete tile URL works** | Request `…/0/0/0.pbf` (or any valid Z/X/Y). Should be 200. |
+| **TileJSON available?** | `curl https://tiles.example.com/tiles.json` → contains `tiles`, `minzoom`, `maxzoom`, `vector_layers`. |
+| **CORS headers present** | Look at response headers: `Access-Control-Allow-Origin`. |
+| **Zoom range matches your map** | `minzoom`/`maxzoom` in TileJSON or the values you set on the source. |
+| **`source-layer` names match** | Open the TileJSON, read `vector_layers[].id` (or consult the provider’s schema docs). |
+| **Layer order** | Add custom layers *before* the first `symbol` layer (`map.addLayer(customLayer, firstSymbolId)`). |
+| **Feature‑state works** | If you need `setFeatureState`, ensure the source has an `id` (use `promoteId` if the id lives in a property). |
+
+---
+
+## What to do next
+
+1. **Replace the placeholders** with real numbers and test a few tiles.  
+2. If those succeed, **switch your source definition** to use the TileJSON `url` (preferred) or, if you must keep `tiles`, add `minzoom` / `maxzoom` so MapLibre doesn’t request zoom levels that don’t exist.  
+3. Verify the **`source-layer`** names you use in your style match the ones listed in the TileJSON’s `vector_layers`.  
+4. Ensure **CORS** is configured on the tile server (or CDN) so the browser can read the tiles.  
+5. Re‑load the map; if it’s still blank, follow the “Diagnosing a blank map” table in the skill (source‑layer mismatch, missing `tileSize` for rasters, etc.).
+
+---
+
+### TL;DR
+
+- The 500 you saw is just the server complaining about the literal `{z}/{x}/{y}` placeholder.  
+- Test with a real tile URL like `…/0/0/0.pbf`.  
+- If that returns 200 and proper CORS headers, the server is fine; the problem is only the way you were checking it.  
+- Then make sure your MapLibre source is wired correctly (TileJSON `url` preferred, correct `source-layer`, proper zoom range, CORS, layer order, and `promoteId` if you need feature state).  
+
+If after those steps you still get errors, let me know the exact network‑tab responses and the source definition you’re using, and we can dig deeper.",PASS,1.00,,All assertions passed,
+implicit — literal {z}/{x}/{y} template fetched directly is not a server outage,skills/maplibre-source-wiring/SKILL.md,"My vector source uses tiles: ['https://tiles.example.com/{z}/{x}/{y}.pbf']. I pasted that exact URL into my browser address bar to check it works, and got an HTTP 500 error. Does this mean the tile server is down or broken?
+","### Short answer  
+No – the 500 you see is **not** proof that the tile server is down. You are asking the server for a tile that literally contains the `{z}/{x}/{y}` placeholders, which most servers cannot resolve and will return an error (often 500). To know whether the service is healthy you have to request a **real tile** – i.e. replace the placeholders with concrete numbers that are inside the source’s zoom range.
+
+---
+
+## Why the “raw” URL fails
+
+| What you typed | What the server receives |
+|----------------|--------------------------|
+| `https://tiles.example.com/{z}/{x}/{y}.pbf` | The literal string `{z}` etc. – the server has no way to map that to a tile coordinate, so it usually throws an internal‑server error (500) or a 404. |
+| Expected pattern | `https://tiles.example.com/12/3456/7890.pbf` (or any other valid Z/X/Y) |
+
+MapLibre (and any other slippy‑map client) **replaces** `{z}`, `{x}`, `{y}` with numbers **before** it makes the request. Browsers do not do that automatically, so the request you typed is not a valid test.
+
+---
+
+## How to test the endpoint correctly
+
+1. **Pick a zoom level that you know exists** (most tile sets start at `0` and go up to at least `14`).  
+2. **Construct a concrete URL** by substituting numbers:
+
+   ```text
+   https://tiles.example.com/0/0/0.pbf          # zoom 0, the whole world tile
+   https://tiles.example.com/5/10/12.pbf        # zoom 5, column 10, row 12
+   https://tiles.example.com/14/12345/67890.pbf # higher zoom, if you have data that far
+   ```
+
+3. **Paste that concrete URL into the browser** (or use `curl`/Postman).  
+   - You should get a **200 OK** with a binary PBF payload (you’ll see “download” or a garbled file).  
+   - If you still get 500/404, then the server really is mis‑behaving for that tile.
+
+4. **Check the network tab in DevTools** while the map is loading.  
+   - Look for the same concrete URLs that MapLibre requests.  
+   - Verify the status codes, response size, and **CORS** headers (`Access‑Control‑Allow‑Origin`).  
+
+5. **If the concrete request works but the placeholder request fails** – you’re fine. The 500 you saw was just a “dummy” request.
+
+---
+
+## Common follow‑up issues once the tile URL is verified
+
+| Symptom | What to check next |
+|---------|--------------------|
+| **Map stays blank, but network shows 200s** | • `source-layer` names match the TileJSON `vector_layers` (or the provider’s docs). <br>• Layer order – make sure you’re not drawing your layer **above** the label `symbol` layers unless that’s intentional. |
+| **Tiles appear but are blurry / at the wrong zoom** | • For raster sources, ensure `tileSize: 256` if the server serves 256‑px tiles (default is 512). <br>• For vector sources, confirm the source’s `minzoom`/`maxzoom` (if you hand‑wired `tiles`, you may need to add them). |
+| **No labels or icons** | • `glyphs` URL is reachable and returns font PBFs. <br>• `sprite` URL is reachable (both `.json` and `.png`). |
+| **`setFeatureState` does nothing** | • The source’s features have an `id`. If they only have a property like `parcel_id`, add `promoteId: 'parcel_id'` (or an object per source‑layer). |
+| **Requests are blocked by the browser** | • Verify the server sends `Access‑Control‑Allow-Origin: *` (or your domain). <br>• For PMTiles or other range‑request sources, also send `Access‑Control‑Allow-Headers: Range`. |
+
+---
+
+## Quick checklist for a newly‑added vector source
+
+```json
+{
+  ""type"": ""vector"",
+  ""tiles"": [""https://tiles.example.com/{z}/{x}/{y}.pbf""],
+  ""minzoom"": 0,          // optional but recommended
+  ""maxzoom"": 14,         // set to the highest zoom you actually have
+  ""attribution"": ""© Example""
+}
+```
+
+```js
+// Add a layer that actually draws something
+map.addLayer({
+  id: ""my-roads"",
+  type: ""line"",
+  source: ""my-source"",
+  ""source-layer"": ""transportation"",   // <-- must match a layer name in the TileJSON
+  paint: {
+    ""line-color"": ""#ff6600"",
+    ""line-width"": 2
+  }
+}, firstSymbolLayerId); // insert before the first symbol layer so labels stay on top
+```
+
+*If you don’t know the exact `source-layer` name, fetch the TileJSON (`url` endpoint) or look at the provider’s documentation. The `vector_layers` array in TileJSON lists them.*
+
+---
+
+## TL;DR
+
+1. **Don’t test the placeholder URL** (`{z}/{x}/{y}`) – it will always error.  
+2. **Request a real tile** (e.g., `…/0/0/0.pbf`). If that returns 200, the server is fine.  
+3. If the real tile also fails, investigate server logs, CORS, or the tile‑generation pipeline.  
+4. Once the tile endpoint works, move on to source‑layer matching, layer order, glyph/sprite URLs, `tileSize`, and `promoteId` as needed.
+
+If after confirming a concrete tile you still see a blank map, run through the “Diagnosing a blank map” table in the **MapLibre Source Wiring** skill (source‑layer, zoom range, CORS, glyphs, sprite, layer order, etc.) – each of those can silently suppress rendering without throwing an error.",PASS,1.00,,All assertions passed,
+implicit — literal {z}/{x}/{y} template fetched directly is not a server outage,skills/maplibre-source-wiring/SKILL.md,"My vector source uses tiles: ['https://tiles.example.com/{z}/{x}/{y}.pbf']. I pasted that exact URL into my browser address bar to check it works, and got an HTTP 500 error. Does this mean the tile server is down or broken?
+","### Short answer  
+No – the **500** you see is almost certainly because you asked the server for a *template* URL (`{z}/{x}/{y}` still in the path). The server receives a request it can’t satisfy (the placeholders aren’t valid numbers) and returns an error. It does **not** prove that the tile service is down or broken.
+
+---
+
+## Why the 500 happens
+
+| What you typed | What the server receives | Why it fails |
+|----------------|--------------------------|--------------|
+| `https://tiles.example.com/{z}/{x}/{y}.pbf` | `GET /{z}/{x}/{y}.pbf` | The path contains the literal characters `{`, `z`, `}`, … – none of which map to a real tile coordinate. Most tile servers treat that as an invalid request and respond with 400‑ or 500‑series status. |
+
+MapLibre (and any other slippy‑map client) never sends a request with the braces in it. It substitutes **real numbers** for zoom (`z`), column (`x`) and row (`y`) before making the HTTP call.
+
+---
+
+## How to verify the endpoint really works
+
+1. **Pick a concrete tile** that you know exists in the source’s zoom range.  
+   *Typical safe choices* (if the source covers the whole world):
+   - Zoom 0: `https://tiles.example.com/0/0/0.pbf`
+   - Zoom 1: `https://tiles.example.com/1/0/0.pbf` (or `1/0/1`, `1/1/0`, `1/1/1`)
+   - Zoom 2: `https://tiles.example.com/2/2/1.pbf` (any tile inside the world bounds)
+
+2. **Paste that concrete URL** into the browser (or `curl`) and look at the response:
+   - **200 OK** with a binary PBF payload → the server is serving tiles correctly.
+   - **404 Not Found** → you asked for a tile outside the dataset’s bounds or the server’s `minzoom`/`maxzoom` range. Try a different zoom or check the TileJSON for `minzoom`/`maxzoom`.
+   - **500 Internal Server Error** (or other 5xx) → the server is having an internal problem *for that specific tile*. It could be a mis‑configuration, a missing file, or a bug. Try a different tile; if all tiles return 500 you have a server‑wide issue.
+
+3. **Check the TileJSON (if you have one).**  
+   If the provider offers a TileJSON endpoint (`url: ""https://tiles.example.com/tiles.json""`), open it and look at:
+   - `tiles` array – the template you already have.
+   - `minzoom` / `maxzoom` – the zoom levels the source actually provides.
+   - `bounds` – the geographic extent; tiles outside those bounds will 404.
+   - `vector_layers` – the list of `source-layer` names you’ll need in your style.
+
+   Example:
+
+   ```json
+   {
+     ""tiles"": [""https://tiles.example.com/{z}/{x}/{y}.pbf""],
+     ""minzoom"": 0,
+     ""maxzoom"": 14,
+     ""bounds"": [-180,-85,180,85],
+     ""vector_layers"": [
+       {""id"":""transportation"",""description"":""Roads, railways…""},
+       {""id"":""water"",""description"":""Rivers, lakes…""}
+     ]
+   }
+   ```
+
+   If the TileJSON is missing or you can’t reach it, you’ll have to **hand‑wire** the `tiles` array *and* supply the missing metadata (`minzoom`, `maxzoom`, `attribution`, etc.) yourself.
+
+---
+
+## Common pitfalls that look like “the server is broken”
+
+| Symptom | Typical cause | How to confirm |
+|---------|----------------|----------------|
+| **All tiles return 500** | Server process crashed, wrong file permissions, or the tile generation pipeline failed. | Check server logs, or try a different endpoint (e.g., raster tiles) on the same host. |
+| **Only high‑zoom tiles 500, low‑zoom work** | Tiles not generated for those zoom levels (outside `maxzoom`). | Look at `maxzoom` in TileJSON; request a tile at a lower zoom. |
+| **200 but the response is a small HTML error page** | The request is being routed to a generic error handler (often because the path is wrong). | Inspect the `Content‑Type` header – it should be `application/x-protobuf` (or `application/vnd.mapbox-vector-tile`). |
+| **200 but the payload is empty (0 bytes)** | The tile exists but contains no features for that tile (e.g., ocean tile in a land‑only dataset). | Decode the PBF with `tile-join`, `vt2geojson`, or an online viewer to see if it’s truly empty. |
+| **CORS error in the browser console** | The server responded, but the browser blocked it because `Access‑Control‑Allow‑Origin` is missing. | Open the Network tab → click the tile request → look at the response headers. |
+
+---
+
+## Quick checklist for “Is my vector source wired correctly?”
+
+1. **Source definition** – use `tiles` **or** `url` (prefer `url` when a TileJSON endpoint exists).  
+   ```js
+   map.addSource('mySource', {
+     type: 'vector',
+     tiles: ['https://tiles.example.com/{z}/{x}/{y}.pbf'],
+     // optional but recommended:
+     minzoom: 0,
+     maxzoom: 14,
+     attribution: '© Example Tiles'
+   });
+   ```
+
+2. **Validate a concrete tile** – request `…/0/0/0.pbf` (or any tile inside the declared zoom range).  
+   - 200 OK → good.  
+   - 404 → adjust `minzoom`/`maxzoom` or check bounds.  
+   - 500 → server‑side issue; contact the tile provider or inspect logs.
+
+3. **Check CORS** – the response must include `Access-Control-Allow-Origin: *` (or your domain). If missing, the browser will silently drop the tile and the map appears blank.
+
+4. **Match `source-layer` names** – look at the TileJSON’s `vector_layers` (or provider docs) and use those exact strings in your style layers:
+
+   ```json
+   {
+     ""id"": ""roads"",
+     ""type"": ""line"",
+     ""source"": ""mySource"",
+     ""source-layer"": ""transportation""
+   }
+   ```
+
+5. **Layer order** – if you add custom layers with `map.addLayer(...)` after the style loads, insert them **below the first symbol layer** to avoid covering labels:
+
+   ```js
+   const firstSymbol = map.getStyle().layers.find(l => l.type === 'symbol').id;
+   map.addLayer(customLayer, firstSymbol); // inserts just before labels
+   ```
+
+6. **Feature state (if you need it)** – ensure the source provides feature IDs or set `promoteId`:
+
+   ```js
+   map.addSource('parcels', {
+     type: 'vector',
+     url: 'https://tiles.example.com/parcels.json',
+     promoteId: { parcels: 'parcel_id' }   // source‑layer → property name
+   });
+   ```
+
+---
+
+## TL;DR steps you can run right now
+
+```bash
+# 1. Try a real tile (replace with your domain)
+curl -I https://tiles.example.com/0/0/0.pbf
+# Look for ""200 OK"" and ""Content-Type: application/x-protobuf""
+
+# 2. If you get 500, try a different zoom:
+curl -I https://tiles.example.com/2/1/1.pbf
+
+# 3. If you finally get 200, open the TileJSON (if any):
+curl https://tiles.example.com/tiles.json | jq .
+# Verify minzoom/maxzoom and vector_layers list.
+
+# 4. In your MapLibre style, either:
+#    a) Use the TileJSON URL:
+#       { ""type"":""vector"", ""url"":""https://tiles.example.com/tiles.json"" }
+#    b) Keep the hand‑wired tiles array but add minzoom/maxzoom:
+#       { ""type"":""vector"", ""tiles"":[""https://tiles.example.com/{z}/{x}/{y}.pbf""], ""minzoom"":0, ""maxzoom"":14 }
+```
+
+If step 1 returns **200** for at least one concrete tile, the server is alive and the 500 you saw was just the result of requesting the *template* URL. From there, wire the source as shown above, double‑check `source-layer` names, and you should see vector data on the map. If you still get a blank map after those checks, move on to the next items in the “Diagnosing a blank map” table (CORS, source‑layer mismatch, layer order, etc.).",PASS,1.00,,All assertions passed,

@@ -1,7 +1,7 @@
 ---
 name: maplibre-source-wiring
 description: Getting a MapLibre GL JS source to actually render — TileJSON `url` versus hand-wired `tiles` templates, matching `source-layer` names to the tile schema, layer order and inserting below labels, `promoteId` and the feature ids that feature state needs, and the CORS and glyph failures behind a blank map. Use when a source is configured but nothing is drawing, or when setFeatureState does nothing.
-status: provisional
+status: verified
 ---
 
 # MapLibre Source Wiring
@@ -57,6 +57,8 @@ When no TileJSON endpoint exists — for example, a raw raster tile service that
   "maxzoom": 14
 }
 ```
+
+`{z}`, `{x}` and `{y}` are tokens MapLibre replaces with each tile's zoom, column and row before it makes a request. A template pasted into a browser with the braces still in it asks for no real tile, so its status code says nothing about the server. To check the server by hand, request a real tile inside the source's zoom range, such as `/0/0/0.pbf`.
 
 The cost of hand-wiring `tiles` is that MapLibre has no zoom range unless you supply one, and will assume `maxzoom: 22` — requesting zoom levels the tileset doesn't contain, which come back empty. This is why `url` is the default advice wherever a TileJSON endpoint exists. (For PMTiles specifically the same rule applies and the consequence is sharper — see [maplibre-pmtiles-patterns](../maplibre-pmtiles-patterns/SKILL.md).)
 
