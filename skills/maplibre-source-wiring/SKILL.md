@@ -77,7 +77,7 @@ A vector tile source contains named layers — `transportation`, `water`, `landu
 
 `source-layer` is required for vector sources and must match the tile schema exactly. A typo or a name from a different schema produces no error and no output — the layer simply draws nothing.
 
-**Find the real names in the TileJSON.** For vector sources, the TileJSON `vector_layers` field lists each available `source-layer`, its attribute fields, and its zoom range. This is the authoritative reference **when it is present** — but `vector_layers` is optional in TileJSON 3.0, and providers are inconsistent about supplying it. Its absence does not mean there is no schema: identify the schema by name (below) and work from its published layer list. If you use a provider's pre-built style URL, the schema is already matched for you; the mismatch only appears when you write your own layers.
+**Find the real names in the TileJSON.** For vector sources, the TileJSON `vector_layers` field lists each available `source-layer`, its attribute fields, and its zoom range. This is the authoritative reference **when it is present** — TileJSON 3.0 requires it for vector tilesets, but 2.x documents predate it and providers are inconsistent about supplying it. Its absence does not mean there is no schema: identify the schema by name (below) and work from its published layer list. If you use a provider's pre-built style URL, the schema is already matched for you; the mismatch only appears when you write your own layers.
 
 ### Pre-defined tile schemas
 
@@ -85,7 +85,7 @@ When building a custom style you need to know the **tile schema** — the source
 
 - **OpenMapTiles** — the most widely adopted schema, based on OpenStreetMap data. Rich and detailed, with source-layers like `transportation`, `water`, `landuse`, `poi`. The largest ecosystem of community styles targets this schema.
 - **Shortbread** — an open standard designed to be minimal and interoperable, not tied to any single vendor. Simpler structure than OpenMapTiles; a clean foundation if you're building styles from scratch.
-- **Protomaps** — purpose-built for the Protomaps PMTiles basemap ecosystem. Flat, simple structure with source-layers like `land`, `water`, `roads`, `places`; optimized for serverless delivery. Published layer list: [docs.protomaps.com/basemaps/layers](https://docs.protomaps.com/basemaps/layers).
+- **Protomaps** — purpose-built for the Protomaps PMTiles basemap ecosystem. Flat, simple structure with source-layers like `earth`, `water`, `roads`, `places`; optimized for serverless delivery. Published layer list: [docs.protomaps.com/basemaps/layers](https://docs.protomaps.com/basemaps/layers).
 
 Each of these publishes its layer list as documentation (see References). None carries a machine-readable version marker, so checking a schema means re-reading the page; nothing can poll it for changes.
 
@@ -181,7 +181,7 @@ Work down this list — the symptoms overlap heavily:
 ## References
 
 1. **MapLibre Style Specification** — [maplibre.org/maplibre-style-spec/](https://maplibre.org/maplibre-style-spec/)
-2. **TileJSON specification** — [specification repository on GitHub](https://github.com/mapbox/tilejson-spec)
+2. **TileJSON specification** — [specification repository on GitHub](https://github.com/mapbox/tilejson-spec); version 3.0 (Aug 2021) made `vector_layers` required for vector tilesets
 3. **Slippy map tile naming (Z/X/Y scheme)** — [OpenStreetMap wiki](https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames)
 4. **OpenMapTiles schema** — [openmaptiles.org/schema/](https://openmaptiles.org/schema/)
 5. **Shortbread tile schema** — [shortbread-tiles.org](https://shortbread-tiles.org/)
