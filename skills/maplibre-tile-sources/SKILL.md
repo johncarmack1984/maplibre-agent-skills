@@ -151,6 +151,7 @@ A single combined tileset is defensible in one narrow case: a self-contained art
 ## Related Skills
 
 - [**maplibre-fonts-glyphs**](../maplibre-fonts-glyphs/SKILL.md) — Setting up the `glyphs` URL, self-hosting or generating font PBFs, and non-Latin script support.
+- [**maplibre-sprites-icons**](../maplibre-sprites-icons/SKILL.md) — The `sprite` URL forms, loading multiple sheets, self-hosting sprite assets, and route shields.
 - [**maplibre-source-wiring**](../maplibre-source-wiring/SKILL.md) — TileJSON, `source-layer`, layer order, CORS, and blank-map debugging.
 - [**maplibre-pmtiles-patterns**](../maplibre-pmtiles-patterns/SKILL.md) — Serverless PMTiles hosting and MapLibre integration.
 - [**maplibre-mapbox-migration**](../maplibre-mapbox-migration/SKILL.md) — Replacing Mapbox tiles with MapLibre-compatible sources.
