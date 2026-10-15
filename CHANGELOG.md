@@ -17,6 +17,7 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Fixed
 
+- `maplibre-tile-sources`: back to the narrowed skill #69 verified, which fits the eval provider's request limit again; `maplibre-source-wiring` now says TileJSON 3.0 requires `vector_layers` and names Protomaps' `earth` layer ([#118](https://github.com/maplibre/maplibre-agent-skills/pull/118))
 - `maplibre-pmtiles-patterns`: state the GL JS 4.0.0 `addProtocol` handler contract (`{data, cacheControl?, expires?}`, module-level registration), that sources locate tiles with `url` or `tiles` only, and the real `pmtiles` inspection commands ([#92](https://github.com/maplibre/maplibre-agent-skills/pull/92))
 
 ### Internal
