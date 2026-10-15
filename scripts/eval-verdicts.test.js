@@ -626,6 +626,33 @@ describe('classificationBlock', () => {
     assert.match(block, /never changes a skill's `status:`/);
   });
 
+  it('says how many tests a config ran again', () => {
+    const summary = withConfigs([
+      {
+        skill: 'maplibre-cartography',
+        verdict: 'fail',
+        signatures: [],
+        retry: {
+          tests: [
+            {
+              description: 'explicit',
+              attempts: ['fail', 'fail', 'pass'],
+              verdict: 'fail'
+            }
+          ]
+        }
+      },
+      { skill: 'maplibre-fonts-glyphs', verdict: 'pass', signatures: [] }
+    ]);
+    const block = classificationBlock({
+      summary,
+      evalResult: 'failure',
+      publish: { commit: 'success', sync: 'success', statusCommit: 'success' }
+    });
+    assert.match(block, /\| maplibre-cartography \| fail \| re-ran 1 test \|/);
+    assert.match(block, /\| maplibre-fonts-glyphs \| pass \| — \|/);
+  });
+
   it('reports a rejected push in the publish steps', () => {
     const block = classificationBlock({
       summary: PASSING,

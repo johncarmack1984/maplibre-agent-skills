@@ -338,9 +338,12 @@ export function classificationBlock({ summary, evalResult, publish }) {
       : configs.map((c) => c.skill)) {
       const config = bySkill.get(skill);
       const verdict = config?.verdict ?? 'not recorded';
-      const signals = config?.signatures?.length
-        ? config.signatures.join(', ')
-        : '—';
+      const rerun = config?.retry?.tests?.length ?? 0;
+      const signalList = [
+        ...(config?.signatures ?? []),
+        ...(rerun > 0 ? [`re-ran ${rerun} test${rerun === 1 ? '' : 's'}`] : [])
+      ];
+      const signals = signalList.length ? signalList.join(', ') : '—';
       lines.push(`| ${skill} | ${verdict} | ${signals} |`);
     }
     const tokens = configs.reduce(
