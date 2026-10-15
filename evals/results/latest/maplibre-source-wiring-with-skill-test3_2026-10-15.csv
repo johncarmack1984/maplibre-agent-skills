@@ -1,0 +1,111 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+explicit — TileJSON url vs hand-wired tiles template,skills/maplibre-source-wiring/SKILL.md,"In a MapLibre vector source, should I use the `url` field pointing at a TileJSON endpoint, or just put the {z}/{x}/{y} template straight into the `tiles` array? My tile server offers both.
+","### TL;DR  
+**If the server gives you a TileJSON endpoint, point `url` at it.**  
+Only fall back to a hand‑written `tiles` array when a TileJSON document does **not** exist (or you deliberately need to override something that TileJSON supplies).
+
+---
+
+## Why `url` is usually the right choice
+
+| What you get automatically when you use `url` | What you have to do yourself when you use `tiles` |
+|-----------------------------------------------|---------------------------------------------------|
+| **Tile URL template** – MapLibre reads it from the TileJSON. | You must write the `{z}/{x}/{y}` template yourself. |
+| **Zoom range** (`minzoom` / `maxzoom`) – taken from the TileJSON. | If you omit them MapLibre assumes `maxzoom: 22`.  Requests for zooms the tileset doesn’t have will return empty tiles, often showing as “nothing draws” when you zoom in. |
+| **Bounds / extent** – used for `fitBounds`, `maxBounds`, etc. | You have to supply them manually (or ignore them). |
+| **Attribution** – pulled from TileJSON and shown in the UI. | You must add it yourself if you care about it. |
+| **`vector_layers` list** – the authoritative list of source‑layer names and their attribute fields. | You have to look up the schema elsewhere (provider docs, your own generation script) and copy it into your style. |
+| **Future‑proofing** – if the provider adds new layers or changes zoom limits, the TileJSON will reflect that without you touching the style. | You would have to edit the source definition again. |
+
+Because all of those pieces are *metadata* that the style needs but that don’t affect the actual tile‑fetching code, letting MapLibre read them from a TileJSON keeps your source definition tiny and less error‑prone.
+
+```json
+{
+  ""type"": ""vector"",
+  ""url"": ""https://tiles.example.com/tileset.json""
+}
+```
+
+When the URL resolves to a valid TileJSON, MapLibre will:
+
+1. Pull the `tiles` array (the real URL template) from the document.
+2. Record `minzoom`, `maxzoom`, `bounds`, `attribution`, and the `vector_layers` array.
+3. Expose those `source-layer` names for you to reference in style layers.
+
+---
+
+## When you *must* use `tiles`
+
+| Situation | Reason |
+|-----------|--------|
+| The server only returns a raw tile URL template (e.g., `https://tiles.example.com/{z}/{x}/{y}.png`). | No TileJSON exists, so there is nothing for `url` to fetch. |
+| You need to **override** a value that the TileJSON provides (e.g., you want a different `maxzoom` than the one advertised). | You can still use `url` **and** add the overriding fields, but if you need to replace the whole TileJSON you can just write `tiles`. |
+| You are serving **raster** tiles (or any non‑vector format) that don’t have a TileJSON endpoint. | Raster sources also support `tiles`, but they don’t have a `vector_layers` list, so the only thing you can supply is the template and optional metadata. |
+| You are experimenting locally with a static set of tiles and don’t want to spin up a TileJSON server. | A quick `tiles` array is the fastest way to get something on the map. |
+
+In those cases you must remember to add the missing metadata yourself:
+
+```json
+{
+  ""type"": ""vector"",
+  ""tiles"": [""https://tiles.example.com/{z}/{x}/{y}.pbf""],
+  ""minzoom"": 0,
+  ""maxzoom"": 14,
+  ""attribution"": ""© Example Tiles"",
+  ""bounds"": [-180, -85, 180, 85]
+}
+```
+
+*If you forget `minzoom`/`maxzoom`, MapLibre will request zoom levels that don’t exist (up to 22) and you’ll see blank tiles at higher zooms.*
+
+---
+
+## Quick checklist before you decide
+
+1. **Is there a TileJSON URL?**  
+   - `GET https://tiles.example.com/tileset.json` → returns a JSON with `tiles`, `vector_layers`, etc. → **use `url`.**
+2. **Does the TileJSON include `vector_layers`?**  
+   - If yes, you can copy the exact `source-layer` names from there.  
+   - If it’s missing, you’ll still get the tile URL and zoom range, but you’ll need to look up the schema elsewhere (provider docs, your own generation script).  
+3. **Do you need to override any metadata?**  
+   - You can still use `url` and add `minzoom`, `maxzoom`, `attribution`, etc. on top of it.  
+   - Only use `tiles` when you have no TileJSON at all.  
+4. **CORS & authentication**  
+   - Both `url` and `tiles` are fetched via XHR/fetch, so the same CORS rules apply.  
+   - If you need to add an `access_token` query param, you can either embed it in the TileJSON `tiles` entries (if you control the TileJSON) or add it to the `tiles` array yourself.  
+
+---
+
+## Example: Switching from `tiles` to `url`
+
+You might start with a quick test like this:
+
+```json
+{
+  ""type"": ""vector"",
+  ""tiles"": [""https://tiles.example.com/{z}/{x}/{y}.pbf""]
+}
+```
+
+If you later discover that `https://tiles.example.com/tileset.json` exists, replace the source definition with:
+
+```json
+{
+  ""type"": ""vector"",
+  ""url"": ""https://tiles.example.com/tileset.json""
+}
+```
+
+*You can keep any extra fields you added (e.g., `promoteId`, `maxzoom`) – they will merge with the values from the TileJSON, with your explicit fields taking precedence.*
+
+---
+
+## TL;DR Recap
+
+| Use `url` when | Use `tiles` when |
+|----------------|------------------|
+| A TileJSON endpoint is available (most hosted providers, Martin, TileServer‑GL, PMTiles, etc.). | No TileJSON exists (raw raster tiles, simple static vector tiles, or you’re prototyping). |
+| You want MapLibre to auto‑populate zoom range, bounds, attribution, and source‑layer list. | You must manually supply those pieces yourself. |
+| You want the source to stay in sync with any future changes the provider makes to the TileJSON. | You need full control over every field (rare). |
+
+Following this rule eliminates the most common “nothing draws” bugs caused by missing zoom ranges or mismatched `source-layer` names, and it keeps your style definition clean and maintainable. Happy mapping!",PASS,1.00,,All assertions passed,
