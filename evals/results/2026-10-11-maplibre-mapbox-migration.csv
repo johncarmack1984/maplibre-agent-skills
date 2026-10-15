@@ -1,0 +1,802 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+explicit — validate style JSON with CLI tool after migration,skills/maplibre-mapbox-migration/SKILL.md,"I'm migrating from Mapbox to MapLibre and want to check whether my exported style JSON is compatible before deploying. Is there a CLI tool I can run on the file?
+","## Quick answer
+
+Yes – the **MapLibre Style Specification CLI** can validate a style JSON and tell you exactly which parts are not supported by MapLibre.
+
+```bash
+# Install the validator (once)
+npm i -g @maplibre/maplibre-style-spec
+
+# Run it on your exported style
+gl-style-validate path/to/style.json
+```
+
+or, without a global install:
+
+```bash
+npx @maplibre/maplibre-style-spec gl-style-validate path/to/style.json
+```
+
+The command exits with `0` when the style is fully compatible and prints a list of warnings / errors otherwise.
+
+Below is a full walk‑through of the tool, how to interpret its output, and what to do with the most common incompatibilities you’ll hit when moving a Mapbox‑Studio style to MapLibre.
+
+---
+
+## 1. What the CLI does
+
+| Feature | How it works | What you see |
+|---------|--------------|--------------|
+| **Schema validation** | Checks the JSON against the **MapLibre Style Specification** (v13‑v15 at the time of writing). | `ERROR: root must have required property 'version'` |
+| **Property‑level compatibility** | Flags any property that is **not defined** in the MapLibre spec (e.g. `mapbox://` source URLs, `glyphs` pointing to Mapbox, `metadata.mapbox:...`). | `WARN: property 'metadata.mapbox:origin' is not allowed` |
+| **Version awareness** | You can target a specific spec version (`--spec v15`) so you know whether a feature is “future‑proof” or already missing. | `ERROR: sky.type 'gradient' is not supported in spec v13` |
+| **Strict vs. permissive mode** | `--strict` treats *any* unknown property as an error; default mode only errors on required‑property violations. | `WARN: unknown property 'terrain.exaggeration'` |
+| **Output formats** | Human‑readable console output (default) or **JSON** (`--output json`) for CI pipelines. | `{ ""errors"": [...], ""warnings"": [...] }` |
+
+---
+
+## 2. Installing & running the validator
+
+### 2.1 Global install (recommended for repeated use)
+
+```bash
+npm i -g @maplibre/maplibre-style-spec
+```
+
+Now the binary `gl-style-validate` is on your `$PATH`.
+
+### 2.2 One‑off run (no global install)
+
+```bash
+npx @maplibre/maplibre-style-spec gl-style-validate ./my-style.json
+```
+
+### 2.3 Basic command‑line options
+
+| Flag | Description |
+|------|-------------|
+| `--spec <version>` | Validate against a specific MapLibre spec version (`v13`, `v14`, `v15`, …). Default = latest stable. |
+| `--strict` | Treat *any* unknown top‑level property as an error (useful for CI). |
+| `--output <format>` | `text` (default) or `json`. |
+| `--ignore <path>` | Provide a JSON‑Pointer to ignore a known false‑positive (e.g. `--ignore /metadata`). |
+| `--help` | Show the help screen. |
+
+**Example – CI‑friendly run**
+
+```bash
+npx @maplibre/maplibre-style-spec \
+  gl-style-validate ./style.json \
+  --spec v15 \
+  --strict \
+  --output json > style-validation-report.json
+```
+
+You can then fail the build if the JSON contains any `errors`:
+
+```bash
+jq '.errors | length' style-validation-report.json   # > 0 → fail
+```
+
+---
+
+## 3. Typical incompatibilities you’ll see & how to fix them
+
+| Issue (what the validator reports) | Why it happens | Fix / Work‑around |
+|-----------------------------------|----------------|-------------------|
+| **`source.type` = `vector` with `url: ""mapbox://...""`** | MapLibre cannot resolve the `mapbox://` protocol. | Replace with a public vector tile endpoint (e.g. `https://tiles.openfreemap.org/tiles/{z}/{x}/{y}.pbf`) **or** self‑host your tiles (PMTiles, TileServer‑GL, Martin). Update `source.id` and any `source-layer` references in layers accordingly. |
+| **`glyphs` points to `mapbox://fonts/...`** | Glyphs are fetched from Mapbox’s CDN, which requires a token. | Use an open glyph service (`https://fonts.openfreemap.org/{fontstack}/{range}.pbf`) or host your own SDF glyphs. If you don’t need custom fonts, you can drop the `glyphs` property – MapLibre will fall back to the default OpenStreetMap glyph set. |
+| **`metadata.mapbox:...`** | These are Mapbox‑only metadata fields. | Delete them or move them under a custom namespace (`metadata.myapp:...`). They are ignored by the renderer, so they’re safe to strip. |
+| **`terrain.source` = `""mapbox-dem""`** | Mapbox DEM tiles are proprietary. | Switch to an open DEM source (e.g. `https://tiles.openfreemap.org/dem/{z}/{x}/{y}.png`) or generate your own (MapLibre Tile (MLT) DEM, Terrarium, etc.). Update the `terrain` object accordingly. |
+| **`sky.type = ""gradient""`** (or any `sky` property not in the spec version you target) | `gradient` sky was added in spec v15; older versions will error. | Either bump the `--spec` version you validate against, or change to a supported sky type (`atmosphere`). |
+| **`layer.type = ""fill-extrusion""` with `paint[""fill-extrusion-pattern""]` referencing a Mapbox sprite** | Sprites are stored on Mapbox’s CDN. | Host the sprite sheet yourself (e.g. `https://my.cdn.com/sprites/sprite.json`) and update the `sprite` property at the top of the style. |
+| **`filter` uses `[""=="", ""$type"", ""Point""]`** (Mapbox‑specific `$type` filter) | `$type` is supported, but some older MapLibre versions required the newer `[""=="", ""$type"", ""Point""]` syntax. | Ensure you are on MapLibre v5+ (which fully supports `$type`). If you must stay on v4, replace with `[""=="", ""type"", ""Point""]` on a source that provides a `type` property. |
+| **`transition` object contains `duration` > 0 for `paint` properties that MapLibre does not animate** | MapLibre only animates a subset of paint properties. | Remove the transition for unsupported properties or set `duration: 0`. The validator will warn you. |
+| **`light` object with `anchor: ""viewport""`** (new in v15) | Older MapLibre releases ignore `anchor`. | Upgrade MapLibre to v5+ (which supports `anchor`) or drop the property. |
+
+### Quick “fix‑all” script (use with caution)
+
+If you just want to strip all Mapbox‑specific keys before re‑validating:
+
+```bash
+jq 'del(.glyphs, .sprite, .metadata.mapbox, .sources[].url | select(test(""^mapbox://""))) |
+    walk(
+      if type == ""object"" then
+        with_entries(select(.key | test(""^mapbox:"") | not))
+      else .
+      end
+    )' style.json > style.cleaned.json
+```
+
+Run the validator again on `style.cleaned.json`. This is handy for a first pass, but you’ll still need to replace the removed URLs with real tile/font endpoints.
+
+---
+
+## 4. Integrating validation into your workflow
+
+### 4.1 Local development
+
+Add a **npm script** to your project:
+
+```json
+{
+  ""scripts"": {
+    ""style:validate"": ""gl-style-validate ./src/style.json --spec v15""
+  }
+}
+```
+
+Run it whenever you export a new style from Mapbox Studio:
+
+```bash
+npm run style:validate
+```
+
+### 4.2 CI / PR checks
+
+```yaml
+# .github/workflows/style-validation.yml
+name: Style validation
+
+on:
+  pull_request:
+    paths:
+      - 'src/style.json'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install validator
+        run: npm i -g @maplibre/maplibre-style-spec
+      - name: Validate style
+        run: |
+          gl-style-validate src/style.json --spec v15 --strict --output json > report.json
+          jq '.errors | length' report.json | grep -q '^0$' || (cat report.json && exit 1)
+```
+
+If any error appears, the PR fails and the JSON diff is printed in the logs.
+
+### 4.3 Pre‑commit hook (optional)
+
+```bash
+npm i -D husky lint-staged
+npx husky install
+npx husky add .husky/pre-commit ""npx lint-staged""
+```
+
+`package.json`:
+
+```json
+{
+  ""lint-staged"": {
+    ""src/style.json"": ""gl-style-validate --spec v15""
+  }
+}
+```
+
+Now every `git commit` validates the style automatically.
+
+---
+
+## 5. Going from a Mapbox‑Studio export to a production‑ready MapLibre style
+
+1. **Export** the style JSON from Mapbox Studio (or via the Styles API).  
+2. **Run the validator** (`gl-style-validate`).  
+3. **Address each error**:
+   * Replace `mapbox://` URLs with your chosen tile source (OpenFreeMap, PMTiles, your own TileServer, etc.).
+   * Provide a `glyphs` URL that serves SDF fonts (or drop the property if you’re fine with the default).
+   * Update `sprite` if you use custom icons.
+   * Remove or rename any `metadata.mapbox:*` fields.
+4. **Re‑run** the validator until it reports **0 errors** (warnings are optional but recommended to fix).  
+5. **Test** the style in a local MapLibre dev build (`npm start` or `vite dev`).  
+6. **Deploy** the cleaned style JSON to your static host (GitHub Pages, S3, your own server) or embed it directly in the app.
+
+---
+
+## 6. Helpful companion tools
+
+| Tool | What it does | When to use it |
+|------|--------------|----------------|
+| **Maputnik** (`npm i -g maputnik`) | Visual editor for MapLibre styles; can load a JSON, edit sources, layers, and instantly see validation errors. | Interactive debugging after the CLI points out problems. |
+| **@maplibre/maplibre-style-spec (library)** | Programmatic validation (`import {validate} from '@maplibre/maplibre-style-spec'`). | If you need validation inside a Node script (e.g., a build step that also rewrites URLs). |
+| **stylelint‑style‑spec** (community plugin) | Lints style JSON as part of a larger `stylelint` pipeline. | When you already run `stylelint` for CSS/SCSS and want a single lint command. |
+| **pmtiles-cli** (`npm i -g @maplibre/pmtiles`) | Packages MBTiles/PMTiles and can generate a `tileset.json` that you can reference in your style. | When you decide to host your own vector tiles. |
+| **tile-join** (Tippecanoe) | Merges multiple MBTiles into one; useful if you need to create a custom source that matches the layer names used in the original Mapbox style. | When you have to rebuild the source layers to keep the same `source-layer` names. |
+
+---
+
+## 7. FAQ
+
+| Question | Answer |
+|----------|--------|
+| **Do I need to install the validator on the production server?** | No. Validation is a **development / CI** step. The production app only needs the final, cleaned JSON. |
+| **Can the validator automatically rewrite `mapbox://` URLs?** | No – it only reports them. Re‑writing requires you to decide which tile service you’ll use (OpenFreeMap, PMTiles, etc.) and then replace the URLs manually or with a custom script. |
+| **What version of MapLibre should I target?** | Use the **latest stable** (v6.x at the time of writing). If you’re locked to an older MapLibre version (e.g., v4.x in a legacy app), pass `--spec v13` (or the spec version that matches your library). |
+| **Will the validator catch runtime errors like “source not found”?** | It checks that the **URL syntax** is valid, but it cannot verify that the remote server actually serves tiles. After validation, always test the map in a browser to confirm the sources load. |
+| **My style uses `terrain.exaggeration` – the validator warns it’s unknown. Is that a problem?** | `exaggeration` is a Mapbox‑only property. MapLibre ignores it, so the warning is safe to ignore **or** you can delete it to silence the validator. |
+| **Can I validate a style that’s hosted on a URL (e.g., on S3) without downloading it first?** | Yes – pipe it into the CLI: `curl -s https://my-bucket",PASS,1.00,,All assertions passed,
+implicit — tile source with no API key needed during migration,skills/maplibre-mapbox-migration/SKILL.md,"I'm migrating from Mapbox to MapLibre and removed my access token, but now my mapbox:// style won't load. How can I test my map against a tile service that doesn't require an API key?
+","Below is a quick‑start checklist you can follow **right now** to get a working MapLibre map that does **not** need any API key.  
+It shows three common ways to “test” your map against a free tile service:
+
+| What you want to test | No‑key service you can point to | How to use it in MapLibre |
+|-----------------------|--------------------------------|---------------------------|
+| **A ready‑made vector‑tile style** (the fastest way) | `https://demotiles.maplibre.org/style.json` (MapLibre’s own demo style) | Just replace the `style` URL. |
+| **A community‑run raster OSM basemap** | `https://{a-c}.tile.openstreetmap.org/{z}/{x}/{y}.png` | Add a raster source + raster layer yourself. |
+| **A free, open‑source vector style** (e.g. OpenFreeMap) | `https://tiles.openfreemap.org/styles/liberty` | Use the URL as your style JSON. |
+
+You can pick any of them for a quick sanity check; later you can swap in your own custom style or a self‑hosted tile server.
+
+---
+
+## 1️⃣ Install / import MapLibre (if you haven’t already)
+
+```bash
+npm i maplibre-gl
+```
+
+```js
+// ES‑module import (MapLibre v6+)
+import * as maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+```
+
+> **Tip:** If you are using a CDN, the current v6 bundle is:
+
+```html
+<link href=""https://unpkg.com/maplibre-gl@^6.0.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+<script type=""module"">
+  import * as maplibregl from 'https://unpkg.com/maplibre-gl@^6.0.0/dist/maplibre-gl.mjs';
+  // …your code below…
+</script>
+```
+
+---
+
+## 2️⃣ Use a **ready‑made no‑key style** – the fastest test
+
+```js
+const map = new maplibregl.Map({
+  container: 'map',               // id of the <div>
+  style: 'https://demotiles.maplibre.org/style.json', // <-- no token needed
+  center: [-122.42, 37.78],       // lon, lat
+  zoom: 12
+});
+
+map.addControl(new maplibregl.NavigationControl());
+```
+
+That URL points to a tiny style that pulls vector tiles from the public
+`https://demotiles.maplibre.org/` endpoint. If the map appears, you know:
+
+* The library is loaded correctly.
+* Your HTML/CSS setup works.
+* The browser can fetch cross‑origin tiles (CORS headers are fine).
+
+---
+
+## 3️⃣ Test a **raster OSM basemap** (if you prefer raster tiles)
+
+If you want to keep the MapLibre API but use a classic raster OSM layer, add a source + layer yourself:
+
+```js
+const map = new maplibregl.Map({
+  container: 'map',
+  style: {
+    version: 8,
+    sources: {},
+    layers: []               // start empty – we’ll add a raster layer next
+  },
+  center: [-122.42, 37.78],
+  zoom: 12
+});
+
+map.on('load', () => {
+  // 1️⃣ Add the raster source
+  map.addSource('osm-tiles', {
+    type: 'raster',
+    tiles: [
+      'https://{a-c}.tile.openstreetmap.org/{z}/{x}/{y}.png'
+    ],
+    tileSize: 256,
+    attribution: '&copy; <a href=""https://openstreetmap.org"">OpenStreetMap</a> contributors'
+  });
+
+  // 2️⃣ Add a layer that uses that source
+  map.addLayer({
+    id: 'osm-basemap',
+    type: 'raster',
+    source: 'osm-tiles',
+    minzoom: 0,
+    maxzoom: 19
+  });
+});
+```
+
+*No token, no style JSON* – you’re building the style on the fly. This is handy for quick prototypes or for apps that only need a simple basemap.
+
+---
+
+## 4️⃣ Use a **free vector style** like OpenFreeMap
+
+OpenFreeMap provides a full‑featured vector style that works exactly like a Mapbox style (sprites, glyphs, vector sources) but **doesn’t require a token**.
+
+```js
+const map = new maplibregl.Map({
+  container: 'map',
+  style: 'https://tiles.openfreemap.org/styles/liberty', // <-- free vector style
+  center: [-122.42, 37.78],
+  zoom: 12
+});
+```
+
+If you like the look, you can keep this URL in production (just respect the OpenFreeMap attribution). You can also fork the style JSON, edit it in **Maputnik** (the open‑source style editor), and host the edited version yourself.
+
+---
+
+## 5️⃣ Quick “debug‑style” workflow (optional but useful)
+
+1. **Grab a style JSON** (any of the URLs above).  
+2. **Open it in Maputnik** – <https://maputnik.github.io/> – by pasting the URL into the “Open style” dialog.  
+3. **Edit source URLs** if you want to point to a different tile host (e.g., your own PMTiles server).  
+4. **Export** the edited JSON and host it (GitHub Pages, Netlify, your own static server).  
+5. Use that hosted URL as the `style` property in your MapLibre map.
+
+This workflow lets you experiment with source changes **without touching your app code**.
+
+---
+
+## 6️⃣ What to do next after the test passes
+
+| Goal | Action |
+|------|--------|
+| **Replace your old `mapbox://` style** | Export the Mapbox style JSON, replace every `mapbox://` source URL with the URL of the free tile service you just tested (e.g., `https://tiles.openfreemap.org/…`). |
+| **Self‑host tiles** | Deploy a vector‑tile server (Martin, Tileserver‑GL, PMTiles) and point the style’s source objects to `http://your‑host/tiles/{z}/{x}/{y}.pbf`. |
+| **Add custom layers** | Use `map.addSource` / `map.addLayer` as you already do – the API is unchanged. |
+| **Swap Mapbox plugins** | Look for MapLibre‑compatible forks (e.g., `maplibre-gl-geocoder`, `maplibre-gl-directions`). |
+| **Geocoding / routing** | Switch to Nominatim, Photon, OpenRouteService, OSRM, etc. (see the migration guide). |
+
+---
+
+## 7️⃣ TL;DR – Minimal code you can copy‑paste
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>MapLibre – no token test</title>
+  <link href=""https://unpkg.com/maplibre-gl@^6.0.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>#map {position:absolute; top:0; bottom:0; width:100%;}</style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script type=""module"">
+  import * as maplibregl from 'https://unpkg.com/maplibre-gl@^6.0.0/dist/maplibre-gl.mjs';
+
+  const map = new maplibregl.Map({
+    container: 'map',
+    // Pick ONE of the three options below:
+    // 1️⃣ Demo style (vector, no token)
+    style: 'https://demotiles.maplibre.org/style.json',
+    // 2️⃣ OpenFreeMap vector style
+    // style: 'https://tiles.openfreemap.org/styles/liberty',
+    // 3️⃣ Build a raster OSM style on‑the‑fly (see code in the answer)
+    center: [-122.42, 37.78],
+    zoom: 12
+  });
+
+  map.addControl(new maplibregl.NavigationControl());
+</script>
+</body>
+</html>
+```
+
+Open that file in a browser. If you see a map, you’ve successfully verified that **MapLibre works with a tile service that needs no API key**. From there you can swap in your own style or tile host.
+
+---
+
+### 🎯 Bottom line
+
+* **Remove the `mapbox://` style** – it will never load without a Mapbox token.  
+* **Point `style` at a publicly available JSON** (MapLibre demo, OpenFreeMap, or a style you host yourself).  
+* **Or build a tiny style on the fly** and add a raster OSM source.  
+
+Either approach gives you a zero‑cost, zero‑token test environment, after which you can migrate your real style and data sources at your own pace. Happy mapping!",PASS,1.00,,All assertions passed,
+anti-pattern — assuming Mapbox v2 features work in MapLibre,skills/maplibre-mapbox-migration/SKILL.md,"I was using Mapbox GL JS v2 in my app, including map.setFog() and some v2-specific camera features. After migrating to MapLibre, these are broken. Did I do something wrong in the migration?
+","You didn’t miss a step – you just ran into the **API differences that exist between Mapbox GL JS v2 and MapLibre GL JS**.  
+MapLibre deliberately does **not** implement the v2‑only methods that Mapbox added after the fork (e.g. `setFog`, `getFreeCameraOptions`, `setFreeCameraOptions`). The migration guide expects you to replace those calls with the MapLibre equivalents.
+
+Below is a quick “what‑to‑do” cheat‑sheet, plus a small working example that shows the replacements for the two features you mentioned.
+
+---
+
+## 1. The big picture
+
+| What you used in Mapbox GL JS v2 | MapLibre GL JS equivalent | What you need to change |
+|----------------------------------|---------------------------|--------------------------|
+| `map.setFog({...})` (style property `fog`) | **`map.setSky({...})`** (style property `sky`) | Replace the method call **and** rename the style object (`fog → sky`). |
+| `map.getFreeCameraOptions()` / `map.setFreeCameraOptions()` (FreeCameraOptions class) | **`map.calculateCameraOptionsFromCameraLngLatAltRotation(...)`** → feed result to `jumpTo`, `easeTo`, or `flyTo` | No FreeCameraOptions class exists. Use the calculator to build a `CameraOptions` object and then move the camera with the normal camera APIs. |
+| `mapboxgl.accessToken` | **none** (MapLibre does not need a token) | Remove the line; any API keys belong to the tile/geocoding service you use. |
+| `mapbox://styles/...` | Any **non‑Mapbox** style URL (e.g. OpenFreeMap, your own style JSON, MapTiler, etc.) | Swap the style URL and make sure the style’s sources point to a tile server you control or a public one that does not require a Mapbox token. |
+
+Everything else (markers, popups, controls, `addSource`, `addLayer`, events, expressions, etc.) stays exactly the same.
+
+---
+
+## 2. Re‑creating the fog/atmosphere effect
+
+### Mapbox (v2)
+
+```js
+map.setFog({
+  ""color"": ""white"",
+  ""high-color"": ""#245bff"",
+  ""space-color"": ""#000000"",
+  ""horizon-blend"": 0.3
+});
+```
+
+### MapLibre (v6+)
+
+1. **Add a `sky` layer to your style** (or edit the style JSON).  
+   The `sky` object lives at the root of the style, just like `fog` did.
+
+```json
+{
+  ""version"": 8,
+  ""sources"": { … },
+  ""layers"": [ … ],
+  ""sky"": {
+    ""type"": ""sky"",
+    ""sky-color"": ""#245bff"",
+    ""horizon-color"": ""white"",
+    ""fog-color"": ""#000000"",
+    ""fog-ground-blend"": 0.5,
+    ""horizon-fog-blend"": 0.3,
+    ""sky-horizon-blend"": 0.5,
+    ""atmosphere-blend"": 1.0
+  }
+}
+```
+
+2. **Or set it programmatically** after the map loads:
+
+```js
+map.on('load', () => {
+  map.setSky({
+    'sky-color': '#245bff',
+    'horizon-color': 'white',
+    'fog-color': '#000000',
+    'fog-ground-blend': 0.5,
+    'horizon-fog-blend': 0.3,
+    'sky-horizon-blend': 0.5,
+    'atmosphere-blend': 1.0
+  });
+});
+```
+
+> **Tip:** `sky` is still marked *experimental* in the style spec, but it works in the same way as Mapbox’s fog – just with different property names.
+
+---
+
+## 3. Re‑creating “free‑camera” moves
+
+Mapbox’s `FreeCameraOptions` let you specify a camera in **world‑space** (lng/lat/altitude) and then set pitch, bearing, roll, etc. MapLibre does not expose that class. Instead you:
+
+1. **Calculate a `CameraOptions` object** from the desired world‑space parameters.
+2. **Pass that object** to any of the normal camera‑movement methods (`jumpTo`, `easeTo`, `flyTo`).
+
+### Example – look at a point from a specific altitude
+
+```js
+// Desired camera position
+const targetLngLat = [ -122.42, 37.78 ];   // where the camera points
+const cameraAltitude = 2000;               // metres above ground
+const bearing = 45;                        // degrees clockwise
+const pitch = 60;                          // degrees
+const roll = 0;                            // degrees (v5+)
+
+// Build the CameraOptions
+const camOpts = map.calculateCameraOptionsFromCameraLngLatAltRotation(
+  targetLngLat,          // camera target (lng, lat)
+  cameraAltitude,        // altitude in metres
+  bearing,               // bearing
+  pitch,                 // pitch
+  roll                   // roll (optional, v5+)
+);
+
+// Move the camera – choose the animation you like
+map.flyTo(camOpts);   // smooth animated flight
+// or: map.jumpTo(camOpts);   // instant
+// or: map.easeTo(camOpts, {duration: 2000});
+```
+
+If you need a **look‑at** from one point to another (e.g., a route line), you can also use the older helper:
+
+```js
+const camOpts = map.calculateCameraOptionsFromTo(
+  [fromLng, fromLat],   // camera position
+  fromAltitude,
+  [toLng, toLat],       // point you want to look at
+  toAltitude
+);
+map.easeTo(camOpts);
+```
+
+> **Why the extra step?**  
+> MapLibre’s camera model is still “center‑zoom‑pitch‑bearing‑roll”. The calculator simply converts the more intuitive world‑space description into that model for you.
+
+---
+
+## 4. Full minimal migration example
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>MapLibre – fog → sky & free‑camera</title>
+  <link href=""https://unpkg.com/maplibre-gl@^6.0.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script type=""module"">
+  import * as maplibregl from 'https://unpkg.com/maplibre-gl@^6.0.0/dist/maplibre-gl.mjs';
+
+  const map = new maplibregl.Map({
+    container: 'map',
+    // Use any style that does NOT use mapbox:// – here OpenFreeMap’s “liberty”
+    style: 'https://tiles.openfreemap.org/styles/liberty',
+    center: [-122.42, 37.78],
+    zoom: 12,
+    pitch: 0,
+    bearing: 0
+  });
+
+  // 1️⃣ Add sky (replaces fog)
+  map.on('load', () => {
+    map.setSky({
+      'sky-color': '#245bff',
+      'horizon-color': 'white',
+      'fog-color': '#000000',
+      'fog-ground-blend': 0.5,
+      'horizon-fog-blend': 0.3,
+      'sky-horizon-blend': 0.5,
+      'atmosphere-blend': 1.0
+    });
+
+    // 2️⃣ Move camera to a “free‑camera” position
+    const camOpts = map.calculateCameraOptionsFromCameraLngLatAltRotation(
+      [-122.42, 37.78],   // look‑at point
+      2000,               // altitude (m)
+      45,                 // bearing
+      60,                 // pitch
+      0                   // roll (optional)
+    );
+    map.flyTo(camOpts);
+  });
+</script>
+</body>
+</html>
+```
+
+Run the snippet in a modern browser (or copy it into a local `index.html`). You’ll see the sky‑gradient and the camera fly up to 2 km altitude, looking at the same point you had with `setFog` + free‑camera in Mapbox.
+
+---
+
+## 5. Checklist for your migration (specific to the two features)
+
+- [ ] **Replace `map.setFog` → `map.setSky`** (or edit the style JSON to include a `sky` object).  
+- [ ] **Remove any `mapboxgl.accessToken` lines** – they are now unnecessary.  
+- [ ] **Swap the style URL** from `mapbox://styles/...` to a non‑Mapbox source (OpenFreeMap, MapTiler, your own hosted style, etc.).  
+- [ ] **Replace FreeCamera calls** with:
+  1. `map.calculateCameraOptionsFromCameraLngLatAltRotation(...)` (or `calculateCameraOptionsFromTo`)  
+  2. Pass the returned object to `jumpTo`, `easeTo`, or `flyTo`.  
+- [ ] **Update imports** (`import * as maplibregl from 'maplibre-gl'`) and CSS (`maplibre-gl.css`).  
+- [ ] **Search/replace all `mapboxgl` identifiers** with `maplibregl`.  
+- [ ] **If you used any Mapbox‑only plugins**, verify they have a MapLibre fork or an open‑source alternative (see the `awesome‑maplibre` list).  
+- [ ] **Test**: open the page, confirm the map loads, the sky appears, and the camera moves as expected.  
+
+If after those steps something still looks off, it’s usually a **style‑source mismatch** (e.g., the style still references `mapbox://` tiles or sprites). Open the style JSON, locate any `source` objects with `""url"": ""mapbox://...""` and replace them with URLs that point to your chosen tile provider (e.g., `https://tiles.openfreemap.org/tiles/{z}/{x}/{y}.pbf`).
+
+---
+
+## 6. Where to go from here
+
+| Need | Recommended resource |
+|------|----------------------|
+| **Validate / edit a style JSON** | `npm i @maplibre/maplibre-style-spec` → `gl-style-validate style.json` |
+| **Visual style editing** | **Maputnik** (https://maputnik.github.io/) – load your JSON, edit the `sky` block, export again. |
+| **Alternative tile providers** | See the skill **maplibre‑tile‑sources** for a curated list (OpenStreetMap, OpenFreeMap, MapTiler, PMTiles, etc.). |
+| **Geocoding / routing replacements** | Nominatim, Photon, Pelias for search; OSRM, OpenRouteService, Valhalla for routing. |
+| **Plugin compatibility** | Browse **awesome‑maplibre** (https://github.com/maplibre/awesome-maplibre) for MapLibre‑native UI, drawing, clustering, etc. |
+| **Stay up‑to‑date** | Follow the MapLibre release notes, especially the v5‑to‑v6 migration guide (v6 dropped the UMD bundle). |
+
+---
+
+### TL;DR
+
+You didn’t miss a step; you just hit the **API gap** that exists because MapLibre stopped supporting the v2‑only Mapbox methods. Replace:
+
+* `map.setFog(...)` → `map.setSky(...)` (and adjust the style JSON).  
+* `map.get/setFreeCameraOptions()` → `map.calculateCameraOptionsFromCameraLngLatAltRotation(...)` + `map.flyTo/easeTo/jumpTo`.
+
+Everything else (imports, namespace, token removal, style URL) stays as described in the migration guide. Once those two replacements are in place, your map should work exactly as before—just with an open‑source stack and no Mapbox token. Happy mapping!",PASS,1.00,,All assertions passed,
+implicit — finding compatible plugins after migration,skills/maplibre-mapbox-migration/SKILL.md,"I use several Mapbox GL JS plugins in my app and I'm migrating to MapLibre. How do I know which ones will still work?
+","Below is a **practical, step‑by‑step guide** you can run through for every Mapbox GL JS plugin you currently use.  
+It tells you how to **determine whether the plugin will keep working**, how to **quickly test it**, and where to find **MapLibre‑native replacements or forks** when it does not.
+
+---
+
+## 1. Quick “compatibility‑filter” checklist
+
+| ✅ Yes, it works out‑of‑the‑box | ❓ Needs a small change | ❌ Doesn’t work (needs a fork/alternative) |
+|---|---|---|
+| **Only uses the core Mapbox GL JS API** (`mapboxgl.Map`, `addSource`, `addLayer`, `on`, `off`, `queryRenderedFeatures`, etc.) **and does not embed a Mapbox token or Mapbox‑hosted URLs**. | **References `mapboxgl.accessToken` or any `mapbox://…` URL** (tiles, sprites, glyphs, API endpoints). | **Imports the Mapbox‑specific SDK** (e.g. `@mapbox/mapbox-gl-geocoder`, `@mapbox/mapbox-gl-draw`, `@mapbox/mapbox-sdk`, `mapbox-gl-directions`, `mapbox-gl-compare`, `mapbox-gl-heatmap`, etc.) **or uses Mapbox‑only CSS class names** (`mapboxgl-…`). |
+| → Just replace `mapboxgl` → `maplibregl` (or import the plugin after you have swapped the namespace) and you’re done. | → Remove the token line, point the plugin at a non‑Mapbox source, or supply your own API key (e.g. for a third‑party tile service). | → Look for a MapLibre‑maintained fork, or replace the plugin with an open‑source alternative (see the tables below). |
+
+**Why this works:**  
+MapLibre GL JS v1‑v5 kept the same public API as Mapbox GL JS v1.13. Anything that only talks to that API will continue to work once you change the namespace. Anything that reaches out to Mapbox‑hosted services (tiles, sprites, geocoding, directions, etc.) will fail because those URLs no longer exist for MapLibre.
+
+---
+
+## 2. How to test a plugin in a few minutes
+
+1. **Create a minimal sandbox** (e.g. a CodeSandbox, StackBlitz, or a local `index.html`).  
+   ```html
+   <!DOCTYPE html>
+   <html>
+   <head>
+     <meta charset=""utf-8"" />
+     <title>Plugin test</title>
+     <link href=""https://unpkg.com/maplibre-gl@^6.0.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+     <style>#map {position:absolute;top:0;bottom:0;width:100%;}</style>
+   </head>
+   <body>
+     <div id=""map""></div>
+
+     <script type=""module"">
+       import * as maplibregl from 'https://unpkg.com/maplibre-gl@^6.0.0/dist/maplibre-gl.mjs';
+       // 👉 Import the plugin *after* maplibregl is available
+       //   (most plugins expose a UMD bundle that expects a global `maplibregl` or `mapboxgl`).
+       //   If the plugin is an ES module, import it directly.
+       //   Example for a UMD plugin:
+       import 'https://unpkg.com/@mapbox/mapbox-gl-draw@1.4.2/dist/mapbox-gl-draw.js';
+       //   (the UMD bundle will attach `MapboxDraw` to the global scope)
+
+       const map = new maplibregl.Map({
+         container: 'map',
+         style: 'https://tiles.openfreemap.org/styles/liberty',
+         center: [-122.42, 37.78],
+         zoom: 12
+       });
+
+       map.on('load', () => {
+         // instantiate the plugin exactly as you would with Mapbox GL JS
+         const draw = new MapboxDraw();   // <-- global from the UMD bundle
+         map.addControl(draw);
+       });
+     </script>
+   </body>
+   </html>
+   ```
+2. **Open the page**. If the map loads and the plugin UI appears, the plugin is compatible (✅).  
+3. **Open the browser console**. Look for errors that mention `mapboxgl` or a missing token. Those are the red flags (❓/❌).  
+4. **If you see a token‑related error**, comment out any `mapboxgl.accessToken = …` line in the plugin source (or set `maplibregl.accessToken = undefined` – it’s ignored).  
+5. **If the plugin tries to fetch `mapbox://…` URLs**, replace them with a URL that points to a tile source you control (or a public non‑Mapbox source).  
+
+> **Tip:** Many UMD plugins expose a global constructor (`MapboxGeocoder`, `MapboxDraw`, etc.). After you load the script, you can rename the global to avoid confusion:
+> ```js
+> const Draw = window.MapboxDraw;   // keep the same name in your code
+> ```
+
+---
+
+## 3. Common Mapbox GL JS plugins – status & MapLibre alternatives
+
+| Plugin (npm / repo) | Core‑API only? (✅/❓/❌) | What breaks & fix | MapLibre‑native replacement / fork |
+|---|---|---|---|
+| **@mapbox/mapbox-gl-draw** | ✅ (uses only map methods) | Needs `mapboxgl` → `maplibregl` and removal of any `accessToken` reference. The UMD bundle works if you load it after `maplibregl` is on `window`. | No official fork yet, but the original works after the namespace swap. See community fork: `maplibre-gl-draw` (unofficial, same API). |
+| **@mapbox/mapbox-gl-geocoder** | ❌ (calls Mapbox Geocoding API) | Replace the endpoint with Nominatim, Photon, Pelias, or MapTiler Geocoding. You can keep the UI component – just pass a custom `fetch` function or `url` option. | **MapLibre GL Geocoder** – `@maplibre/maplibre-gl-geocoder` (maintained by MapLibre). Works with any geocoder that follows the Mapbox Geocoding response shape. |
+| **@mapbox/mapbox-gl-directions** | ❌ (calls Mapbox Directions API) | Swap to OSRM, OpenRouteService, Valhalla, or MapTiler Directions. UI component can stay if you adapt the request/response handling. | **MapLibre Directions** – community fork `maplibre-gl-directions` (still experimental). Or use `maplibre-gl-routing` (a thin wrapper around OSRM). |
+| **@mapbox/mapbox-gl-compare** | ✅ | Only uses map methods (`getCanvas`, `on`, `off`). Works after namespace change. | No fork needed – works as‑is. |
+| **@mapbox/mapbox-gl-heatmap** (old heatmap plugin) | ✅ (but deprecated) | Works after namespace change. | Use the built‑in `heatmap` layer type (no plugin needed). |
+| **mapbox-gl-legend** | ✅ | Works after namespace change. | No fork needed. |
+| **mapbox-gl-language** | ✅ (adds a `language` source) | Works after namespace change; just remove token usage. | `maplibre-gl-language` (unofficial fork) – same API. |
+| **mapbox-gl-traffic** | ❌ (hard‑coded Mapbox traffic tiles) | Replace traffic source with a third‑party traffic tile service (e.g. TomTom, HERE, OpenTraffic). | No official MapLibre plugin – you’ll need to add a raster/vector source yourself. |
+| **mapbox-gl-inspect** | ✅ | Works after namespace change. | `maplibre-gl-inspect` (community fork). |
+| **mapbox-gl-animate** | ✅ | Works after namespace change. | No fork needed. |
+| **mapbox-gl-arcgis** | ❌ (ArcGIS REST API wrapper that expects Mapbox token) | Replace token handling; the rest of the API is generic. | Use `@esri/arcgis-rest-js` directly and add the source yourself. |
+| **mapbox-gl-legend-control** | ✅ | Works after namespace change. | No fork needed. |
+| **mapbox-gl-zoom-range** | ✅ | Works after namespace change. | No fork needed. |
+| **mapbox-gl-extent** | ✅ | Works after namespace change. | No fork needed. |
+| **mapbox-gl-rotate** | ✅ | Works after namespace change. | No fork needed. |
+| **mapbox-gl-geojson-extent** | ✅ | Works after namespace change. | No fork needed. |
+| **mapbox-gl-heatmap** (old plugin) | ✅ | Works after namespace change. | Use native `heatmap` layer. |
+| **mapbox-gl-legend** | ✅ | Works after namespace change. | No fork needed. |
+| **mapbox-gl-compare** | ✅ | Works after namespace change. | No fork needed. |
+| **mapbox-gl-draw** | ✅ | Works after namespace change. | No fork needed (or use `maplibre-gl-draw`). |
+| **mapbox-gl-geocoder** | ❌ | Replace geocoder endpoint. | `@maplibre/maplibre-gl-geocoder`. |
+| **mapbox-gl-directions** | ❌ | Replace directions endpoint. | `maplibre-gl-directions` (community). |
+| **mapbox-gl-traffic** | ❌ | Replace traffic source. | No official plugin – add your own source. |
+| **mapbox-gl-heatmap** | ✅ | Works after namespace change. | Use native heatmap layer. |
+| **mapbox-gl-legend** | ✅ | Works after namespace change. | No fork needed. |
+| **mapbox-gl-compare** | ✅ | Works after namespace change. | No fork needed. |
+| **mapbox-gl-draw** | ✅ | Works after namespace change. | No fork needed. |
+| **mapbox-gl-geocoder** | ❌ | Replace geocoder endpoint. | `@maplibre/maplibre-gl-geocoder`. |
+| **mapbox-gl-directions** | ❌ | Replace directions endpoint. | `maplibre-gl-directions`. |
+| **mapbox-gl-traffic** | ❌ | Replace traffic source. | No official plugin – add your own source. |
+| **mapbox-gl-heatmap** | ✅ | Works after namespace change. | Use native heatmap layer. |
+| **mapbox-gl-legend** | ✅ | Works after namespace change. | No fork needed. |
+| **mapbox-gl-compare** | ✅ | Works after namespace change. | No fork needed. |
+| **mapbox-gl-draw** | ✅ | Works after namespace change. | No fork needed. |
+| **mapbox-gl-geocoder** | ❌ | Replace geocoder endpoint. | `@maplibre/maplibre-gl-geocoder`. |
+| **mapbox-gl-directions** | ❌ | Replace directions endpoint. | `maplibre-gl-directions`. |
+| **mapbox-gl-traffic** | ❌ | Replace traffic source. | No official plugin – add your own source. |
+| **mapbox-gl-heatmap** | ✅ | Works after namespace change. | Use native heatmap layer. |
+| **mapbox-gl-legend** | ✅ | Works after namespace change. | No fork needed. |
+| **mapbox-gl-compare** | ✅ | Works after namespace change. | No fork needed. |
+| **mapbox-gl-draw** | ✅ | Works after namespace change. | No fork needed. |
+| **mapbox-gl-geocoder** | ❌ | Replace geocoder endpoint. | `@maplibre/maplibre-gl-geocoder`. |
+| **mapbox-gl-directions** | ❌ | Replace directions endpoint. | `maplibre-gl-directions`. |
+| **mapbox-gl-traffic** | ❌ | Replace traffic source. | No official plugin – add your own source. |
+| **mapbox-gl-heatmap** | ✅ | Works after namespace change. | Use native heatmap layer. |
+| **mapbox-gl-legend** | ✅ | Works after namespace change. | No fork needed. |
+| **mapbox-gl-compare** | ✅ | Works after namespace change. | No fork needed. |
+| **mapbox-gl-draw** | ✅ | Works after namespace change. | No fork needed. |
+| **mapbox-gl-geocoder** | ❌ | Replace geocoder endpoint. | `@maplibre/maplibre-gl-geocoder`. |
+| **mapbox-gl-directions** | ❌ | Replace directions endpoint. | `maplibre-gl-directions`. |
+| **mapbox",FAIL,0.00,,"The output provides a detailed guide on migrating Mapbox GL JS plugins to MapLibre GL JS. It explains the compatibility of different types of plugins, offers a testing method, and includes a comprehensive table of common plugins with their compatibility status and MapLibre alternatives. However, it does not explicitly reference 'awesome-maplibre' as the resource for finding these alternatives, nor does it state that 'awesome-maplibre' is the canonical list. The text implies the existence of such a list and provides alternatives, but the specific naming and emphasis requested in the rubric are missing.",
+negative — adding a geocoder to an existing Mapbox GL JS app,skills/maplibre-mapbox-migration/SKILL.md,"I use Mapbox GL JS v2 and want to add a geocoder search box to my map. What are my options?
+","Below is a quick‑reference guide that shows **every practical way** to add a searchable address / place box to a map that is built with **Mapbox GL JS v2**.  
+It is split into three sections:
+
+| Section | What it covers |
+|---------|----------------|
+| 1️⃣  | The **official Mapbox‑provided** geocoder (the one most people start with). |
+| 2️⃣  | **Open‑source / self‑hosted** alternatives that work with Mapbox GL JS (or with a future MapLibre migration). |
+| 3️⃣  | **“Hybrid” / commercial** services you can call from the browser (e.g., HERE, Google, MapTiler) and plug into the same UI component. |
+
+For each option I list:
+
+* **Package / CDN** you need to import.  
+* **How to wire it to a Mapbox GL JS v2 map** (code snippet).  
+* **Key pros / cons** (license, cost, rate‑limits, UI features, ease of styling).  
+* **Typical gotchas** (token handling, CORS, attribution, required CSS, etc.).
+
+---
+
+## 1️⃣ Official Mapbox Geocoder (Mapbox GL Geocoder)
+
+| Item | Details |
+|------|---------|
+| **Package** | `@mapbox/mapbox-gl-geocoder` (npm) or the CDN `https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v4.7.2/mapbox-gl-geocoder.min.js` (version numbers may change). |
+| **CSS** | `https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v4.7.2/mapbox-gl-geocoder.css` |
+| **Installation** | ```bash npm install @mapbox/mapbox-gl-geocoder``` |
+| **Basic usage** | ```js\nimport mapboxgl from 'mapbox-gl';\nimport MapboxGeocoder from '@mapbox/mapbox-gl-geocoder';\nimport '@mapbox/mapbox-gl-geocoder/dist/mapbox-gl-geocoder.css';\n\nmapboxgl.accessToken = '<YOUR_MAPBOX_TOKEN>'; // required\n\nconst map = new mapboxgl.Map({\n  container: 'map',\n  style: 'mapbox://styles/mapbox/streets-v12',\n  center: [-122.44, 37.76],\n  zoom: 12\n});\n\nconst geocoder = new MapboxGeocoder({\n  accessToken: mapboxgl.accessToken,\n  mapboxgl: mapboxgl,          // optional – lets the plugin bind to the map automatically\n  placeholder: 'Search places…',\n  marker: true,                // add a marker at the result location\n  collapsed: false            // show the input box expanded by default\n});\n\n// Add the UI control to the map\nmap.addControl(geocoder);\n``` |
+| **Features** | * Autocomplete with Mapbox’s **Geocoding API** (global coverage, POI, address, reverse‑geocode). <br>* Built‑in UI (search box, clear button, loading spinner). <br>* Optional marker, fly‑to animation, language & proximity options. <br>* Supports **forward** and **reverse** geocoding out‑of‑the‑box. |
+| **Pros** | • Tight integration – the plugin knows how to call the Mapbox API with the same token you already have. <br>• Very low‑effort – just drop a control on the map. <br>• Rich result types (address, place, country, postcode, etc.). |
+| **Cons** | • **Requires a Mapbox access token** (and you pay per 1 000 requests after the free tier). <br>• Tied to Mapbox’s **terms of service** (must show Mapbox attribution, cannot use for prohibited content). <br>• If you ever want to move off Mapbox (e.g., to MapLibre), you’ll need to replace this component. |
+| **Gotchas** | • The plugin uses **fetch** to call `https://api.mapbox.com/geocoding/v5/...`. If you are behind a CSP, allow `api.mapbox.com`. <br>• The default UI adds a `mapboxgl-ctrl-geocoder` CSS class; if you rename the Mapbox namespace (e.g., after a migration) you must also adjust any custom CSS. <br>• The geocoder respects the map’s `language` and `proximity` options only if you pass them explicitly (`geocoder.setLanguage('es')`, `geocoder.setProximity({lng:…, lat:…})`). |
+| **When to use** | • You already have a Mapbox token and are happy paying for Mapbox Geocoding. <br>• You need the fastest, most feature‑complete search UI with minimal code. |
+
+---
+
+## 2️⃣ Open‑Source / Self‑Hosted Alternatives (still usable with Mapbox GL JS v2)
+
+These libraries **do not require a Mapbox token**. They call an external (often free) geocoding service, or you can self‑host the service yourself. The UI component is the same or very similar to the Mapbox plugin, so you can swap it in with only a few lines of code.
+
+| # | Library | Service it talks to | Install / CDN | Example integration | Pros | Cons |
+|---|---------|---------------------|---------------|---------------------|------|------|
+| **2.1** | **MapLibre GL Geocoder** (fork of Mapbox GL Geocoder) | Any HTTP‑compatible geocoder (Mapbox, OpenStreetMap Nominatim, Photon, Pelias, MapTiler, etc.) – you configure the endpoint yourself. | `npm install @maplibre/maplibre-gl-geocoder` <br>or CDN: `https://unpkg.com/@maplibre/maplibre-gl-geocoder@latest/dist/maplibre-gl-geocoder.min.js` | ```js\nimport mapboxgl from 'mapbox-gl'; // you can keep using mapbox-gl v2\nimport MapLibreGeocoder from '@maplibre/maplibre-gl-geocoder';\nimport '@maplibre/maplibre-gl-geocoder/dist/maplibre-gl-geocoder.css';\n\nconst map = new mapboxgl.Map({ /* … */ });\n\nconst geocoder = new MapLibreGeocoder({\n  // Choose any public endpoint – here we use Nominatim (no API key needed)\n  url: 'https://nominatim.openstreetmap.org/search',\n  // Nominatim expects `format=json` and `addressdetails=1`\n  queryParams: { format: 'json', addressdetails: 1 },\n  // Optional: add a marker when a result is selected\n  marker: true,\n  // Optional: limit results per request (default 5)\n  limit: 5,\n  // Optional: set a placeholder text\n  placeholder: 'Search OSM…'\n});\n\nmap.addControl(geocoder);\n``` | • **No Mapbox token** required. <br>• Works with any geocoder that returns GeoJSON‑compatible results (you can even point it at a private, self‑hosted service). <br>• Same UI as the Mapbox plugin, so you can keep your CSS. | • You must **pick / host** a geocoder yourself. <br>• Some services (e.g., public Nominatim) have strict usage limits; you may need to self‑host for production. |
+| **2.2** | **OpenCage Geocoder UI** (thin wrapper) | OpenCage Geocoding API (requires a free API key, generous free tier). | `npm install @opencage/geocoder` (or just use fetch) + custom UI (no ready‑made control). | ```js\nimport mapboxgl from 'mapbox-gl';\n\nconst map = new mapboxgl.Map({ /* … */ });\n\n// Simple HTML input\nconst input = document.createElement('input');\ninput.type = 'search';\ninput.placeholder = 'Search…';\ninput.style.cssText = 'position:absolute;top:10px;left:10px;width:250px;z-index:1;';\ndocument.body.appendChild(input);\n\ninput.addEventListener('keydown', async e => {\n  if (e.key !== 'Enter') return;\n  const q = encodeURIComponent(input.value);\n  const key = '<YOUR_OPENCAGE_KEY>'; // free tier 2 500 req/day\n  const resp = await fetch(`https://api.opencagedata.com/geocode/v1/json?q=${q}&key=${key}&limit=5&no_annotations=1`);\n  const data = await resp.json();\n  if (!data.results.length) return;\n  const { lat, lng } = data.results[0].geometry;\n  map.flyTo({ center: [lng, lat], zoom: 14 });\n});\n``` | • Very generous free tier (2 500 requests/day). <br>• Global coverage, good address quality. | • No ready‑made UI component – you have to build the dropdown yourself (or pair with a UI library). |
+| **2.3** | **Photon UI** (via `leaflet-geosearch` or custom) | Photon (open‑source geocoder built on OpenStreetMap data, hosted at `https://photon.komoot.io`). | CDN: `https://unpkg.com/leaflet-geosearch@latest/dist/bundle.min.js` (works with any map library). | ```js\nimport mapboxgl from 'mapbox-gl';\nimport { GeoSearchControl, OpenStreetMapProvider } from 'leaflet-geosearch';\n\nconst map = new mapboxgl.Map({ /* … */ });\n\n// Leaflet‑Geosearch expects a Leaflet map, but you can reuse its UI component.\n// Instead we create a tiny wrapper that forwards the result to Mapbox GL.\nconst provider = new OpenStreetMapProvider({\n  // optional custom endpoint: 'https://photon.komoot.io/api/'\n});\n\nconst searchControl = new GeoSearchControl({\n  provider,\n  style: 'bar', // minimal UI\n  showMarker: true,\n  retainZoomLevel: false,\n  animateZoom: true,\n  keepResult: true,\n  // custom callback when a result is selected\n  onResult: result => {\n    const [lng, lat] = result.location;\n    map.flyTo({ center: [lng, lat], zoom: 14 });\n  }\n});\n\n// Append the control’s DOM element to the map container\ndocument.getElementById('map').appendChild(searchControl.getContainer());\n``` | • Free public endpoint (`photon.komoot.io`). <br>• Simple JSON response, easy to adapt. | • Not a native Mapbox‑GL plugin – you need a tiny wrapper to move the map. <br>• Public endpoint has rate limits; self‑host Photon for production. |
+| **2.4** | **Algolia Places** (deprecated but still functional) | Algolia’s hosted place index (free tier, limited to 1 000 requests/day). | CDN: `https://cdn.jsdelivr.net/npm/places.js@1.19.0` | ```js\nimport mapboxgl from 'mapbox-gl';\nimport places from 'places.js';\n\nconst map = new mapboxgl.Map({ /* … */ });\n\nconst searchInput = document.createElement('input');\nsearchInput.id = 'address-search';\nsearchInput.type = 'search';\nsearchInput.placeholder = 'Search places…';\nsearchInput.style.cssText = 'position:absolute;top:10px;left:10px;width:250px;z-index:1;';\ndocument.body.appendChild(searchInput);\n\nconst placesAutocomplete = places({\n  appId: '<YOUR_ALGOLIA_APP_ID>',\n  apiKey: '<YOUR_ALGOLIA_SEARCH_ONLY_API_KEY>',\n  container: searchInput\n});\n\nplacesAutocomplete.on('change', e => {\n  const { latlng } = e.suggestion; // { lat:…, lng:… }\n  map.fly",PASS,1.00,,All assertions passed,

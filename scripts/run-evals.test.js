@@ -10,8 +10,12 @@ import {
   boundFor,
   buildCommand,
   childEnv,
+  combineAttempts,
   dryRunLines,
+  parseShard,
   runEvals,
+  shardOf,
+  shouldRetry,
   spawnEval,
   verdictFor,
   SIGKILL_AFTER_MS
@@ -42,6 +46,18 @@ function sidecar(rows) {
 function row(failureReason, error) {
   return {
     description: 'explicit',
+    failureReason,
+    success: failureReason === 0,
+    testIdx: 0,
+    ...(error === undefined ? {} : { error })
+  };
+}
+
+/** A row for one test, told apart from the others by its prompt. */
+function graded(prompt, failureReason, error) {
+  return {
+    vars: { prompt },
+    testCase: { description: prompt },
     failureReason,
     success: failureReason === 0,
     testIdx: 0,
@@ -178,6 +194,39 @@ describe('buildCommand', () => {
       args.includes(
         'evals/results/baseline-2026-09-06-maplibre-cartography.csv'
       )
+    );
+  });
+
+  it('runs again only what the first attempt did not pass, into files of its own', () => {
+    const { args } = buildCommand({
+      config: 'evals/prompts/maplibre-cartography.yaml',
+      name: '2026-10-18',
+      resultsDir: 'evals/results',
+      workDir: '/tmp/eval',
+      retryOf: '/tmp/eval/2026-10-18-maplibre-cartography.json'
+    });
+    assert.deepEqual(args.slice(5), [
+      '--filter-failing',
+      '/tmp/eval/2026-10-18-maplibre-cartography.json',
+      '--repeat',
+      '2',
+      '--output',
+      'evals/results/2026-10-18-maplibre-cartography-retry.csv',
+      '/tmp/eval/2026-10-18-maplibre-cartography-retry.json'
+    ]);
+  });
+
+  it('refuses a first-attempt sidecar path the shell could read', () => {
+    assert.throws(
+      () =>
+        buildCommand({
+          config: 'evals/prompts/maplibre-cartography.yaml',
+          name: '2026-10-18',
+          resultsDir: 'evals/results',
+          workDir: '/tmp/eval',
+          retryOf: '/tmp/$(id).json'
+        }),
+      (error) => error.message.includes('/tmp/$(id).json')
     );
   });
 });
@@ -325,6 +374,131 @@ describe('verdictFor', () => {
   });
 });
 
+describe('shouldRetry', () => {
+  const read = (counts, signatures = []) => ({ counts, signatures });
+
+  it('runs again a with-skill config with one or two tests down', () => {
+    assert.equal(
+      shouldRetry({ verdict: read({ pass: 3, fail: 1, error: 0 }) }),
+      true
+    );
+    assert.equal(
+      shouldRetry({
+        verdict: read({ pass: 2, fail: 1, error: 1 }, ['rate-limit'])
+      }),
+      true
+    );
+  });
+
+  it('leaves alone a pass, a baseline, a cut-off, an unread output, and a broad failure', () => {
+    const oneDown = read({ pass: 3, fail: 1, error: 0 });
+    assert.equal(
+      shouldRetry({ verdict: read({ pass: 4, fail: 0, error: 0 }) }),
+      false
+    );
+    assert.equal(shouldRetry({ baseline: true, verdict: oneDown }), false);
+    assert.equal(shouldRetry({ killed: true, verdict: oneDown }), false);
+    assert.equal(
+      shouldRetry({
+        verdict: read({ pass: 3, fail: 0, error: 1 }, ['max-duration'])
+      }),
+      false
+    );
+    assert.equal(
+      shouldRetry({ verdict: { counts: null, signatures: ['no-output'] } }),
+      false
+    );
+    assert.equal(
+      shouldRetry({ verdict: read({ pass: 1, fail: 3, error: 0 }) }),
+      false
+    );
+  });
+});
+
+describe('combineAttempts', () => {
+  it('passes a test only when its passes outnumber its failures', () => {
+    const result = combineAttempts({
+      firstText: sidecar([
+        graded('a', 0),
+        graded('b', 1),
+        graded('c', 2, 'Rate limit exceeded')
+      ]),
+      retryText: sidecar([
+        graded('b', 0),
+        graded('b', 0),
+        graded('c', 0),
+        graded('c', 1)
+      ])
+    });
+    assert.equal(result.verdict, 'fail');
+    assert.deepEqual(result.counts, { pass: 2, fail: 1, error: 0 });
+    assert.equal(result.total, 3);
+    assert.deepEqual(result.signatures, []);
+    assert.deepEqual(result.retried, [
+      { description: 'b', attempts: ['fail', 'pass', 'pass'], verdict: 'pass' },
+      { description: 'c', attempts: ['error', 'pass', 'fail'], verdict: 'fail' }
+    ]);
+  });
+
+  it('keeps a failure that comes back on either re-run', () => {
+    const result = combineAttempts({
+      firstText: sidecar([graded('a', 0), graded('b', 1)]),
+      retryText: sidecar([graded('b', 0), graded('b', 1)])
+    });
+    assert.equal(result.verdict, 'fail');
+  });
+
+  it('passes a test that errored first on its one graded pass', () => {
+    const result = combineAttempts({
+      firstText: sidecar([
+        graded('a', 0),
+        graded('c', 2, 'Rate limit exceeded')
+      ]),
+      retryText: sidecar([
+        graded('c', 0),
+        graded('c', 2, 'Rate limit exceeded')
+      ])
+    });
+    assert.equal(result.verdict, 'pass');
+  });
+
+  it('calls a test an error only when none of its attempts was graded', () => {
+    const result = combineAttempts({
+      firstText: sidecar([
+        graded('a', 0),
+        graded('c', 2, 'Rate limit exceeded')
+      ]),
+      retryText: sidecar([
+        graded('c', 2, 'Rate limit exceeded'),
+        graded('c', 2, 'RateLimitExhaustedError: judge gave up')
+      ])
+    });
+    assert.equal(result.verdict, 'error');
+    assert.deepEqual(result.signatures, ['rate-limit-exhausted']);
+    assert.equal(result.errors[0].description, 'c');
+  });
+
+  it('leaves the first verdict standing when the re-run wrote nothing readable', () => {
+    for (const retryText of [null, '{ not json', '{"a":1}']) {
+      const result = combineAttempts({
+        firstText: sidecar([graded('a', 0), graded('b', 1)]),
+        retryText
+      });
+      assert.equal(result.verdict, 'fail');
+      assert.deepEqual(result.counts, { pass: 1, fail: 1, error: 0 });
+      assert.deepEqual(result.retried, []);
+    }
+  });
+
+  it('adds the re-run tokens to the first attempt', () => {
+    const result = combineAttempts({
+      firstText: sidecar([graded('b', 1)]),
+      retryText: sidecar([graded('b', 0), graded('b', 0)])
+    });
+    assert.deepEqual(result.tokenUsage, { total: 180 });
+  });
+});
+
 describe('spawnEval', () => {
   it('leaves a child that finishes on its own alone', async () => {
     const abortListeners = () =>
@@ -416,10 +590,12 @@ describe('runEvals', () => {
     const spawn = async (command, args) => {
       const jsonPath = args[args.indexOf('--output') + 2];
       const skill = jsonPath.includes('cartography') ? 'pass' : 'fail';
-      writeFileSync(
-        jsonPath,
-        sidecar(skill === 'pass' ? [row(0)] : [row(0), row(1)])
-      );
+      const rows = args.includes('--filter-failing')
+        ? [graded('b', 1), graded('b', 1)]
+        : skill === 'pass'
+          ? [graded('a', 0)]
+          : [graded('a', 0), graded('b', 1)];
+      writeFileSync(jsonPath, sidecar(rows));
       return { exitCode: skill === 'pass' ? 0 : 100, durationMs: 1000 };
     };
 
@@ -453,6 +629,107 @@ describe('runEvals', () => {
     assert.equal(written.configs[1].verdict, 'fail');
     assert.equal(written.configs[1].exitCode, 100);
     assert.deepEqual(summary.planned, written.planned);
+  });
+
+  it('records the shard in the summary when the run is one slice of the week', async () => {
+    const { resultsDir, workDir } = workspace();
+    const spawn = async (command, args) => {
+      const jsonPath = args[args.indexOf('--output') + 2];
+      writeFileSync(jsonPath, sidecar([row(0)]));
+      return { exitCode: 0, durationMs: 1000 };
+    };
+
+    const { summary } = await runEvals({
+      configs: ['evals/prompts/maplibre-cartography.yaml'],
+      name: '2026-10-11',
+      shard: '1/2',
+      resultsDir,
+      workDir,
+      capMinutes: 30,
+      budgetMinutes: 240,
+      spawn,
+      log: () => {}
+    });
+
+    assert.equal(summary.shard, '1/2');
+    const written = JSON.parse(
+      readFileSync(join(workDir, 'summary.json'), 'utf8')
+    );
+    assert.equal(written.shard, '1/2');
+  });
+
+  it('runs a failing test again and lets its attempts decide', async () => {
+    const { resultsDir, workDir } = workspace();
+    const calls = [];
+    const spawn = async (command, args) => {
+      calls.push(args);
+      const retry = args.includes('--filter-failing');
+      const jsonPath = args[args.indexOf('--output') + 2];
+      writeFileSync(
+        jsonPath,
+        sidecar(
+          retry
+            ? [graded('b', 0), graded('b', 0)]
+            : [graded('a', 0), graded('b', 1)]
+        )
+      );
+      return { exitCode: retry ? 0 : 100, durationMs: 1000 };
+    };
+
+    const { summary, failed } = await runEvals({
+      configs: ['evals/prompts/maplibre-cartography.yaml'],
+      name: '2026-10-18',
+      resultsDir,
+      workDir,
+      capMinutes: 30,
+      budgetMinutes: 240,
+      spawn,
+      log: () => {}
+    });
+
+    assert.equal(failed, false);
+    assert.equal(calls.length, 2);
+    assert.equal(
+      calls[1][calls[1].indexOf('--filter-failing') + 1],
+      join(workDir, '2026-10-18-maplibre-cartography.json')
+    );
+    assert.equal(
+      readFileSync(join(workDir, 'verdicts.txt'), 'utf8'),
+      'maplibre-cartography:pass\n'
+    );
+    const [record] = summary.configs;
+    assert.deepEqual(record.counts, { pass: 2, fail: 0, error: 0 });
+    assert.equal(record.exitCode, 100);
+    assert.deepEqual(record.retry.tests, [
+      { description: 'b', attempts: ['fail', 'pass', 'pass'], verdict: 'pass' }
+    ]);
+  });
+
+  it('never runs a baseline failure again', async () => {
+    const { resultsDir, workDir } = workspace();
+    let calls = 0;
+    const spawn = async (command, args) => {
+      calls++;
+      const jsonPath = args[args.indexOf('--output') + 2];
+      writeFileSync(jsonPath, sidecar([graded('a', 0), graded('b', 1)]));
+      return { exitCode: 100, durationMs: 1000 };
+    };
+
+    const { summary } = await runEvals({
+      configs: ['evals/prompts/maplibre-cartography.yaml'],
+      name: 'baseline-2026-10-18',
+      baseline: true,
+      resultsDir,
+      workDir,
+      capMinutes: 30,
+      budgetMinutes: 240,
+      spawn,
+      log: () => {}
+    });
+
+    assert.equal(calls, 1);
+    assert.equal(summary.configs[0].verdict, 'fail');
+    assert.equal(summary.configs[0].retry, null);
   });
 
   it('records one not-run error per config when the budget is gone', async () => {
@@ -507,5 +784,83 @@ describe('dryRunLines', () => {
       /--output evals\/results\/2026-09-06-maplibre-cartography\.csv \/tmp\/eval\/2026-09-06-maplibre-cartography\.json/
     );
     assert.ok(lines.some((line) => line.includes('240')));
+  });
+});
+
+describe('parseShard', () => {
+  it('reads k/n the way the workflow writes it', () => {
+    assert.deepEqual(parseShard('1/2'), { index: 1, count: 2 });
+    assert.deepEqual(parseShard('2/2'), { index: 2, count: 2 });
+    assert.deepEqual(parseShard('10/12'), { index: 10, count: 12 });
+  });
+
+  it('rejects everything that is not a 1-based slice of a count', () => {
+    const rejected = [
+      '0/2',
+      '3/2',
+      '1-2',
+      '1/2/3',
+      '1/',
+      '/2',
+      '1/0',
+      'x',
+      '',
+      undefined
+    ];
+    for (const value of rejected) {
+      assert.throws(() => parseShard(value), /Not a shard/);
+    }
+  });
+});
+
+describe('shardOf', () => {
+  const configs = (n) =>
+    Array.from(
+      { length: n },
+      (_, i) => `evals/prompts/skill-${String(i).padStart(2, '0')}.yaml`
+    );
+
+  it('splits eight configs into two halves of four', () => {
+    const all = configs(8);
+    assert.deepEqual(shardOf(all, { index: 1, count: 2 }), all.slice(0, 4));
+    assert.deepEqual(shardOf(all, { index: 2, count: 2 }), all.slice(4));
+  });
+
+  it('hands the earlier slices the remainder: halves of nine are five then four', () => {
+    const all = configs(9);
+    assert.deepEqual(shardOf(all, { index: 1, count: 2 }), all.slice(0, 5));
+    assert.deepEqual(shardOf(all, { index: 2, count: 2 }), all.slice(5));
+  });
+
+  it('keeps every slice within one of the others: quarters of nine are 3,2,2,2', () => {
+    const all = configs(9);
+    const sizes = [1, 2, 3, 4].map(
+      (index) => shardOf(all, { index, count: 4 }).length
+    );
+    assert.deepEqual(sizes, [3, 2, 2, 2]);
+  });
+
+  it('covers every config exactly once, with no slice empty while configs are not outnumbered', () => {
+    for (const length of [1, 2, 3, 7, 8, 9, 11]) {
+      for (const count of [1, 2, 3, 4]) {
+        const all = configs(length);
+        const seen = [];
+        for (let index = 1; index <= count; index++) {
+          const slice = shardOf(all, { index, count });
+          if (length >= count) {
+            assert.ok(
+              slice.length > 0,
+              `slice ${index}/${count} of ${length} configs is empty`
+            );
+          }
+          seen.push(...slice);
+        }
+        assert.deepEqual(seen, all, `${length} configs in ${count} slices`);
+      }
+    }
+  });
+
+  it('returns an empty slice when the count outruns the configs', () => {
+    assert.deepEqual(shardOf(configs(2), { index: 3, count: 3 }), []);
   });
 });

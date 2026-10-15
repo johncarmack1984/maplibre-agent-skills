@@ -35,6 +35,24 @@
  * and rewrites `<work>/summary.json`, so a run cut off halfway still hands the
  * publish job a record it can report.
  *
+ * A test that did not pass runs twice more before its verdict stands, since the
+ * generator is nondeterministic even at temperature 0. A second child hands the
+ * first attempt's sidecar to promptfoo's `--filter-failing`, so only those tests
+ * run, and `combineAttempts` judges each test on all its graded attempts: it
+ * passes only when its passes outnumber its failures. Baseline runs are not
+ * re-run, since their gap tests are meant to fail; neither is a config the bound
+ * cut off, nor one with more than MAX_RETRIED_TESTS tests down.
+ *
+ * A scheduled week is bigger than the generator key's day: a full pass over
+ * every config needs roughly 340K generator tokens against the Groq key's
+ * 200K-per-day free-tier cap, which is how the last four configs ended as
+ * `error` every Sunday from 2026-09-06 on (#108). So eval.yml runs the week in
+ * scheduled slices on separate days, mapping each cron to an EVAL_SHARD value.
+ * `--shard k/n` (or EVAL_SHARD) takes the k-th of n contiguous slices of the
+ * discovered, already-sorted config list; it never shapes an explicit config
+ * list — that combination is refused as ambiguous rather than quietly running
+ * a subset of what the caller named.
+ *
  * Config and output paths are validated before they are placed in the `npm run`
  * argv, which a shell receives.
  *
@@ -46,13 +64,14 @@
  * Flags:
  *   --baseline           withhold the skill (--var injectSkill=false)
  *   --dry-run            print the commands and the bounds; run nothing
+ *   --shard <k/n>        run the k-th of n contiguous slices of the discovered configs
  *   --results-dir <d>    where the dated CSVs go (default evals/results)
  *   --work-dir <d>       where the sidecars, verdicts, and summary go
  *   --config-dir <d>     where the eval configs live (default evals/prompts)
  *
- * Env: EVAL_CONFIG_MINUTES, EVAL_BUDGET_MINUTES, EVAL_WORK_DIR, INPUT_CONFIGS,
- * INPUT_BASELINE. The workflow sets the two bounds in YAML so they are visible
- * and tunable there; the defaults here match.
+ * Env: EVAL_CONFIG_MINUTES, EVAL_BUDGET_MINUTES, EVAL_WORK_DIR, EVAL_SHARD,
+ * INPUT_CONFIGS, INPUT_BASELINE. The workflow sets the two bounds in YAML so
+ * they are visible and tunable there; the defaults here match.
  */
 import { spawn as spawnChild } from 'node:child_process';
 import {
@@ -78,6 +97,14 @@ import { setOutputs } from './lib/github-output.js';
 const CONFIG_MINUTES_DEFAULT = 30;
 const BUDGET_MINUTES_DEFAULT = 240;
 
+// How many more times a test that did not pass is run. Two re-runs after one
+// failure is a best of three: the failure stands unless both re-runs pass.
+export const RETRY_REPEATS = 2;
+
+// More tests down than this in one config is not sampling noise, and running
+// them again would spend the generator key's daily tokens on a known result.
+export const MAX_RETRIED_TESTS = 2;
+
 // Below this there is no point starting a config: promptfoo's own queue timeout
 // is 300s, so a shorter slice buys ERROR rows and nothing else.
 const MIN_CONFIG_MS = 5 * 60000;
@@ -102,6 +129,7 @@ export function parseArgs(argv) {
     const arg = argv[i];
     if (arg === '--baseline') args.baseline = true;
     else if (arg === '--dry-run') args.dryRun = true;
+    else if (arg === '--shard') args.shard = argv[++i];
     else if (arg === '--results-dir') args.resultsDir = argv[++i];
     else if (arg === '--work-dir') args.workDir = argv[++i];
     else if (arg === '--config-dir') args.configDir = argv[++i];
@@ -114,6 +142,44 @@ export function parseArgs(argv) {
 }
 
 /**
+ * `k/n` → the k-th of n contiguous slices, 1-based so the workflow's
+ * `EVAL_SHARD=1/2` reads the way a human says it. The format is strict:
+ * anything else — `0/2`, `3/2`, `1-2`, an empty string — is a loud error
+ * rather than a silently full (or silently empty) run.
+ */
+export function parseShard(value) {
+  const match = /^([1-9]\d*)\/([1-9]\d*)$/.exec(value ?? '');
+  if (!match) {
+    throw new Error(
+      `Not a shard: ${JSON.stringify(value)}. Expected k/n with 1 <= k <= n, e.g. 1/2.`
+    );
+  }
+  const index = Number(match[1]);
+  const count = Number(match[2]);
+  if (index > count) {
+    throw new Error(
+      `Not a shard: ${value}. The slice index exceeds the slice count.`
+    );
+  }
+  return { index, count };
+}
+
+/**
+ * The k-th of n contiguous slices of an already-sorted config list. Contiguous
+ * rather than round-robin so a human can predict a day's slice from the
+ * alphabetical list. Slice sizes differ by at most one, earlier slices taking
+ * the remainder — 9 configs in halves is 5 then 4, in quarters 3,2,2,2 — so a
+ * slice is never empty while there are at least n configs.
+ */
+export function shardOf(configs, { index, count }) {
+  const base = Math.floor(configs.length / count);
+  const extra = configs.length % count;
+  const start = (index - 1) * base + Math.min(index - 1, extra);
+  const size = base + (index - 1 < extra ? 1 : 0);
+  return configs.slice(start, start + size);
+}
+
+/**
  * The unchanged `npm run eval:graded` call, with the second output path added.
  * Never combine configs into one invocation: promptfoo merges the defaultTest
  * blocks of combined configs (last one wins), which would inject a single
@@ -122,21 +188,31 @@ export function parseArgs(argv) {
  * These args reach a shell through `npm run`; npm quotes them, but the runner
  * does not rely on that — every path is checked here before it enters argv, so a
  * hostile or mistyped config name is rejected rather than forwarded.
+ *
+ * `retryOf` is the first attempt's sidecar. The re-run it builds writes its own
+ * `-retry` files beside the first attempt's, so the publish job commits both.
  */
 export function buildCommand({
   config,
   name,
   resultsDir,
   workDir,
-  baseline = false
+  baseline = false,
+  retryOf = null
 }) {
   const skill = skillOf(config);
-  const csvPath = join(resultsDir, `${name}-${skill}.csv`);
-  const jsonPath = join(workDir, `${name}-${skill}.json`);
+  const stem = `${name}-${skill}${retryOf === null ? '' : '-retry'}`;
+  const csvPath = join(resultsDir, `${stem}.csv`);
+  const jsonPath = join(workDir, `${stem}.json`);
   // The last point before the child process, so this covers every caller.
   if (!isSafeCliPath(config)) {
     throw new Error(
       `Refusing to build a command with an unusable config path: ${JSON.stringify(config)}`
+    );
+  }
+  if (retryOf !== null && !isSafeCliPath(retryOf)) {
+    throw new Error(
+      `Refusing to build a command with an unusable sidecar path: ${JSON.stringify(retryOf)}`
     );
   }
   if (!isSafeCliPath(csvPath)) {
@@ -158,6 +234,9 @@ export function buildCommand({
       '--config',
       config,
       ...(baseline ? ['--var', 'injectSkill=false'] : []),
+      ...(retryOf === null
+        ? []
+        : ['--filter-failing', retryOf, '--repeat', String(RETRY_REPEATS)]),
       '--output',
       csvPath,
       jsonPath
@@ -245,6 +324,111 @@ export function verdictFor({
       signatures: ['no-output'],
       reason: `unreadable promptfoo output: ${error.message}`
     };
+  }
+}
+
+/**
+ * Whether a config's first attempt has its failing tests run again: a
+ * with-skill run whose sidecar was read and that the bound did not cut off,
+ * with at least one and at most MAX_RETRIED_TESTS tests that did not pass.
+ */
+export function shouldRetry({ baseline = false, killed = false, verdict }) {
+  if (baseline || killed || verdict.counts === null) return false;
+  if (verdict.signatures.includes('max-duration')) return false;
+  const down = verdict.counts.fail + verdict.counts.error;
+  return down > 0 && down <= MAX_RETRIED_TESTS;
+}
+
+function sumTokenUsage(a, b) {
+  if (!a || !b) return a ?? b ?? null;
+  const sum = { ...a };
+  for (const [key, value] of Object.entries(b)) {
+    if (typeof value === 'number') sum[key] = (sum[key] ?? 0) + value;
+  }
+  return sum;
+}
+
+/**
+ * A config's verdict once its failing tests have run again. Rows are matched to
+ * tests by their vars, as `--filter-failing` matches them, and each test is
+ * judged on all its graded attempts: it passes when its passes outnumber its
+ * failures, fails when they do not, and is an `error` only when no attempt was
+ * graded. A test that passed the first time was not run again, so its one pass
+ * stands. A re-run with no readable output adds no attempts, which leaves the
+ * first attempt's verdict unchanged.
+ */
+export function combineAttempts({ firstText, retryText = null }) {
+  const first = JSON.parse(firstText);
+  const firstVerdict = classifyEval(first);
+  let retryRows = [];
+  let retryTokens = null;
+  try {
+    const retry = JSON.parse(retryText);
+    retryTokens = classifyEval(retry).tokenUsage;
+    retryRows = retry.results.results;
+  } catch {
+    // Nothing to add: the first attempt's rows decide.
+  }
+
+  const tests = new Map();
+  for (const row of [...first.results.results, ...retryRows]) {
+    const key = JSON.stringify(row.vars ?? {});
+    const test = tests.get(key) ?? {
+      description: row.testCase?.description ?? `test ${row.testIdx}`,
+      attempts: [],
+      error: null
+    };
+    // Each row is read by classifyEval itself, so an attempt means the same
+    // thing here as it does in a config's single run.
+    const attempt = classifyEval({ results: { results: [row] } });
+    test.attempts.push(attempt.verdict);
+    if (attempt.verdict === 'error') test.error = attempt.errors[0];
+    tests.set(key, test);
+  }
+
+  const counts = { pass: 0, fail: 0, error: 0 };
+  const errors = [];
+  const signatures = [];
+  const retried = [];
+  for (const test of tests.values()) {
+    const passes = test.attempts.filter((a) => a === 'pass').length;
+    const fails = test.attempts.filter((a) => a === 'fail').length;
+    const verdict =
+      passes + fails === 0 ? 'error' : passes > fails ? 'pass' : 'fail';
+    counts[verdict]++;
+    if (verdict === 'error') {
+      const { signature, message } = test.error;
+      if (!signatures.includes(signature)) signatures.push(signature);
+      errors.push({ description: test.description, signature, message });
+    }
+    if (test.attempts.length > 1) {
+      retried.push({
+        description: test.description,
+        attempts: test.attempts,
+        verdict
+      });
+    }
+  }
+
+  let verdict = 'pass';
+  if (counts.fail > 0) verdict = 'fail';
+  if (counts.error > 0) verdict = 'error';
+  return {
+    verdict,
+    counts,
+    total: tests.size,
+    errors,
+    signatures,
+    tokenUsage: sumTokenUsage(firstVerdict.tokenUsage, retryTokens),
+    retried
+  };
+}
+
+function readSidecar(path) {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return null;
   }
 }
 
@@ -374,6 +558,7 @@ export async function runEvals({
   configs,
   name,
   baseline = false,
+  shard = null,
   resultsDir,
   workDir,
   capMinutes = CONFIG_MINUTES_DEFAULT,
@@ -394,6 +579,9 @@ export async function runEvals({
   const summary = {
     name,
     baseline,
+    // Which slice of the week this run is, so the artifact says so itself;
+    // `planned` below is already only this slice's skills.
+    ...(shard === null ? {} : { shard }),
     bounds: { configMinutes: capMinutes, budgetMinutes },
     planned: configs.map(skillOf),
     configs: []
@@ -424,7 +612,8 @@ export async function runEvals({
         reason: 'not-run: budget exhausted',
         durationMs: 0,
         exitCode: null,
-        tokenUsage: null
+        tokenUsage: null,
+        retry: null
       };
     } else {
       const { command, args } = buildCommand({
@@ -445,17 +634,59 @@ export async function runEvals({
         env: childEnv({ boundMs: bound.boundMs, env }),
         killAfterMs: bound.boundMs + KILL_GRACE_MS
       });
-      let sidecarText = null;
-      try {
-        sidecarText = readFileSync(sidecarPath, 'utf8');
-      } catch {
-        sidecarText = null;
-      }
-      const verdict = verdictFor({
+      const sidecarText = readSidecar(sidecarPath);
+      let verdict = verdictFor({
         exitCode: outcome.exitCode ?? null,
         killed: outcome.killed === true,
         sidecarText
       });
+
+      let retry = null;
+      const retryBound = boundFor({
+        elapsedMs: now() - started,
+        budgetMs,
+        capMs
+      });
+      if (
+        shouldRetry({ baseline, killed: outcome.killed === true, verdict }) &&
+        !retryBound.skip
+      ) {
+        const down = verdict.counts.fail + verdict.counts.error;
+        log(
+          `${skill}: ${down} of ${verdict.total} tests did not pass; running them ${RETRY_REPEATS} more times.`
+        );
+        const rerun = buildCommand({
+          config,
+          name,
+          resultsDir,
+          workDir,
+          baseline,
+          retryOf: sidecarPath
+        });
+        const retryPath = join(workDir, `${name}-${skill}-retry.json`);
+        rmSync(retryPath, { force: true });
+        const retryOutcome = await spawn(rerun.command, rerun.args, {
+          env: childEnv({ boundMs: retryBound.boundMs, env }),
+          killAfterMs: retryBound.boundMs + KILL_GRACE_MS
+        });
+        const combined = combineAttempts({
+          firstText: sidecarText,
+          retryText: readSidecar(retryPath)
+        });
+        verdict = { ...combined, reason: null };
+        retry = {
+          exitCode: retryOutcome.exitCode ?? null,
+          killed: retryOutcome.killed === true,
+          durationMs: retryOutcome.durationMs ?? null,
+          tests: combined.retried
+        };
+        for (const test of combined.retried) {
+          log(
+            `  ${test.description}: ${test.attempts.join(', ')} -> ${test.verdict}`
+          );
+        }
+      }
+
       record = {
         skill,
         config,
@@ -466,7 +697,8 @@ export async function runEvals({
         reason: verdict.reason ?? outcome.spawnError ?? null,
         durationMs: outcome.durationMs ?? null,
         exitCode: outcome.exitCode ?? null,
-        tokenUsage: verdict.tokenUsage ?? null
+        tokenUsage: verdict.tokenUsage ?? null,
+        retry
       };
       for (const error of verdict.errors ?? []) {
         log(`  ${error.signature}: ${error.description} — ${error.message}`);
@@ -488,12 +720,44 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const fromInput = (process.env.INPUT_CONFIGS ?? '')
     .split(/\s+/)
     .filter(Boolean);
-  const configs =
+  const explicit =
     args.configs.length > 0
       ? args.configs
       : fromInput.length > 0
         ? fromInput
-        : listEvalConfigs(configDir);
+        : null;
+
+  // The shard shapes only the discovered list. Shaping an explicit list too
+  // would mean a dispatch that names configs runs some unstated subset of
+  // them, so the combination is refused instead of guessed at.
+  const shardSpec = args.shard ?? process.env.EVAL_SHARD ?? '';
+  let shard = null;
+  if (shardSpec !== '') {
+    if (explicit !== null) {
+      console.error(
+        '--shard (and EVAL_SHARD) slice the discovered config list; pass either a shard or explicit configs, not both.'
+      );
+      process.exit(1);
+    }
+    try {
+      shard = parseShard(shardSpec);
+    } catch (error) {
+      console.error(error.message);
+      process.exit(1);
+    }
+  }
+
+  let configs = explicit ?? listEvalConfigs(configDir);
+  if (shard !== null) {
+    const discovered = configs.length;
+    configs = shardOf(configs, shard);
+    if (configs.length === 0) {
+      console.error(
+        `Shard ${shardSpec} selects no configs — only ${discovered} were discovered.`
+      );
+      process.exit(1);
+    }
+  }
   if (configs.length === 0) {
     console.error('No eval configs found.');
     process.exit(1);
@@ -547,12 +811,14 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
   // The publish job names its committed CSVs from this.
   setOutputs({ name });
+  if (shardSpec !== '') console.log(`Shard ${shardSpec} of the config list.`);
   console.log(`Evaluating: ${configs.join(' ')}`);
 
   const { failed } = await runEvals({
     configs,
     name,
     baseline,
+    shard: shardSpec === '' ? null : shardSpec,
     resultsDir,
     workDir,
     capMinutes,

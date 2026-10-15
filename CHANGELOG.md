@@ -17,10 +17,18 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Fixed
 
+- `maplibre-source-wiring`: says a `{z}/{x}/{y}` template is not a URL to test by hand, which its TileJSON advice had crowded out ([#120](https://github.com/maplibre/maplibre-agent-skills/pull/120))
+- `maplibre-fonts-glyphs`: no longer adds font and glyph advice to answers about layers that draw no text ([#121](https://github.com/maplibre/maplibre-agent-skills/pull/121))
+- `maplibre-tile-sources`: back to the narrowed skill #69 verified, which fits the eval provider's request limit again; `maplibre-source-wiring` now says TileJSON 3.0 requires `vector_layers` and names Protomaps' `earth` layer ([#118](https://github.com/maplibre/maplibre-agent-skills/pull/118))
 - `maplibre-pmtiles-patterns`: state the GL JS 4.0.0 `addProtocol` handler contract (`{data, cacheControl?, expires?}`, module-level registration), that sources locate tiles with `url` or `tiles` only, and the real `pmtiles` inspection commands ([#92](https://github.com/maplibre/maplibre-agent-skills/pull/92))
 
 ### Internal
 
+- `changelog.yml`: each run records every recently merged PR the changelog lacks, so merging several PRs at once no longer drops entries ([#123](https://github.com/maplibre/maplibre-agent-skills/pull/123))
+- evals: answers are graded with U+2011 (non-breaking hyphen) replaced by `-`, so a hyphenated name written in prose matches its `icontains` ([#122](https://github.com/maplibre/maplibre-agent-skills/pull/122))
+- `eval.yml`: a test that does not pass runs twice more, and its failure is recorded only if a re-run fails too ([#119](https://github.com/maplibre/maplibre-agent-skills/pull/119))
+- `eval.yml`: a failed judge call inside an `llm-rubric` records `error` instead of `fail`, so it no longer demotes a skill ([#110](https://github.com/maplibre/maplibre-agent-skills/pull/110))
+- `eval.yml`: the weekly drift check runs as three scheduled slices (Sunday, Wednesday, Friday) sized to Groq's daily token cap, and the status sync measures a run against its own plan instead of every config ([#113](https://github.com/maplibre/maplibre-agent-skills/pull/113))
 - `scripts/setup-hooks.js`: `npm install` from a git worktree installs the pre-push hook instead of failing ([#103](https://github.com/maplibre/maplibre-agent-skills/pull/103))
 - `eval.yml`: the runner rejects config and output paths that are not plain `evals/prompts/<skill>.yaml` files or plain directories before they reach `npm run`, answering the CodeQL shell-command alert ([#95](https://github.com/maplibre/maplibre-agent-skills/pull/95))
 - evals: the judge and the deterministic assertions grade the generator's answer only; the reasoning trace is no longer prepended to the graded output ([#94](https://github.com/maplibre/maplibre-agent-skills/pull/94))

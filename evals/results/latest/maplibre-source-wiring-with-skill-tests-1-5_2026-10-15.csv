@@ -1,0 +1,294 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+implicit — custom style layers invisible against hosted tiles,skills/maplibre-source-wiring/SKILL.md,"I'm using a hosted tile provider's style URL and everything looks great. But when I try to write my own custom style against the same tile source, none of my layers show up.
+","Below is a **step‑by‑step checklist** that will get you from “the provider’s style works” → “my custom style draws nothing” to a working map.  
+It follows the “MapLibre Source Wiring” skill, so you can see exactly which part of the pipeline is most likely broken.
+
+---
+
+## 1️⃣  Start with the provider’s source definition
+
+Open the provider’s style URL in a browser (or fetch it with `curl`).  
+You’ll see a JSON object that contains a **source** entry that looks like one of these:
+
+```json
+{
+  ""id"": ""basemap"",
+  ""type"": ""vector"",
+  ""url"": ""https://tiles.example.com/tileset.json""
+}
+```
+
+or, if they only expose a template:
+
+```json
+{
+  ""id"": ""basemap"",
+  ""type"": ""vector"",
+  ""tiles"": [""https://tiles.example.com/{z}/{x}/{y}.pbf""],
+  ""minzoom"": 0,
+  ""maxzoom"": 14
+}
+```
+
+**Copy that source definition verbatim** into your own style (or add it with `map.addSource`).  
+If you change `url` → `tiles` **without** also adding `minzoom`/`maxzoom`, you’ll get the classic “blank map at high zooms” problem.
+
+> **Why?**  
+> `url` points to a TileJSON document that already contains the zoom range, bounds, and – most importantly – the list of **source‑layer names**. Hand‑wiring `tiles` loses that metadata unless you supply it yourself.
+
+---
+
+## 2️⃣  Verify the *source‑layer* names
+
+Vector sources **must** have a `source-layer` property on every style layer that draws from them.  
+If the name is wrong, MapLibre silently draws nothing – no error, no warning.
+
+### How to get the correct names
+
+1. **From TileJSON** – the provider’s TileJSON (the file at the `url` you just copied) contains a `vector_layers` array:
+
+   ```json
+   {
+     ""vector_layers"": [
+       { ""id"": ""transportation"", ""minzoom"": 5, ""maxzoom"": 14, ""fields"": { ... } },
+       { ""id"": ""water"",          ""minzoom"": 0, ""maxzoom"": 14, ""fields"": { ... } },
+       { ""id"": ""building"",       ""minzoom"": 13, ""maxzoom"": 14, ""fields"": { ... } }
+     ]
+   }
+   ```
+
+   The `""id""` values are the exact strings you must use for `source-layer`.
+
+2. **If the TileJSON lacks `vector_layers`** (some older providers), look at the provider’s documentation or at a sample style they publish – the `source-layer` values they use are the authoritative list.
+
+3. **Quick test** – add a temporary layer that paints everything in a bright colour:
+
+   ```json
+   {
+     ""id"": ""debug-all"",
+     ""type"": ""fill"",
+     ""source"": ""basemap"",
+     ""source-layer"": ""water"",          // <-- change this to each candidate
+     ""paint"": { ""fill-color"": ""#ff00ff"", ""fill-opacity"": 0.4 }
+   }
+   ```
+
+   If you see a pink overlay, you’ve got the right `source-layer`. If not, try the next candidate.
+
+---
+
+## 3️⃣  Insert your layers **below** the label (symbol) layers
+
+Even with the correct `source-layer`, your layers may be hidden because they are added **after** the provider’s label layers.  
+MapLibre draws layers in the order they appear in the style; later layers sit on top of earlier ones.
+
+### The safe injection pattern
+
+```js
+// 1️⃣ Find the first symbol layer (usually a label)
+const firstSymbolId = map.getStyle().layers.find(l => l.type === 'symbol').id;
+
+// 2️⃣ Add your custom layer *before* that symbol layer
+map.addLayer(
+  {
+    id: 'my-roads',
+    type: 'line',
+    source: 'basemap',
+    'source-layer': 'transportation',
+    paint: { 'line-color': '#ff6600', 'line-width': 2 }
+  },
+  firstSymbolId   // ← second argument tells MapLibre to insert before this layer
+);
+```
+
+If you add layers with `map.addLayer({...})` **without** the second argument, they end up on top of everything – including street names – and will look like they “covered” the basemap.
+
+---
+
+## 4️⃣  Check CORS & glyphs (only if you see missing text/icons)
+
+If you get **tiles** but **no labels**:
+
+| Symptom | Likely cause | Quick test |
+|---------|--------------|------------|
+| Labels appear but in a weird font | `glyphs` URL missing or blocked | Open the glyph URL in a new tab; you should get a `*.pbf` file. |
+| No labels at all | CORS on the glyphs endpoint or the style’s `glyphs` property is wrong | Look at the Network tab → any `blocked by CORS policy` errors? |
+| Icons missing (e.g., park symbols) | `sprite` URL missing or blocked | Open `https://…/sprites/basic.json` – you should see a JSON list of icons. |
+
+**Fixes**
+
+```json
+{
+  ""glyphs"": ""https://tiles.example.com/fonts/{fontstack}/{range}.pbf"",
+  ""sprite"": ""https://tiles.example.com/sprites/basemap""
+}
+```
+
+Make sure the server sends `Access‑Control‑Allow‑Origin: *` (or your domain).
+
+---
+
+## 5️⃣  Feature‑state sanity check (if you’re using hover/selection)
+
+If you’ve added `setFeatureState` calls and nothing happens:
+
+1. **Does the source have an id?**  
+   Vector tiles usually have an `id` field baked in. If not, you need `promoteId`.
+
+2. **Add `promoteId`** (or `generateId` only as a last resort):
+
+   ```js
+   map.addSource('parcels', {
+     type: 'vector',
+     url: 'https://tiles.example.com/parcels.json',
+     promoteId: { parcels: 'parcel_id' }   // <‑‑ property name inside the tile’s attributes
+   });
+   ```
+
+3. Now `map.setFeatureState({ source: 'parcels', sourceLayer: 'parcels', id: 'APN-1234' }, { hover: true })` will work.
+
+---
+
+## 6️⃣  Full minimal reproducible example
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>Custom style on provider tiles</title>
+  <script src=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>#map { position:absolute; top:0; bottom:0; width:100%; }</style>
+</head>
+<body>
+<div id=""map""></div>
+<script>
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {
+        basemap: {
+          type: 'vector',
+          url: 'https://tiles.example.com/tileset.json'   // <-- copy from provider
+        }
+      },
+      layers: [
+        // 1️⃣ Insert a background so we can see something even if other layers fail
+        { id: 'bg', type: 'background', paint: { 'background-color': '#e0e0e0' } },
+
+        // 2️⃣ Your custom layer – note the correct source‑layer name
+        {
+          id: 'my-water',
+          type: 'fill',
+          source: 'basemap',
+          'source-layer': 'water',               // <-- must match TileJSON
+          paint: { 'fill-color': '#a0c8f0', 'fill-opacity': 0.6 }
+        }
+
+        // No need to list the provider’s label layers – they’re already in the
+        // TileJSON style you copied, and they’ll be drawn *after* the layers above.
+      ],
+      glyphs: 'https://tiles.example.com/fonts/{fontstack}/{range}.pbf',
+      sprite: 'https://tiles.example.com/sprites/basemap'
+    },
+    center: [-122.447303, 37.753574],
+    zoom: 12
+  });
+
+  // Optional: inject a layer *before* the first symbol layer (if you add later)
+  map.on('load', () => {
+    const firstSymbol = map.getStyle().layers.find(l => l.type === 'symbol').id;
+    map.addLayer(
+      {
+        id: 'my-roads',
+        type: 'line',
+        source: 'basemap',
+        'source-layer': 'transportation',
+        paint: { 'line-color': '#ff6600', 'line-width': 2 }
+      },
+      firstSymbol
+    );
+  });
+</script>
+</body>
+</html>
+```
+
+If this renders the water polygons (or any other layer you swap in) you know the wiring is correct. From there you can add more layers, adjust paints, and so on.
+
+---
+
+## 7️⃣  Quick “diagnose‑first” decision tree
+
+| What you see | First thing to verify |
+|--------------|-----------------------|
+| **All tiles load, but nothing you added appears** | `source-layer` spelling (compare to TileJSON `vector_layers`). |
+| **Your layers appear but hide street names** | Insert them **before** the first `symbol` layer (use the second argument to `addLayer`). |
+| **Tiles load, but they look blurry / off‑by‑one zoom** | For raster sources, set `tileSize: 256` if the provider uses 256‑px tiles. |
+| **No labels or icons at all** | `glyphs` and `sprite` URLs + CORS headers. |
+| **Hover/selection never changes colour** | Source features lack an `id` → add `promoteId`. |
+| **Network shows 404/403 on tile URLs** | You may have used `tiles` instead of `url` (or vice‑versa) and omitted the correct zoom range; switch to the provider’s TileJSON `url`. |
+
+---
+
+## 8️⃣  TL;DR checklist
+
+1. **Copy the provider’s source definition exactly** (`url` → TileJSON if available).  
+2. **Read the TileJSON `vector_layers`** and use those exact strings for every `source-layer`.  
+3. **Add your layers before the first symbol layer** (or use `addLayer(..., firstSymbolId)`).  
+4. **Supply `glyphs` and `sprite` URLs** (and ensure CORS).  
+5. **If you need feature‑state, set `promoteId`** to the property that uniquely identifies a feature.  
+6. **For raster tiles, set `tileSize: 256`** when the source serves 256‑px tiles.  
+
+Follow those steps and your custom style will render on top of the same tile source that the provider’s style uses. If you still hit a wall, drop the network‑tab URLs and the exact `source-layer` you’re using into a new question – the community can help you compare against the provider’s schema. Happy mapping!",PASS,1.00,,All assertions passed,
+explicit — naming published tile schemas and their doc URLs,skills/maplibre-source-wiring/SKILL.md,"I'm writing style layers against an unfamiliar vector tile source and need to know the possible source-layer names. What are the major published vector tile schemas I should check, and where are their layer lists documented?
+","Below are the three **widely‑used, publicly‑documented vector‑tile schemas** that you’ll most often run into when you are “fighting blind” against an unknown source.  
+For each one I give:
+
+| Schema | What it is / who publishes it | Where the **complete source‑layer list** lives (machine‑readable or human‑readable) | Typical “flavour” of the data |
+|--------|------------------------------|------------------------------------------------------------|------------------------------|
+| **OpenMapTiles** | Community‑driven, OpenStreetMap‑derived schema that powers the official OpenMapTiles basemap and most of the open‑source styles that ship with it. | • **TileJSON** – every `*.mbtiles` or `*.pmtiles` generated by the OpenMapTiles pipeline includes a `vector_layers` array. When you point a `url` at the TileJSON endpoint you can read the list directly in the JSON. <br>• **Human‑readable layer list** – https://openmaptiles.org/schema/ (the “Layers” page). It enumerates every source‑layer (`transportation`, `water`, `landuse`, `poi`, …) together with the attribute fields each layer contains. | Full‑planet OSM data, very rich (hundreds of layers). |
+| **Shortbread** | An open, minimal‑istic schema created to be vendor‑agnostic. It deliberately keeps the number of layers small so that a single style can work across many providers. | • **TileJSON** – Shortbread tilesets also expose a TileJSON document with a `vector_layers` array. <br>• **Documentation** – https://shortbread-tiles.org/ (the “Layers” section). It lists the canonical source‑layers (`land`, `water`, `roads`, `places`, `pois`, …) and the fields each contains. | Small, interoperable set of layers; good for quick prototypes or low‑bandwidth delivery. |
+| **Protomaps** | The schema used by the Protomaps PMTiles basemap ecosystem (the “earth”, “water”, “roads”, “places” model). It is deliberately flat and simple, optimized for server‑less delivery. | • **TileJSON** – Protomaps‑generated PMTiles expose a TileJSON endpoint that contains `vector_layers`. <br>• **Official layer list** – https://docs.protomaps.com/basemaps/layers. This page enumerates every source‑layer (`earth`, `water`, `roads`, `places`, `buildings`, `boundaries`, …) and the attribute keys you can style on. | Very compact, designed for fast client‑side rendering; often used with the “Protomaps Basemap” style. |
+
+### How to use the list in practice
+
+1. **Ask the provider for a TileJSON URL** (e.g. `https://example.com/tiles.json`).  
+   ```json
+   {
+     ""type"": ""vector"",
+     ""url"": ""https://example.com/tiles.json""
+   }
+   ```
+   Open that URL in a browser or `curl`; you’ll see a `vector_layers` array like:
+
+   ```json
+   ""vector_layers"": [
+     { ""id"": ""transportation"", ""minzoom"": 5, ""maxzoom"": 14, ""fields"": { ""class"": ""String"", ""brunnel"": ""String"" } },
+     { ""id"": ""water"",          ""minzoom"": 0, ""maxzoom"": 14, ""fields"": { ""class"": ""String"" } },
+     …
+   ]
+   ```
+
+   The `""id""` values are exactly the strings you must use for `source-layer` in your style layers.
+
+2. **If you only have a raw tile URL template** (no TileJSON), you’ll need to look up the schema manually. The three links above are the canonical places to copy‑paste the layer list (or to verify against the provider’s docs).
+
+3. **Cross‑check with the style you are extending** – many providers ship a ready‑made style URL (e.g. `https://example.com/style.json`). Load that style in the MapLibre demo or in the browser dev‑tools; the style’s own layers already reference the correct `source-layer` names, giving you a quick cheat‑sheet.
+
+### Quick reference links
+
+| Schema | TileJSON example (public) | Layer‑list page |
+|--------|---------------------------|-----------------|
+| OpenMapTiles | `https://free.tilehosting.com/data/v3.json?key=YOUR_KEY` (or any `*.mbtiles` you generate) | https://openmaptiles.org/schema/ |
+| Shortbread   | `https://tiles.shortbread.org/v1/tiles.json` (example endpoint) | https://shortbread-tiles.org/ |
+| Protomaps    | `https://api.protomaps.com/tiles/v3/planet.json` (or any PMTiles `*.pmtiles` you host) | https://docs.protomaps.com/basemaps/layers |
+
+> **Tip:** When you’re unsure which schema you’re dealing with, open the TileJSON and look at the `vector_layers` → `id` values.  
+> - If you see many OSM‑style names (`transportation`, `landuse`, `poi`, …) you’re probably on **OpenMapTiles**.  
+> - If the list is short and generic (`land`, `water`, `roads`, `places`) it’s likely **Shortbread**.  
+> - If you see flat names like `earth`, `water`, `roads`, `places`, `buildings` it’s **Protomaps**.
+
+Armed with the correct `source-layer` names, you can now write style layers that actually draw, and you’ll avoid the silent‑failure pitfall where a mismatched `source-layer` simply produces no output. Happy styling!",PASS,1.00,,All assertions passed,
