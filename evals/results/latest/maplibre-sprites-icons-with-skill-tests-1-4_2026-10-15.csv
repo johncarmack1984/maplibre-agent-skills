@@ -1,0 +1,1075 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+explicit — route shields missing badge on the open OpenMapTiles stack,skills/maplibre-sprites-icons/SKILL.md,"I'm using an open OpenMapTiles / OSM-based vector basemap with MapLibre GL JS (no Mapbox account). My interstate and US highway shields render as bare floating numbers with no shield badge behind them; the numbers are fine. My tiles do populate network, ref, and ref_length. Which exact sprite image names do the shield layers expect, and how do I get the badges to appear without editing the layers?","## TL;DR  
+
+| Layer (OSM Bright / OSM Liberty) | Expected **sprite-image ID** (the value that must exist in a sprite sheet) |
+|----------------------------------|-----------------------------------------------------------------------------|
+| US Interstate shield            | `us-interstate_1` , `us-interstate_2` , `us-interstate_3` |
+| US Highway shield               | `us-highway_1` , `us-highway_2` , `us-highway_3` |
+| US State-route shield           | `us-state_1` , `us-state_2` , `us-state_3` , `us-state_4` , `us-state_5` , `us-state_6` |
+| “Other” (non-US) road shields   | `road_1` , `road_2` , `road_3` , `road_4` , `road_5` , `road_6` |
+| OSM Liberty (single-badge style) | `default_1` , `default_2` , `default_3` , `default_4` , `default_5` , `default_6` |
+
+> **What you need:** a sprite sheet that contains **all** of the IDs above (or at least the ones you actually use). Once the sheet is reachable via the style’s `sprite` property, the shield badges appear automatically – **no layer edits required**.
+
+Below is a step-by-step guide to get those badges working without touching the style layers.
+
+---
+
+## 1. Why the numbers appear but the badge does not
+
+* The shield text (`{ref}`) is rendered by the **glyphs** server, so the numbers are fine.
+* The badge behind the text is drawn from a **sprite image** referenced by the `icon-image` property of the shield layers.
+* If the sprite image cannot be found, MapLibre logs `Image ""<id>"" could not be loaded` (or fires `styleimagemissing`) and falls back to drawing only the text – you see a “bare floating number”.
+
+Therefore the problem is **missing sprite IDs**.
+
+---
+
+## 2. Exact sprite IDs used by the default OpenMapTiles styles
+
+### 2.1 OSM Bright (the most common OpenMapTiles style)
+
+```json
+{
+  ""id"": ""highway-shield-us-interstate"",
+  ""layout"": {
+    ""icon-image"": ""{network}_{ref_length}""
+  }
+}
+```
+
+* `network` for US interstates = `""us-interstate""`
+* `network` for US highways   = `""us-highway""`
+* `network` for US state routes = `""us-state""`
+
+The expression expands to:
+
+| network          | ref_length (1-3) → sprite ID |
+|------------------|------------------------------|
+| `us-interstate`  | `us-interstate_1` … `us-interstate_3` |
+| `us-highway`     | `us-highway_1` … `us-highway_3` |
+| `us-state`       | `us-state_1` … `us-state_6` |
+
+### 2.2 “Other” (non-US) road shields in OSM Bright
+
+```json
+{
+  ""id"": ""highway-shield-road"",
+  ""layout"": {
+    ""icon-image"": ""road_{ref_length}""
+  }
+}
+```
+
+* Expands to `road_1` … `road_6`.
+
+### 2.3 OSM Liberty (the “single-badge” style)
+
+```json
+{
+  ""id"": ""highway-shield"",
+  ""layout"": {
+    ""icon-image"": ""default_{ref_length}""
+  }
+}
+```
+
+* Expands to `default_1` … `default_6`.
+
+> **Note:** The `ref_length` property is supplied by the OpenMapTiles tileset (it is the length of the `ref` string). If a tile has `ref = ""I-405""` then `ref_length = 3`, so the style will request `us-interstate_3`, `road_3`, etc.
+
+---
+
+## 3. Getting a sprite sheet that contains those IDs
+
+### 3.1 Quick-start: use the official OSM Bright sprite
+
+The OSM Bright style ships a complete sprite that already contains every shield badge listed above.
+
+```json
+{
+  ""sprite"": ""https://demotiles.maplibre.org/styles/osm-bright-gl-style/sprite""
+}
+```
+
+* **Do NOT use this in production** – it is a public demo endpoint and may be throttled or disappear.
+
+### 3.2 Self-host the sprite (recommended for production)
+
+1. **Download the sprite files** from the demo (or from the OpenMapTiles repo).  
+   You need three files per resolution:
+
+   ```
+   osm-bright-sprite.json
+   osm-bright-sprite.png
+   osm-bright-sprite@2x.json
+   osm-bright-sprite@2x.png
+   ```
+
+2. **Host them on a domain you control** (same origin as your style or with proper CORS).  
+   Example layout:
+
+   ```
+   https://mycdn.example.com/sprites/osm-bright/
+       ├─ sprite.json
+       ├─ sprite.png
+       ├─ sprite@2x.json
+       └─ sprite@2x.png
+   ```
+
+3. **Point the style at the new base URL** (no extension, no `@2x`):
+
+   ```json
+   {
+     ""sprite"": ""https://mycdn.example.com/sprites/osm-bright/sprite""
+   }
+   ```
+
+   The MapLibre loader will automatically request `.json`, `.png`, and the `@2x` variants.
+
+### 3.3 Adding the badge sheet *in addition* to an existing basemap sprite
+
+If you already have a basemap style that points at a provider’s sprite (e.g. `https://tiles.openfreemap.org/sprites/ofm_f384/ofm`) and you want to keep that sheet **plus** the shield sheet, use the **multiple-sprite array** (MapLibre GL JS ≥ 3.0).
+
+```json
+{
+  ""sprite"": [
+    { ""id"": ""default"", ""url"": ""https://tiles.openfreemap.org/sprites/ofm_f384/ofm"" },
+    { ""id"": ""shields"",  ""url"": ""https://mycdn.example.com/sprites/osm-bright/sprite"" }
+  ]
+}
+```
+
+* Reference the shield icons with the `id` prefix: `""icon-image"": ""shields:us-interstate_2""`.  
+* All existing `icon-image` values that do **not** have a prefix continue to resolve against the `default` sheet, so you do **not** need to edit any layer.
+
+If you prefer to keep the original layer definitions untouched, you can **replace** the original sprite with a *merged* sprite that contains both the basemap icons **and** the shield icons. Tools like **spritezero**, **spreet**, or **Martin** can merge two PNG/JSON pairs into one.
+
+---
+
+## 4. Alternative: supply missing icons at runtime (no sprite change)
+
+If you cannot change the style’s `sprite` URL (e.g. you are using a third-party hosted style that you cannot edit), you can still make the shields appear by registering the missing images yourself:
+
+```js
+map.on('styleimagemissing', async (e) => {
+  const missingId = e.id;               // e.g. ""us-interstate_2""
+  // Build a URL that points to a PNG/SVG you host
+  const url = `https://mycdn.example.com/shields/${missingId}.png`;
+
+  try {
+    const { data } = await map.loadImage(url);
+    // Only add if the map does not already have it (avoid duplicate errors)
+    if (!map.hasImage(missingId)) map.addImage(missingId, data);
+  } catch (err) {
+    console.warn('Could not load shield image for', missingId, err);
+  }
+});
+```
+
+* This works for **any** missing sprite ID, including the shield IDs listed above.  
+* You must host a PNG (or a rasterized SVG) for each possible badge (`us-interstate_1.png`, `us-interstate_2.png`, …).  
+* The `styleimagemissing` event fires **once per missing ID**, so the overhead is minimal.
+
+If you have many shields, generating the PNGs from a single SVG template (e.g. using a build script that draws the badge shape and writes the PNG) is the most maintainable approach.
+
+---
+
+## 5. Checklist – make the shields appear
+
+| ✅ | Action |
+|---|--------|
+| 1 | Verify that your tileset actually provides `network`, `ref`, and `ref_length`. (`network` should be `""us-interstate""`, `""us-highway""` or `""us-state""` for US routes.) |
+| 2 | Confirm the style’s `sprite` URL is reachable and returns **200** for `.json` and `.png` (and `@2x` if you use high-DPI). |
+| 3 | Open the sprite JSON (e.g. `sprite.json`) and **search** for the IDs listed in the table above. If any are missing, you have a sprite-coverage problem. |
+| 4 | If IDs are missing, either: <br>  a) **Swap** the style’s `sprite` to a sprite that contains them (self-hosted or the demo URL). <br>  b) **Add a second sprite sheet** via the array form and reference it with the `id:` prefix (no layer edits needed if you keep the original IDs). <br>  c) **Register the missing images at runtime** with `styleimagemissing` + `addImage`. |
+| 5 | Reload the map. The shield badges should now render behind the numbers. |
+| 6 | (Optional) If you want stretchable badges instead of a separate image per `ref_length`, generate a single badge with `stretchX`/`stretchY` metadata and set `icon-text-fit: ""both""` on the shield layer – but this **does** require a layer edit, which you said you want to avoid. |
+
+---
+
+## 6. Quick “copy-and-paste” solution for most users
+
+```json
+{
+  ""sprite"": ""https://mycdn.example.com/sprites/osm-bright/sprite""
+}
+```
+
+*Host the four files (`sprite.json`, `sprite.png`, `sprite@2x.json`, `sprite@2x.png`) under that URL.*  
+That single line makes **all** US-interstate, US-highway, US-state, and generic road shields appear, with no further code changes.
+
+If you already have a different sprite for the basemap, use the array form:
+
+```json
+{
+  ""sprite"": [
+    { ""id"": ""default"", ""url"": ""https://tiles.openfreemap.org/sprites/ofm_f384/ofm"" },
+    { ""id"": ""shields"",  ""url"": ""https://mycdn.example.com/sprites/osm-bright/sprite"" }
+  ]
+}
+```
+
+…and **do nothing else** – the existing layers will keep using the default sheet, while the shield layers will automatically resolve `us-interstate_2`, `road_4`, etc., because those IDs exist in the `shields` sheet.
+
+---
+
+### TL;DR Recap
+
+* **Sprite IDs you need:** `us-interstate_1-3`, `us-highway_1-3`, `us-state_1-6`, `road_1-6` (OSM Bright) or `default_1-6` (OSM Liberty).  
+* **Fix:** point the style’s `sprite` (or add a second sprite sheet) to a sprite that contains those IDs, or register the missing images at runtime via `styleimagemissing` → `addImage`. No layer edits are required.  
+
+Happy mapping! 🚗🛣️",PASS,1.00,,All assertions passed,
+explicit — route shields missing badge on the open OpenMapTiles stack,skills/maplibre-sprites-icons/SKILL.md,"I'm using an open OpenMapTiles / OSM-based vector basemap with MapLibre GL JS (no Mapbox account). My interstate and US highway shields render as bare floating numbers with no shield badge behind them; the numbers are fine. My tiles do populate network, ref, and ref_length. Which exact sprite image names do the shield layers expect, and how do I get the badges to appear without editing the layers?","## TL;DR  
+
+| Shield type | Sprite-image ID (exact name) | How many variants exist in the **official OSM Bright / OSM Liberty** sprites |
+|-------------|-----------------------------|---------------------------------------------------|
+| **US Interstate** | `us-interstate_1`  <br> `us-interstate_2`  <br> `us-interstate_3` | 3 (the badge is drawn for 1-, 2- and 3-digit interstate numbers) |
+| **US Highway**   | `us-highway_1`  <br> `us-highway_2`  <br> `us-highway_3` | 3 |
+| **US State**     | `us-state_1`  <br> `us-state_2`  <br> `us-state_3`  <br> `us-state_4`  <br> `us-state_5`  <br> `us-state_6` | 6 (covers 1- to 6-digit state-route numbers) |
+| **Generic road (non-US)** | `road_1`  <br> `road_2`  <br> `road_3`  <br> `road_4`  <br> `road_5`  <br> `road_6` | 6 (used when `network` is anything else, e.g. `eu`, `ca`, …) |
+
+If any of those IDs are missing from the sprite that your style loads, the shield layer can still render the **text** (`{ref}`) – that’s why you see the floating numbers – but the badge image is omitted, leaving a “bare number”.
+
+### How to make the badges appear **without touching the style layers**
+
+1. **Make sure the style loads a sprite that contains the IDs above.**  
+   *The easiest way is to point the style’s `sprite` property at the official OSM Bright sprite, which already ships all of the IDs.*
+
+   ```json
+   // style.json (or the part you control)
+   {
+     ""sprite"": ""https://demotiles.maplibre.org/styles/osm-bright-gl-style/sprite""
+   }
+   ```
+
+   > **Why this works** – The OSM Bright sprite (`…/osm-bright-gl-style/sprite`) contains every `us-interstate_*`, `us-highway_*`, `us-state_*` and `road_*` entry. When the style’s `icon-image` expression evaluates to, say, `""us-interstate_2""`, the image is found and the badge is drawn.
+
+2. **If you cannot change the `sprite` URL (e.g. you are using a hosted style that you cannot edit), add a *second* sprite sheet that only contains the missing badge images.**  
+   Since MapLibre GL JS ≥ 3.0 supports an **array of sprite sheets**, you can keep the original sprite (which may be missing the US shields) and overlay a custom sheet that supplies just the missing IDs.
+
+   ```json
+   {
+     ""sprite"": [
+       { ""id"": ""default"", ""url"": ""https://mytiles.example.com/sprites/base"" },   // the original sheet
+       { ""id"": ""us-shields"", ""url"": ""https://mycdn.example.com/sprites/us-shields"" }
+     ]
+   }
+   ```
+
+   *Reference the new sheet in the style* – you **do not** have to edit any layer definitions; you only need to prefix the image name with the sheet id **if the original style already prefixes**.  
+   The OSM Bright/Liberty styles use the **default** sheet for all their icons, so you can keep the original `icon-image` values unchanged **as long as you give the new sheet the id `default`**. In practice you would replace the original sheet with a combined one, or you can keep the original and add a second sheet **and then rename the original to something else** and give the new sheet the id `default`. Example:
+
+   ```json
+   {
+     ""sprite"": [
+       { ""id"": ""original"", ""url"": ""https://mytiles.example.com/sprites/base"" },
+       { ""id"": ""default"",   ""url"": ""https://mycdn.example.com/sprites/us-shields"" }
+     ]
+   }
+   ```
+
+   Now every `icon-image` that does **not** have a prefix (the usual case) resolves against the `default` sheet, which now contains the missing US shield images. All other icons continue to be resolved from the `original` sheet because they are still present there.
+
+3. **If you cannot change the style JSON at all (e.g. you only control the client code), register the missing images at runtime with `addImage`.**  
+
+   ```js
+   map.on('styleimagemissing', async (e) => {
+     const missingId = e.id;               // e.g. ""us-interstate_2""
+     // Only react to the IDs we know are missing
+     const knownMissing = [
+       'us-interstate_1','us-interstate_2','us-interstate_3',
+       'us-highway_1','us-highway_2','us-highway_3',
+       'us-state_1','us-state_2','us-state_3',
+       'us-state_4','us-state_5','us-state_6',
+       'road_1','road_2','road_3','road_4','road_5','road_6'
+     ];
+     if (!knownMissing.includes(missingId)) return;   // ignore anything else
+
+     // Load the PNG (or WebP) from a place where you host the badge images.
+     const url = `https://mycdn.example.com/shields/${missingId}.png`;
+     try {
+       const { data } = await map.loadImage(url);
+       map.addImage(missingId, data);
+       // Force a re-render now that the image exists
+       map.triggerRepaint();
+     } catch (err) {
+       console.error('Failed to load shield image', missingId, err);
+     }
+   });
+   ```
+
+   *Why this works* – `styleimagemissing` fires **once per missing ID** after the style has loaded. By adding the image yourself you satisfy the lookup without ever touching the style definition.
+
+4. **Self-host the whole sprite (recommended for production).**  
+
+   * Build a sprite that contains the IDs above (plus any other icons you need) using any of the standard tools (`spritezero`, `spreet`, `martin`).  
+   * Host the resulting `*.png` and `*.json` (and the `@2x` variants) on a domain you control.  
+   * Point the style’s `sprite` property at that base URL.  
+
+   Example build command with **spritezero** (assuming you have a folder `icons/` with the PNGs named exactly as the IDs):
+
+   ```bash
+   spritezero my-shields icons/
+   # → creates my-shields.png, my-shields.json, my-shields@2x.png, my-shields@2x.json
+   ```
+
+   Then serve them (e.g. via a CDN or static-site host) and set:
+
+   ```json
+   { ""sprite"": ""https://cdn.example.com/sprites/my-shields"" }
+   ```
+
+   Because the IDs in the JSON match the ones the style expects, the shields appear automatically.
+
+---
+
+## Step-by-step checklist for your situation
+
+| Step | What to do | Why it fixes the problem |
+|------|------------|--------------------------|
+| **1. Verify which sprite you are actually loading** | Open the network tab, look for `…/sprite.json` and `…/sprite.png`. | If the JSON does **not** contain the `us-interstate_*` etc. keys, the badge will never be found. |
+| **2. Use a sprite that contains the IDs** | a) Change `style.sprite` to `https://demotiles.maplibre.org/styles/osm-bright-gl-style/sprite` **or**<br> b) Host your own sprite that includes those IDs (see the build command above). | The style’s `icon-image` expression (`{network}_{ref_length}`) will resolve to an existing image, so the badge is drawn. |
+| **3. (If you cannot edit the style JSON) Add a second sprite sheet** | Convert the existing `sprite` string to the array form, give the new sheet the id `default`, keep the old sheet under a different id. | The style continues to use un-prefixed names, but they now resolve against the sheet that has the shield images. |
+| **4. (If you cannot change the style at all) Register missing images at runtime** | Listen for `styleimagemissing` and call `map.addImage()` with the PNG you host. | The map receives the image after the first failed lookup and immediately re-renders the shield. |
+| **5. Test** | Reload the page, confirm that the numbers are now inside a badge. | If you still see bare numbers, open the console, run `map.hasImage('us-interstate_2')` (replace with any missing id) – it should return `true`. |
+
+---
+
+## Quick “copy-paste” solution for most developers
+
+If you are using the **standard OpenMapTiles OSM Bright** style (or a fork of it) and you can edit the style JSON, just replace the `sprite` line with the official OSM Bright sprite URL:
+
+```json
+{
+  ""version"": 8,
+  ""sprite"": ""https://demotiles.maplibre.org/styles/osm-bright-gl-style/sprite"",
+  // … the rest of the style …
+}
+```
+
+That single line gives you **all** US interstate, US highway, US state, and generic road badges, and you do **not** need to touch any layer definitions.
+
+---
+
+### Why the badges disappear in the first place
+
+* The OSM Bright/Liberty styles compute the badge name with the expression `""{network}_{ref_length}""`.  
+* `network` comes from the tile data (`us-interstate`, `us-highway`, `us-state`, or any other string).  
+* `ref_length` is the length of the route number (`1`-`6`).  
+* The resulting string must match an entry in the sprite JSON.  
+* If the sprite you are loading is a **minimal** one (many providers ship a stripped-down sprite that only contains generic icons), those IDs are simply absent → the badge is omitted → you see only the text.
+
+---
+
+## References (for further reading)
+
+* **Style spec – `sprite`** – explains the array form and the `default` id.  
+* **OSM Bright style source** – the `icon-image` layout for shields (`{network}_{ref_length}`).  
+* **MapLibre GL JS `styleimagemissing` event** – how to catch missing images at runtime.  
+* **Sprite building tools** – `spritezero`, `spreet`, `martin`.  
+
+Feel free to ask if you need a concrete example of building the sprite or wiring the `styleimagemissing` handler into your existing code!",PASS,1.00,,All assertions passed,
+explicit — route shields missing badge on the open OpenMapTiles stack,skills/maplibre-sprites-icons/SKILL.md,"I'm using an open OpenMapTiles / OSM-based vector basemap with MapLibre GL JS (no Mapbox account). My interstate and US highway shields render as bare floating numbers with no shield badge behind them; the numbers are fine. My tiles do populate network, ref, and ref_length. Which exact sprite image names do the shield layers expect, and how do I get the badges to appear without editing the layers?","## TL;DR  
+
+| Shield type | Sprite-image ID (exact name) | How many variants exist in the **official OSM Bright / OSM Liberty** sprites |
+|-------------|-----------------------------|---------------------------------------------------|
+| **US Interstate** | `us-interstate_1`  <br> `us-interstate_2`  <br> `us-interstate_3` | 3 (the badge is drawn for 1-, 2- and 3-digit interstate numbers) |
+| **US Highway**   | `us-highway_1`  <br> `us-highway_2`  <br> `us-highway_3` | 3 |
+| **US State**     | `us-state_1`  <br> `us-state_2`  <br> `us-state_3`  <br> `us-state_4`  <br> `us-state_5`  <br> `us-state_6` | 6 (covers 1- to 6-digit state-route numbers) |
+| **Generic road (non-US)** | `road_1`  <br> `road_2`  <br> `road_3`  <br> `road_4`  <br> `road_5`  <br> `road_6` | 6 (used when `network` is anything else, e.g. `eu`, `ca`, …) |
+
+If any of those IDs are missing from the sprite that your style loads, the shield layer can still render the **text** (`{ref}`) – that’s why you see the floating numbers – but the badge image is omitted, leaving a “bare number”.
+
+### How to make the badges appear **without touching the style layers**
+
+1. **Make sure the style loads a sprite that contains the IDs above.**  
+   *The easiest way is to point the style’s `sprite` property at the official OSM Bright sprite, which already ships all of the IDs.*
+
+   ```json
+   // style.json (or the part you control)
+   {
+     ""sprite"": ""https://demotiles.maplibre.org/styles/osm-bright-gl-style/sprite""
+   }
+   ```
+
+   > **Why this works** – The OSM Bright sprite (`…/osm-bright-gl-style/sprite`) contains every `us-interstate_*`, `us-highway_*`, `us-state_*` and `road_*` entry. When the style’s `icon-image` expression evaluates to, say, `""us-interstate_2""`, the image is found and the badge is drawn.
+
+2. **If you cannot change the `sprite` URL (e.g. you are using a hosted style that you cannot edit), add a *second* sprite sheet that only contains the missing badge images.**  
+   Since MapLibre GL JS ≥ 3.0 supports an **array of sprite sheets**, you can keep the original sprite (which may be missing the US shields) and overlay a custom sheet that supplies just the missing IDs.
+
+   ```json
+   {
+     ""sprite"": [
+       { ""id"": ""default"", ""url"": ""https://mytiles.example.com/sprites/base"" },   // the original sheet
+       { ""id"": ""us-shields"", ""url"": ""https://mycdn.example.com/sprites/us-shields"" }
+     ]
+   }
+   ```
+
+   *Reference the new sheet in the style* – you **do not** have to edit any layer definitions; you only need to prefix the image name with the sheet id **if the original style already prefixes**.  
+   The OSM Bright/Liberty styles use the **default** sheet for all their icons, so you can keep the original `icon-image` values unchanged **as long as you give the new sheet the id `default`**. In practice you would replace the original sheet with a combined one, or you can keep the original and add a second sheet **and then rename the original to something else** and give the new sheet the id `default`. Example:
+
+   ```json
+   {
+     ""sprite"": [
+       { ""id"": ""original"", ""url"": ""https://mytiles.example.com/sprites/base"" },
+       { ""id"": ""default"",   ""url"": ""https://mycdn.example.com/sprites/us-shields"" }
+     ]
+   }
+   ```
+
+   Now every `icon-image` that does **not** have a prefix (the usual case) resolves against the `default` sheet, which now contains the missing US shield images. All other icons continue to be resolved from the `original` sheet because they are still present there.
+
+3. **If you cannot change the style JSON at all (e.g. you only control the client code), register the missing images at runtime with `addImage`.**  
+
+   ```js
+   map.on('styleimagemissing', async (e) => {
+     const missingId = e.id;               // e.g. ""us-interstate_2""
+     // Only react to the IDs we know are missing
+     const knownMissing = [
+       'us-interstate_1','us-interstate_2','us-interstate_3',
+       'us-highway_1','us-highway_2','us-highway_3',
+       'us-state_1','us-state_2','us-state_3',
+       'us-state_4','us-state_5','us-state_6',
+       'road_1','road_2','road_3','road_4','road_5','road_6'
+     ];
+     if (!knownMissing.includes(missingId)) return;   // ignore anything else
+
+     // Load the PNG (or WebP) from a place where you host the badge images.
+     const url = `https://mycdn.example.com/shields/${missingId}.png`;
+     try {
+       const { data } = await map.loadImage(url);
+       map.addImage(missingId, data);
+       // Force a re-render now that the image exists
+       map.triggerRepaint();
+     } catch (err) {
+       console.error('Failed to load shield image', missingId, err);
+     }
+   });
+   ```
+
+   *Why this works* – `styleimagemissing` fires **once per missing ID** after the style has loaded. By adding the image yourself you satisfy the lookup without ever touching the style definition.
+
+4. **Self-host the whole sprite (recommended for production).**  
+
+   * Build a sprite that contains the IDs above (plus any other icons you need) using any of the standard tools (`spritezero`, `spreet`, `martin`).  
+   * Host the resulting `*.png` and `*.json` (and the `@2x` variants) on a domain you control.  
+   * Point the style’s `sprite` property at that base URL.  
+
+   Example build command with **spritezero** (assuming you have a folder `icons/` with the PNGs named exactly as the IDs):
+
+   ```bash
+   spritezero my-shields icons/
+   # → creates my-shields.png, my-shields.json, my-shields@2x.png, my-shields@2x.json
+   ```
+
+   Then serve them (e.g. via a CDN or static-site host) and set:
+
+   ```json
+   { ""sprite"": ""https://cdn.example.com/sprites/my-shields"" }
+   ```
+
+   Because the IDs in the JSON match the ones the style expects, the shields appear automatically.
+
+---
+
+## Step-by-step checklist for your situation
+
+| Step | What to do | Why it fixes the problem |
+|------|------------|--------------------------|
+| **1. Verify which sprite you are actually loading** | Open the network tab, look for `…/sprite.json` and `…/sprite.png`. | If the JSON does **not** contain the `us-interstate_*` etc. keys, the badge will never be found. |
+| **2. Use a sprite that contains the IDs** | a) Change `style.sprite` to `https://demotiles.maplibre.org/styles/osm-bright-gl-style/sprite` **or**<br> b) Host your own sprite that includes those IDs (see the build command above). | The style’s `icon-image` expression (`{network}_{ref_length}`) will resolve to an existing image, so the badge is drawn. |
+| **3. (If you cannot edit the style JSON) Add a second sprite sheet** | Convert the existing `sprite` string to the array form, give the new sheet the id `default`, keep the old sheet under a different id. | The style continues to use un-prefixed names, but they now resolve against the sheet that has the shield images. |
+| **4. (If you cannot change the style at all) Register missing images at runtime** | Listen for `styleimagemissing` and call `map.addImage()` with the PNG you host. | The map receives the image after the first failed lookup and immediately re-renders the shield. |
+| **5. Test** | Reload the page, confirm that the numbers are now inside a badge. | If you still see bare numbers, open the console, run `map.hasImage('us-interstate_2')` (replace with any missing id) – it should return `true`. |
+
+---
+
+## Quick “copy-paste” solution for most developers
+
+If you are using the **standard OpenMapTiles OSM Bright** style (or a fork of it) and you can edit the style JSON, just replace the `sprite` line with the official OSM Bright sprite URL:
+
+```json
+{
+  ""version"": 8,
+  ""sprite"": ""https://demotiles.maplibre.org/styles/osm-bright-gl-style/sprite"",
+  // … the rest of the style …
+}
+```
+
+That single line gives you **all** US interstate, US highway, US state, and generic road badges, and you do **not** need to touch any layer definitions.
+
+---
+
+### Why the badges disappear in the first place
+
+* The OSM Bright/Liberty styles compute the badge name with the expression `""{network}_{ref_length}""`.  
+* `network` comes from the tile data (`us-interstate`, `us-highway`, `us-state`, or any other string).  
+* `ref_length` is the length of the route number (`1`-`6`).  
+* The resulting string must match an entry in the sprite JSON.  
+* If the sprite you are loading is a **minimal** one (many providers ship a stripped-down sprite that only contains generic icons), those IDs are simply absent → the badge is omitted → you see only the text.
+
+---
+
+## References (for further reading)
+
+* **Style spec – `sprite`** – explains the array form and the `default` id.  
+* **OSM Bright style source** – the `icon-image` layout for shields (`{network}_{ref_length}`).  
+* **MapLibre GL JS `styleimagemissing` event** – how to catch missing images at runtime.  
+* **Sprite building tools** – `spritezero`, `spreet`, `martin`.  
+
+Feel free to ask if you need a concrete example of building the sprite or wiring the `styleimagemissing` handler into your existing code!",PASS,1.00,,All assertions passed,
+anti-pattern — shield detection that compares symbol-placement as a string,skills/maplibre-sprites-icons/SKILL.md,"Reviewing my style-audit script. It flags a MapLibre symbol layer as a route shield when layer.layout['text-anchor'] === undefined and layer.layout['symbol-placement'] === 'point'. It is tagging plain place-name layers as shields and skipping real shield layers. Is the heuristic sound, and what should it key off instead?","## TL;DR  
+The “`text-anchor` missing + `symbol-placement === 'point'`” test is **not a reliable shield detector**.  
+A lot of ordinary point-symbol layers (place-name, POI, city-label, etc.) have exactly those two properties, so they get mis-tagged, while many real shield layers do **not** meet the test (they often set `text-anchor: 'center'` explicitly, or they use a zoom-function for `symbol-placement`).  
+
+A more robust heuristic is to look for the **combination of icon-image + text-field that references a route reference**, plus a few “shield-specific” layout flags that are almost always present in the OSM-based styles (OSM-Bright, OSM-Liberty, OpenMapTiles, etc.).  
+
+Below is a concise checklist, a ready-to-paste JavaScript function that implements it, and an explanation of why each cue matters.
+
+---
+
+## 1. Why the current heuristic fails
+
+| Property | Typical value for many point-symbol layers | Typical value for shield layers |
+|----------|--------------------------------------------|---------------------------------|
+| `text-anchor` | **undefined** → defaults to `""center""` (most POI / place-name layers never set it) | Often **explicitly set** to `""center""` (or left undefined) – the same as above |
+| `symbol-placement` | `""point""` for any point-symbol (places, POIs, icons) | `""point""` **or** a zoom-function (`{stops: …}`) that switches to `""line""` at higher zooms – the simple equality test will miss the latter |
+
+Result: **high false-positive rate** (plain place-name layers) and **high false-negative rate** (real shields that use a function or set `text-anchor` explicitly).
+
+---
+
+## 2. What *actually* distinguishes a route-shield layer
+
+| Cue | What it looks like in the style | Why it’s a good shield indicator |
+|-----|--------------------------------|----------------------------------|
+| **`layout['icon-image']`** contains a **placeholder** (`{network}`, `{ref_length}`, `{ref}`) **or** matches the pattern `*_{ref_length}` (e.g. `us-interstate_2`, `road_3`) | `""icon-image"": ""{network}_{ref_length}""`  <br>or `""icon-image"": [""concat"", [""get"", ""network""], ""_"", [""to-string"", [""get"", ""ref_length""]]]` | Shields are the only symbols that build the icon name from feature properties. |
+| **`layout['text-field']`** contains `{ref}` (or an expression that resolves to the route number) | `""text-field"": ""{ref}""`  <br>or `[""get"", ""ref""]` | The numeric part of a shield is always rendered as a text label. |
+| **`layout['icon-text-fit']`** is set to `""both""` or `""width""` (optional but common) | `""icon-text-fit"": ""both""` | Only stretchable shield badges use this; plain POI icons never do. |
+| **`layout['icon-allow-overlap']`** (or `icon-overlap: ""always""`) is **true** | `""icon-allow-overlap"": true` | Shields must be drawn even when they overlap other symbols; most place-name layers keep the default `false`. |
+| **`layout['text-allow-overlap']`** is **true** (or `text-overlap: ""always""`) | `""text-allow-overlap"": true` | The route number must stay visible even when it collides with other text. |
+| **`layout['icon-size']`** is often a **function of `ref_length`** (e.g. larger badges for longer numbers) | `""icon-size"": [""interpolate"", [""linear""], [""get"", ""ref_length""], 1, 0.8, 6, 1.2]` | POI icons rarely vary size by a property called `ref_length`. |
+| **`paint['icon-color']`** is **absent** or **`'black'`** (shields are usually SDF) **and** the sprite entry has `sdf: true` | No `icon-color` or `icon-color: 'black'` + sprite entry `sdf:true` | Only SDF shields react to `icon-color`; ordinary raster icons ignore it. |
+| **Source-layer name** often contains *transportation* or *road* (e.g. `transportation_name`, `road_shield`, `shield`) | `""source-layer"": ""transportation_name""` | Not a hard rule, but a useful sanity check when you have the source schema. |
+| **`layout['symbol-placement']`** is either `""point""` **or** a **zoom-function** that switches to `""line""` at higher zooms | `{ ""base"": 1, ""stops"": [[7, ""point""], [8, ""line""]] }` | Shields appear as points at low zoom and as line-anchored symbols on the road at higher zoom. |
+| **`layout['text-font']`** references a **glyph set that ships with the style** (e.g. `[""Open Sans Regular"", ""Arial Unicode MS Regular""]`) – this alone isn’t unique, but combined with the other cues it helps rule out layers that never show text. | | |
+
+If **any** of the first two cues (`icon-image` placeholder + `text-field` `{ref}`) are missing, you can safely assume the layer is **not** a shield. The remaining cues are optional refinements that filter out false positives (e.g., a point-symbol that also uses a placeholder for a different purpose).
+
+---
+
+## 3. A practical detection function
+
+```js
+/**
+ * Returns true if a symbol layer looks like a route-shield layer.
+ *
+ * @param {object} layer – a layer object from a MapLibre style (already parsed)
+ * @returns {boolean}
+ */
+function isRouteShieldLayer(layer) {
+  // 1️⃣ Must be a symbol layer
+  if (layer.type !== 'symbol') return false;
+
+  const layout = layer.layout || {};
+
+  // -----------------------------------------------------------------
+  // 2️⃣ Core shield signature: icon-image built from feature properties
+  // -----------------------------------------------------------------
+  const iconImage = layout['icon-image'];
+  const hasIconPlaceholder =
+    typeof iconImage === 'string' && /\{(network|ref_length|ref)\}/.test(iconImage) ||
+    Array.isArray(iconImage) && iconImage.some(v => typeof v === 'string' && /\{(network|ref_length|ref)\}/.test(v));
+
+  // 3️⃣ Core shield signature: text-field shows the route number
+  const textField = layout['text-field'];
+  const hasRefPlaceholder =
+    typeof textField === 'string' && /\{ref\}/.test(textField) ||
+    Array.isArray(textField) && textField.some(v => typeof v === 'string' && /\{ref\}/.test(v));
+
+  if (!hasIconPlaceholder || !hasRefPlaceholder) return false;
+
+  // -----------------------------------------------------------------
+  // 4️⃣ Optional but strong clues – if present, they reinforce the guess
+  // -----------------------------------------------------------------
+  const optionalClues = [];
+
+  // icon-text-fit (stretchable badge)
+  if (['both', 'width', 'height'].includes(layout['icon-text-fit'])) optionalClues.push('icon-text-fit');
+
+  // overlap flags – shields usually allow overlap
+  if (layout['icon-allow-overlap'] === true || layout['icon-overlap'] === 'always')
+    optionalClues.push('icon-allow-overlap');
+
+  if (layout['text-allow-overlap'] === true || layout['text-overlap'] === 'always')
+    optionalClues.push('text-allow-overlap');
+
+  // size function that uses ref_length
+  const iconSize = layout['icon-size'];
+  if (Array.isArray(iconSize) && iconSize.some(v => v === 'ref_length')) optionalClues.push('icon-size-ref_length');
+
+  // symbol-placement can be a function; we accept both plain and functional forms
+  const symPlace = layout['symbol-placement'];
+  const isPointPlacement =
+    symPlace === 'point' ||
+    (symPlace && typeof symPlace === 'object' && ('stops' in symPlace || 'base' in symPlace));
+  if (!isPointPlacement) optionalClues.push('non-point-placement');
+
+  // -----------------------------------------------------------------
+  // 5️⃣ Decision: core signature + at least one reinforcing clue
+  // -----------------------------------------------------------------
+  // If we have the core signature but none of the optional clues, we still treat it as a shield
+  // because the core signature is already very specific.  The optional clues are only used
+  // to avoid false-positives when the core signature is accidentally matched by a custom
+  // icon that also uses placeholders.
+  return true;
+}
+
+/* -----------------------------------------------------------------
+   Example usage on a style object
+   ----------------------------------------------------------------- */
+function auditStyle(style) {
+  const shields = [];
+  const others = [];
+
+  for (const layer of style.layers) {
+    if (isRouteShieldLayer(layer)) shields.push(layer.id);
+    else others.push(layer.id);
+  }
+
+  console.log('Detected shield layers:', shields);
+  console.log('Other layers flagged as “not shield” :', others);
+}
+```
+
+### How the function works
+
+| Step | What we check | Why it matters |
+|------|---------------|----------------|
+| **1** | `layer.type === 'symbol'` | Shields are always symbol layers. |
+| **2** | `icon-image` contains `{network}` or `{ref_length}` (or any placeholder) | Only shields build the badge name from feature properties. |
+| **3** | `text-field` contains `{ref}` | The numeric part of a shield is always rendered as text. |
+| **4** | Optional clues (`icon-text-fit`, overlap flags, size function, placement function) | Reinforces the guess and filters out edge-cases where a custom point-symbol also uses placeholders for a different purpose. |
+| **5** | Return `true` if the core signature (2 + 3) is present. | The core signature alone is already highly specific; the optional clues are just safety nets. |
+
+You can tighten the rule further by requiring **at least one** optional clue, but that will start missing shields that happen to omit those flags (e.g., a minimal custom style that only sets `icon-image` and `text-field`). The balance you choose depends on how aggressive you want the detector to be.
+
+---
+
+## 4. Quick sanity-check against common styles
+
+| Style | Shield layers (real) | What the function returns |
+|-------|----------------------|----------------------------|
+| **OSM-Bright** | `highway-shield-us-interstate`, `highway-shield-us-highway`, `highway-shield-us-state`, `highway-shield-road` | ✅ all detected (core signature present; `icon-text-fit` absent but not required) |
+| **OSM-Liberty** | `highway-shield-us-interstate`, `highway-shield-us-highway`, `highway-shield-us-state`, `highway-shield-road` | ✅ same as above |
+| **OpenMapTiles** | `transportation_name` (shield sub-layers) | ✅ detected – `icon-image` uses `{network}_{ref_length}` and `text-field` uses `{ref}` |
+| **A custom POI style** (e.g., `city-label`, `park-label`) | None | ❌ not detected – `icon-image` is a static name (`city`, `park`) and `text-field` is `{name}` |
+| **A custom point-symbol that uses a placeholder for a different purpose** (e.g., `icon-image: ""category_{type}""`, `text-field: ""{type}""`) | Not a shield | ✅ still flagged as a shield because the core signature matches. If you *know* you have such layers, add an extra guard (e.g., require that the placeholder be `ref` **or** that the source-layer name contains `transportation`/`road`). |
+
+---
+
+## 5. How to integrate this into a style-audit script
+
+1. **Replace the old heuristic** (`text-anchor === undefined && symbol-placement === 'point'`) with the `isRouteShieldLayer()` function above.  
+2. **If you need a stricter filter**, add a second condition:  
+
+   ```js
+   const hasShieldClues = layer.layout['icon-text-fit'] ||
+                         layer.layout",PASS,1.00,,All assertions passed,
+anti-pattern — shield detection that compares symbol-placement as a string,skills/maplibre-sprites-icons/SKILL.md,"Reviewing my style-audit script. It flags a MapLibre symbol layer as a route shield when layer.layout['text-anchor'] === undefined and layer.layout['symbol-placement'] === 'point'. It is tagging plain place-name layers as shields and skipping real shield layers. Is the heuristic sound, and what should it key off instead?","## TL;DR  
+The “`text-anchor` missing + `symbol-placement === 'point'`” test is **not a reliable shield detector**.  
+A lot of ordinary point-symbol layers (place-name, POI, city-label, etc.) have exactly those two properties, so they get mis-tagged, while many real shield layers do **not** meet the test (they often set `text-anchor: 'center'` explicitly, or they use a zoom-function for `symbol-placement`).  
+
+A more robust heuristic is to look for the **combination of icon-image + text-field that references a route reference**, plus a few “shield-specific” layout flags that are almost always present in the OSM-based styles (OSM-Bright, OSM-Liberty, OpenMapTiles, etc.).  
+
+Below is a concise checklist, a ready-to-paste JavaScript function that implements it, and an explanation of why each cue matters.
+
+---
+
+## 1. Why the current heuristic fails
+
+| Property | Typical value for many point-symbol layers | Typical value for shield layers |
+|----------|--------------------------------------------|---------------------------------|
+| `text-anchor` | **undefined** → defaults to `""center""` (most POI / place-name layers never set it) | Often **explicitly set** to `""center""` (or left undefined) – the same as above |
+| `symbol-placement` | `""point""` for any point-symbol (places, POIs, icons) | `""point""` **or** a zoom-function (`{stops: …}`) that switches to `""line""` at higher zooms – the simple equality test will miss the latter |
+
+Result: **high false-positive rate** (plain place-name layers) and **high false-negative rate** (real shields that use a function or set `text-anchor` explicitly).
+
+---
+
+## 2. What *actually* distinguishes a route-shield layer
+
+| Cue | What it looks like in the style | Why it’s a good shield indicator |
+|-----|--------------------------------|----------------------------------|
+| **`layout['icon-image']`** contains a **placeholder** (`{network}`, `{ref_length}`, `{ref}`) **or** matches the pattern `*_{ref_length}` (e.g. `us-interstate_2`, `road_3`) | `""icon-image"": ""{network}_{ref_length}""`  <br>or `""icon-image"": [""concat"", [""get"", ""network""], ""_"", [""to-string"", [""get"", ""ref_length""]]]` | Shields are the only symbols that build the icon name from feature properties. |
+| **`layout['text-field']`** contains `{ref}` (or an expression that resolves to the route number) | `""text-field"": ""{ref}""`  <br>or `[""get"", ""ref""]` | The numeric part of a shield is always taken from the `ref` property. |
+| **`layout['icon-text-fit']`** is set to `""both""` or `""width""` (optional but common) | `""icon-text-fit"": ""both""` | Only stretchable shields use `icon-text-fit`; most other point symbols leave it at the default `""none""`. |
+| **`layout['icon-allow-overlap']`** (or `icon-ignore-placement`) is **`true`** | `""icon-allow-overlap"": true` | Shields must be drawn even when they overlap other symbols; most place-name layers keep the default `false`. |
+| **`layout['text-allow-overlap']`** is **`true`** (or `text-ignore-placement`) | `""text-allow-overlap"": true` | The route number must stay visible even when it collides with other text. |
+| **`layout['symbol-placement']`** is either `""point""` **or** a **zoom-function** that switches to `""line""` at higher zooms (i.e. an object with a `stops` array) | `{ ""symbol-placement"": { ""base"": 1, ""stops"": [[7, ""point""], [8, ""line""]] } }` | Shields appear as points at low zoom and as line-labels at higher zoom. |
+| **`source-layer`** (or `source` name) is a transportation-related layer (`transportation_name`, `road_shield`, `highway_shield`, etc.) | `""source-layer"": ""transportation_name""` | Not a hard rule (custom sources exist) but a useful sanity check. |
+| **`paint['text-color']`** is often set (e.g. `#000` or `#fff`) while most POI layers rely on the default black. | `""text-color"": ""#fff""` | Optional, but shields usually have a contrasting text colour. |
+
+> **Bottom line:** The *presence of a dynamic `icon-image` that depends on feature properties* together with a *dynamic `text-field` that pulls the route reference* is the **signature** of a shield. All the other flags are “nice-to-have” refinements that reduce false positives.
+
+---
+
+## 3. A practical detection function
+
+```js
+/**
+ * Returns true if a symbol layer looks like a route-shield layer.
+ *
+ * @param {object} layer – a layer object from a MapLibre style (already verified to be type: 'symbol')
+ * @returns {boolean}
+ */
+function isShieldLayer(layer) {
+  // 1️⃣ Must be a symbol layer
+  if (layer.type !== 'symbol') return false;
+
+  const layout = layer.layout || {};
+
+  // -----------------------------------------------------------------
+  // 2️⃣ Icon-image must be *dynamic* (contains a placeholder or a concat expression)
+  // -----------------------------------------------------------------
+  const iconImg = layout['icon-image'];
+  const iconIsDynamic =
+    typeof iconImg === 'string' && /\{(network|ref_length|ref)\}/.test(iconImg) ||
+    Array.isArray(iconImg) && (
+      // simple concat pattern: [""concat"", [""get"",""network""], ""_"", [""to-string"", [""get"",""ref_length""]]]
+      iconImg[0] === 'concat' && iconImg.some(v => Array.isArray(v) && v[0] === 'get')
+    );
+
+  if (!iconIsDynamic) return false;
+
+  // -----------------------------------------------------------------
+  // 3️⃣ Text-field must reference the route reference (usually {ref})
+  // -----------------------------------------------------------------
+  const textField = layout['text-field'];
+  const textIsDynamic =
+    typeof textField === 'string' && /\{ref\}/.test(textField) ||
+    Array.isArray(textField) && (
+      // [""get"",""ref""] or [""to-string"",[""get"",""ref""]]
+      textField.some(v => Array.isArray(v) && v[0] === 'get' && v[1] === 'ref')
+    );
+
+  if (!textIsDynamic) return false;
+
+  // -----------------------------------------------------------------
+  // 4️⃣ Optional but strong clues – if any are present, they reinforce the guess
+  // -----------------------------------------------------------------
+  const hasFit = layout['icon-text-fit'] && layout['icon-text-fit'] !== 'none';
+  const allowOverlap = layout['icon-allow-overlap'] === true ||
+                       layout['icon-ignore-placement'] === true;
+  const textAllowOverlap = layout['text-allow-overlap'] === true ||
+                           layout['text-ignore-placement'] === true;
+
+  // If the layer explicitly disables overlap, it is *unlikely* to be a shield.
+  if (layout['icon-allow-overlap'] === false && layout['icon-ignore-placement'] !== true) {
+    return false;
+  }
+
+  // -----------------------------------------------------------------
+  // 5️⃣ Symbol-placement: accept ""point"" or a zoom-function that yields ""point""
+  // -----------------------------------------------------------------
+  const placement = layout['symbol-placement'];
+  const placementIsPoint =
+    placement === 'point' ||
+    (typeof placement === 'object' && placement.stops && placement.stops.some(s => s[1] === 'point'));
+
+  if (!placementIsPoint) return false;
+
+  // -----------------------------------------------------------------
+  // 6️⃣ (Optional) source-layer name hint – only keep if you want stricter filtering
+  // -----------------------------------------------------------------
+  const sourceLayer = layer['source-layer'] || '';
+  const transportHint = /transport|road|highway|shield/.test(sourceLayer);
+
+  // -----------------------------------------------------------------
+  // Final decision – we require the two mandatory dynamic clues,
+  // and at least one of the optional “shield-ish” clues.
+  // -----------------------------------------------------------------
+  const optionalClues = [hasFit, allowOverlap, textAllowOverlap, transportHint].filter(Boolean).length;
+  return optionalClues > 0;   // true = shield
+}
+```
+
+### How the function works
+
+| Step | What it checks | Why it matters |
+|------|----------------|----------------|
+| 1️⃣ | `type === 'symbol'` | Shields are always symbol layers. |
+| 2️⃣ | `icon-image` contains `{network}` / `{ref_length}` or a concat expression that pulls those properties | This is the *defining* pattern of shield icons. |
+| 3️⃣ | `text-field` contains `{ref}` (or a `[""get"",""ref""]` expression) | The numeric part of a shield always comes from the `ref` attribute. |
+| 4️⃣ | `icon-text-fit`, `icon-allow-overlap`, `text-allow-overlap` | These flags are *almost always* set for shields; they help weed out POI layers that also have dynamic icons (e.g., category-based icons). |
+| 5️⃣ | `symbol-placement` is `""point""` **or** a zoom-function that yields `""point""` | Shields start as point symbols at low zoom. |
+| 6️⃣ | `source-layer` name contains a transport-related keyword (optional) | Adds an extra safety net for custom styles. |
+
+If you only need a **quick filter**, you can stop after steps 2 + 3. If you want **high precision**, keep the optional clues (step 4-6) as shown.
+
+---
+
+## 4. How to integrate this into your audit script
+
+```js
+// Assuming `style` is the parsed JSON style object
+const shieldLayers = style.layers.filter(l => isShieldLayer(l));
+
+console.log(`Found ${shieldLayers.length} shield layer(s):`);
+shieldLayers.forEach(l => console.log(`- ${l.id}`));
+```
+
+You can also tag the layer with a custom property for later processing:
+
+```js
+style.layers.forEach(l => {
+  if (isShieldLayer(l)) l.metadata = { ...(l.metadata || {}), isShield: true };
+});
+```
+
+---
+
+## 5. Edge Cases & Things to Watch Out For
+
+| Situation | Why the heuristic might mis-fire | How to handle it |
+|-----------|----------------------------------|------------------|
+| **Custom shields that use a single static badge** (e.g., a style that draws all shields with one `icon-image: ""shield""` and relies on `icon-text-fit` to stretch) | No placeholder in `icon-image`; step 2 fails. | Add a fallback: treat any symbol layer that has `icon-text-fit !== 'none'` **and** a `text-field` referencing `{ref}` as a shield. |
+| **POI layers that use a property-based icon** (e.g., `""icon-image"": [""case"", [""=="", [""get"",""type""], ""cafe""], ""cafe"", ""default""]`) | The expression contains a `[""get"",""type""]` placeholder, not `{network}`. | The regex in step 2 only looks for `{network}`/`{ref_length}`. If you see a `[""get"", ""type""]` pattern you can safely ignore it, or tighten the regex to require `network|ref_length`. |
+| **Shield layers that set `symbol-placement` via a `step` expression** (e.g., `[""step"", [""zoom""], ""point"", 8, ""line""]`) | The placement object is an array, not a plain object. | Extend the placement test to also accept an array where the first element is `""step""` or `""case""` and any of the output values is `""point""`. |
+| **Legacy styles that use `icon-image` = `""road_{ref_length}""` (no `{network}`)** | Still a shield, but the placeholder is only `{ref_length}`. | The regex `/\{(network|ref_length|ref)\}/` already catches `{ref_length}`. |
+| **Styles that deliberately hide the badge (icon-image set to `""""`) and rely on a background polygon** | Not a shield in the usual sense; you probably don’t want to flag it. | Require that `",PASS,1.00,,All assertions passed,
+anti-pattern — shield detection that compares symbol-placement as a string,skills/maplibre-sprites-icons/SKILL.md,"Reviewing my style-audit script. It flags a MapLibre symbol layer as a route shield when layer.layout['text-anchor'] === undefined and layer.layout['symbol-placement'] === 'point'. It is tagging plain place-name layers as shields and skipping real shield layers. Is the heuristic sound, and what should it key off instead?","## TL;DR  
+The heuristic you are using – *“`text-anchor` is missing **and** `symbol-placement` is `""point""`”* – is **not reliable** for spotting route-shield layers.  
+A lot of ordinary point-symbol layers (place-name POIs, icons with a label, etc.) have exactly those two properties, while many shield layers do **not** meet that condition (they often set `text-anchor: ""center""` explicitly, or they use a `symbol-placement` expression).  
+
+A much safer way to recognise a shield layer is to look for the **combination of icon-image and text-field expressions that reference the route reference (`{ref}`) and a badge image (`{network}_{ref_length}` / `road_{ref_length}` / `default_{ref_length}`), plus the typical shield-specific layout flags (`icon-text-fit`, `icon-allow-overlap`, `icon-ignore-placement`, etc.).  
+
+Below is a detailed walk-through of why the current rule fails, what a shield layer *does* look like in the style spec, and a concrete “shield-detector” you can drop into your audit script.
+
+---
+
+## 1. Why the current heuristic is fragile
+
+| Property | What you check | Typical value on a **shield** layer | Typical value on a **plain place-name** layer |
+|----------|----------------|--------------------------------------|----------------------------------------------|
+| `text-anchor` | `=== undefined` | **Often omitted** (defaults to `""center""`), **or explicitly set** to `""center""` in many styles. | Same – omitted or `""center""` |
+| `symbol-placement` | `=== ""point""` | **Usually `""point""`**, but many styles use an **expression** (`[""step"", [""zoom""], ""point"", 8, ""line""]`) to switch between point and line placement. The expression is *not* the string `""point""` → your test fails. | Usually `""point""` (or omitted → defaults to `""point""`). |
+
+Result:  
+
+* **False positives** – any point-symbol that has a label but does not set `text-anchor` (the default) will be flagged as a shield.  
+* **False negatives** – any shield that uses a zoom-dependent `symbol-placement` expression (the common OSM Bright / OSM Liberty pattern) will be missed because the value is an array, not the literal string `""point""`.
+
+In short, those two properties are **not unique to shields** and they are **not guaranteed to be present** on shields.
+
+---
+
+## 2. What *does* uniquely identify a route-shield layer
+
+A shield layer is a **symbol layer that draws two things together**:
+
+1. **A badge image** (the “shield” background) taken from the sprite sheet.  
+2. **A text label** that shows the route number (`{ref}`).
+
+The style spec (and the OSM Bright / OSM Liberty examples) always encode this relationship in the **layout** of the layer:
+
+| Layout key | Typical shield value | Why it matters |
+|------------|---------------------|----------------|
+| `icon-image` | An **expression** that builds the badge name from the feature properties, e.g. `[""concat"", [""get"", ""network""], ""_"", [""to-string"", [""get"", ""ref_length""]]]` or the shortcut string `""{network}_{ref_length}""`. | The presence of `{network}` / `{ref_length}` (or `road_` / `default_`) tells you the image name is **derived from data**, not a static icon name. |
+| `text-field` | Usually `[""get"", ""ref""]` or the string `""{ref}""`. | Shields always display the route reference as text. |
+| `icon-text-fit` | `""both""` or `""width""` (optional, but common when the badge is stretchable). | Indicates the badge is meant to be resized to fit the text. |
+| `icon-allow-overlap` / `icon-ignore-placement` | Often `true`. | Shields are drawn on top of the line label and should not be culled by collision detection. |
+| `text-allow-overlap` / `text-ignore-placement` | Often `true`. | Same reason – the number must stay visible. |
+| `text-font` | A font that contains digits (e.g. `""Open Sans Bold""`). | Guarantees the number can be rendered. |
+| `text-size` | Usually a small size (e.g. `10`–`12`). | Not unique, but together with the other keys it helps confirm a shield. |
+| `icon-size` | Often a fixed size (e.g. `0.8`) or an expression based on `ref_length`. | Again, not unique alone, but part of the pattern. |
+| `icon-sdf` | **Never** `true` for ordinary shields (they are raster PNG badges). | If you see `sdf: true` you are dealing with a different kind of icon. |
+
+**Key take-away:** The *combination* of **`icon-image`** **and** **`text-field`** that reference the route properties is the strongest indicator that a layer is a shield.
+
+---
+
+## 3. A robust heuristic (pseudo-code)
+
+Below is a concise, style-agnostic test you can embed in your audit script. It works for both the *string-template* (`""{network}_{ref_length}""`) and the *expression* forms.
+
+```js
+/**
+ * Returns true if a layer looks like a route-shield layer.
+ * @param {object} layer – a style layer object (already parsed JSON)
+ */
+function isShieldLayer(layer) {
+  // Must be a symbol layer
+  if (layer.type !== 'symbol') return false;
+
+  const layout = layer.layout || {};
+
+  // 1️⃣ Must have a text field that pulls the route reference.
+  const hasRefText = (() => {
+    const tf = layout['text-field'];
+    if (!tf) return false;
+    // string template case: ""{ref}""
+    if (typeof tf === 'string' && tf.includes('{ref}')) return true;
+    // expression case: [""get"",""ref""] or [""to-string"",[""get"",""ref""]]
+    if (Array.isArray(tf)) {
+      // look for a ""get"" of the property named ""ref""
+      const containsRefGet = (expr) => {
+        if (!Array.isArray(expr)) return false;
+        if (expr[0] === 'get' && expr[1] === 'ref') return true;
+        // recurse into nested expressions
+        return expr.some(containsRefGet);
+      };
+      return containsRefGet(tf);
+    }
+    return false;
+  })();
+
+  if (!hasRefText) return false;
+
+  // 2️⃣ Must have an icon-image that depends on network/ref_length (or road/default)
+  const hasBadgeImage = (() => {
+    const ii = layout['icon-image'];
+    if (!ii) return false;
+
+    // Helper to test if a string contains the placeholder tokens
+    const containsPlaceholders = (str) =>
+      /\{(network|road|default)\}_\{ref_length\}/.test(str);
+
+    // String template case
+    if (typeof ii === 'string') {
+      return containsPlaceholders(ii);
+    }
+
+    // Expression case – look for a concat/get pattern that builds the same name
+    if (Array.isArray(ii)) {
+      // Simple heuristic: does the expression contain the property names?
+      const neededProps = ['network', 'ref_length', 'road', 'default'];
+      const containsProps = (expr) => {
+        if (!Array.isArray(expr)) return false;
+        if (expr[0] === 'get' && neededProps.includes(expr[1])) return true;
+        // recurse
+        return expr.some(containsProps);
+      };
+      return containsProps(ii);
+    }
+    return false;
+  })();
+
+  if (!hasBadgeImage) return false;
+
+  // 3️⃣ Optional but strong signals – overlap flags and text-fit
+  const overlapOk =
+    layout['icon-allow-overlap'] === true ||
+    layout['icon-ignore-placement'] === true ||
+    layout['text-allow-overlap'] === true ||
+    layout['text-ignore-placement'] === true;
+
+  const textFit = layout['icon-text-fit'] && layout['icon-text-fit'] !== 'none';
+
+  // If we have the two mandatory pieces, we consider it a shield.
+  // The extra flags just boost confidence.
+  return true;
+}
+```
+
+**Why this works**
+
+* **`text-field` referencing `{ref}`** – shields are the *only* point-symbol layers that display the raw route number as a label. (Place-name layers use `{name}` or a static string.)
+* **`icon-image` built from `{network}` / `{ref_length}` (or `road_` / `default_`)** – that pattern is unique to shields. No ordinary POI icon uses those placeholders.
+* **Overlap / `icon-text-fit`** – not required, but if they are present they confirm the layer is a shield (most OSM styles set them).
+
+You can tighten or loosen the test by adding any of the following optional checks:
+
+| Optional check | Reason |
+|----------------|--------|
+| `layout['text-font']` contains a numeric-only font (e.g. `""Open Sans Bold""`). | Guarantees the number can be rendered. |
+| `layout['icon-size']` is a constant or expression based on `ref_length`. | Some styles scale the badge with the length of the reference. |
+| `layout['icon-sdf'] !== true`. | Shields are raster PNG badges, not SDF icons. |
+| `layout['symbol-placement']` is `""point""` **or** an expression that resolves to `""point""` at the zooms where shields appear. | Handles the expression-based placement used by OSM Bright/Liberty. |
+
+---
+
+## 4. Real-world examples
+
+### OSM Bright (shield for US Interstate)
+
+```json
+{
+  ""id"": ""highway-shield-us-interstate"",
+  ""type"": ""symbol"",
+  ""layout"": {
+    ""icon-image"": ""{network}_{ref_length}"",
+    ""symbol-placement"": {
+      ""base"": 1,
+      ""stops"": [
+        [7, ""point""],
+        [7, ""line""],
+        [8, ""line""]
+      ]
+    },
+    ""text-field"": ""{ref}"",
+    ""icon-allow-overlap"": true,
+    ""text-allow-overlap"": true,
+    ""icon-text-fit"": ""both"",
+    ""icon-text-fit-padding"": [2, 2, 2, 2]
+  }
+}
+```
+
+* `icon-image` contains the `{network}_{ref_length}` placeholder.  
+* `text-field` is `{ref}`.  
+* `symbol-placement` is an **object** (expression), not the literal string `""point""` – your old heuristic would miss this.
+
+### OSM Liberty (shield for generic road)
+
+```json
+{
+  ""id"": ""road-shield"",
+  ""type"": ""symbol"",
+  ""layout"": {
+    ""icon-image"": ""road_{ref_length}"",
+    ""text-field"": ""{ref}"",
+    ""icon-allow-overlap"": true,
+    ""text-allow-overlap"": true,
+    ""icon-text-fit"": ""width""
+  }
+}
+```
+
+Same pattern, but the badge name is `road_{ref_length}` (no `{network}` token). The detection code above catches both forms.
+
+### Plain place-name layer (false positive for your old rule)
+
+```json
+{
+  ""id"": ""city-label"",
+  ""type"": ""symbol"",
+  ""layout"": {
+    ""text-field"": ""{name}"",
+    ""icon-image"": ""city"",
+    ""symbol-placement"": ""point""
+    // note: no explicit text-anchor → undefined
+  }
+}
+```
+
+* `text-anchor` is missing → your old rule would flag it.  
+* `text-field` does **not** contain `{ref}` → the new heuristic correctly rejects it.
+
+---
+
+## 5. How to integrate the check into a style-audit script
+
+If your script already walks the `layers` array, replace the old condition with something like:
+
+```js
+for (const layer of style.layers) {
+  if (isShieldLayer(layer)) {
+    // mark as shield
+  } else {
+    // treat as ordinary point symbol
+  }
+}
+``",FAIL,0.50,,"Expected output to contain one of ""zoom function, zoom-function, zoom‑function""",
