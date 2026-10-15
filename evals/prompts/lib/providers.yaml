@@ -17,3 +17,7 @@ config:
   # The reasoning trace is not part of the answer, so it is excluded from the graded output:
   # assertions and the judge grade the answer only. The model still reasons; budget unchanged.
   showThinking: false
+# The generator often writes a hyphenated name in prose with U+2011 (non-breaking hyphen), which
+# an `icontains` value typed with "-" never matches. This turns each one into "-" before any
+# assertion or the judge reads the answer.
+transform: output.replace(/\u2011/g, '-')
