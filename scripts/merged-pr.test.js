@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { isAutomationCommit, selectPullRequest } from './merged-pr.js';
+import { isAutomationCommit, unrecordedPulls } from './merged-pr.js';
 
 describe('isAutomationCommit', () => {
   it('skips changelog and release commits', () => {
@@ -16,17 +16,43 @@ describe('isAutomationCommit', () => {
   });
 });
 
-describe('selectPullRequest', () => {
-  it('prefers the merged PR when a commit belongs to several', () => {
-    const pulls = [
-      { number: 1, merged_at: null },
-      { number: 2, merged_at: '2026-08-25T00:00:00Z' }
-    ];
-    assert.equal(selectPullRequest(pulls).number, 2);
+describe('unrecordedPulls', () => {
+  const url = (n) =>
+    `https://github.com/maplibre/maplibre-agent-skills/pull/${n}`;
+  const pull = (number, merged_at, extra = {}) => ({
+    number,
+    html_url: url(number),
+    merged_at,
+    merge_commit_sha: `sha${number}`,
+    body: `body ${number}`,
+    ...extra
   });
-  it('falls back to the first PR, or null', () => {
-    assert.equal(selectPullRequest([{ number: 7 }]).number, 7);
-    assert.equal(selectPullRequest([]), null);
-    assert.equal(selectPullRequest(undefined), null);
+  const since = '2026-10-08T19:00:00Z';
+
+  it('returns the merged PRs the changelog lacks, oldest first', () => {
+    const changelog = `- recorded ([#118](${url(118)}))`;
+    const pulls = [
+      pull(120, '2026-10-15T19:32:37Z'),
+      pull(118, '2026-10-15T19:32:17Z'),
+      pull(110, '2026-10-15T19:32:21Z'),
+      pull(117, null),
+      pull(90, '2026-09-30T00:00:00Z')
+    ];
+    assert.deepEqual(
+      unrecordedPulls(pulls, changelog, { since, sha: 'sha120' }),
+      [
+        { number: 110, url: url(110), body: 'body 110', trigger: false },
+        { number: 120, url: url(120), body: 'body 120', trigger: true }
+      ]
+    );
+  });
+
+  it('reads a missing body as empty', () => {
+    const [found] = unrecordedPulls(
+      [pull(5, '2026-10-15T00:00:00Z', { body: null })],
+      '',
+      { since, sha: 'x' }
+    );
+    assert.equal(found.body, '');
   });
 });
