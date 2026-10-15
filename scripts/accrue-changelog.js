@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { setOutputs } from './lib/github-output.js';
 import {
   parseChangelogField,
   BUMP_ORDER,
@@ -78,59 +79,55 @@ export function accrueEntry(
   return { changelog: result, changed: true, effectiveBump };
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const prNumber = process.env.PR_NUMBER;
-  const prUrl = process.env.PR_URL;
-  let prBody;
-  if (process.env.PR_BODY) {
-    prBody = process.env.PR_BODY;
-  } else if (process.env.PR_BODY_FILE) {
-    prBody = readFileSync(process.env.PR_BODY_FILE, 'utf8');
-  } else {
-    console.error('Set PR_BODY or PR_BODY_FILE');
-    process.exit(1);
-  }
-
-  if (!prNumber || !prUrl) {
-    console.error('Required env vars: PR_NUMBER, PR_URL');
-    process.exit(1);
-  }
-
-  const parsed = parseChangelogField(prBody);
-
-  if (parsed.errors.length > 0) {
-    // The PR-time check is the gate; at merge time a missing or invalid field
-    // (a PR opened before the template carried it, or edited after the check ran)
-    // is surfaced as a warning and the entry is left for a human to add.
-    console.log(
-      `::warning::PR #${prNumber} has no usable Changelog field, so nothing was recorded under [Unreleased]: ${parsed.errors.join('; ')}`
+/**
+ * Records each PR's Changelog field in turn, oldest first. A PR with no usable
+ * field, or with `Bump: none`, is skipped. A missing field is a `::warning::`
+ * only on the PR that triggered the run: the PR-time check is the gate, and the
+ * same PR would otherwise warn on every run for a week.
+ */
+export function accrueAll(changelog, pulls, log = console.log) {
+  const recorded = [];
+  let current = changelog;
+  for (const pr of pulls) {
+    const parsed = parseChangelogField(pr.body ?? '');
+    if (parsed.errors.length > 0) {
+      const line = `PR #${pr.number} has no usable Changelog field, so nothing was recorded under [Unreleased]: ${parsed.errors.join('; ')}`;
+      log(pr.trigger ? `::warning::${line}` : line);
+      continue;
+    }
+    if (parsed.bump === 'none') {
+      log(`PR #${pr.number}: Bump is none — no CHANGELOG entry needed.`);
+      continue;
+    }
+    const result = accrueEntry(current, {
+      category: parsed.category,
+      entry: parsed.entry,
+      bump: parsed.bump,
+      prNumber: pr.number,
+      prUrl: pr.url
+    });
+    if (!result.changed) continue;
+    current = result.changelog;
+    recorded.push(pr.number);
+    log(
+      `Recorded #${pr.number} under ${parsed.category} (bump: ${result.effectiveBump})`
     );
-    process.exit(0);
   }
+  return { changelog: current, recorded };
+}
 
-  if (parsed.bump === 'none') {
-    console.log('Bump is none — no CHANGELOG entry needed.');
-    process.exit(0);
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const prsFile = process.env.PRS_FILE;
+  if (!prsFile) {
+    console.error('Required env: PRS_FILE');
+    process.exit(1);
   }
 
   const changelogPath = 'CHANGELOG.md';
-  const changelog = readFileSync(changelogPath, 'utf8');
-
-  const result = accrueEntry(changelog, {
-    category: parsed.category,
-    entry: parsed.entry,
-    bump: parsed.bump,
-    prNumber,
-    prUrl
-  });
-
-  if (!result.changed) {
-    console.log(`PR #${prNumber} already recorded in CHANGELOG.md — skipping.`);
-    process.exit(0);
-  }
-
-  writeFileSync(changelogPath, result.changelog);
-  console.log(
-    `Recorded #${prNumber} under ${parsed.category} (bump: ${result.effectiveBump})`
+  const { changelog, recorded } = accrueAll(
+    readFileSync(changelogPath, 'utf8'),
+    JSON.parse(readFileSync(prsFile, 'utf8'))
   );
+  writeFileSync(changelogPath, changelog);
+  setOutputs({ recorded: recorded.map((n) => `#${n}`).join(', ') });
 }

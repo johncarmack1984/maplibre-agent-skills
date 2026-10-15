@@ -14,7 +14,12 @@ jobs:
     permissions:
       contents: write
     steps:
+      # The branch tip, not the pushed commit: when PRs merge in a burst, a run
+      # can start after newer merges, and only the tip's CHANGELOG.md says which
+      # of them are already recorded.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -25,19 +30,19 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Find the merged PR
+      - name: Find merged PRs the changelog lacks
         id: pr
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_BODY_FILE: ${{ runner.temp }}/pr_body.txt
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          PRS_FILE: ${{ runner.temp }}/prs.json
         run: node scripts/merged-pr.js
 
-      - name: Record the changelog entry
+      - name: Record the changelog entries
+        id: accrue
         if: steps.pr.outputs.found == 'true'
         env:
-          PR_NUMBER: ${{ steps.pr.outputs.number }}
-          PR_URL: ${{ steps.pr.outputs.url }}
-          PR_BODY_FILE: ${{ runner.temp }}/pr_body.txt
+          PRS_FILE: ${{ runner.temp }}/prs.json
         run: |
           node scripts/accrue-changelog.js
           npx prettier --write CHANGELOG.md
@@ -45,12 +50,12 @@ jobs:
       - name: Commit
         if: steps.pr.outputs.found == 'true'
         env:
-          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          RECORDED: ${{ steps.accrue.outputs.recorded }}
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add CHANGELOG.md
-          git diff --staged --quiet || git commit -m "chore(changelog): record #${PR_NUMBER}"
+          git diff --staged --quiet || git commit -m "chore(changelog): record ${RECORDED}"
           git pull --rebase
           git push
 
