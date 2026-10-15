@@ -172,7 +172,7 @@ The `https://demotiles.maplibre.org/styles/osm-bright-gl-style/sprite` and `http
 }
 ```
 
-A stretchable badge sizes one image to its text instead: `icon-text-fit` `"both"` (or `"width"`) with `icon-text-fit-padding`, on a sprite image with `stretchX`/`stretchY` + `content`,[1] [2] so `I-5` and `I-405` share one image. Neither OSM Bright nor OSM Liberty uses it. An audit or generator has to accept both: `icon-text-fit` other than `none` (its default) marks only the stretchable kind, and `text-anchor` (default `center`) marks neither.
+To use one badge image for every ref length, make it stretchable. In the badge's sprite JSON entry, `stretchX` and `stretchY` list the pixel ranges that may stretch, and `content` is the box the text must fit inside. On the shield layer, set `icon-text-fit` to `"both"` or `"width"`, plus `icon-text-fit-padding` for a margin around the text.[1] [2] `I-5` and `I-405` then share one image at two widths. OSM Bright and OSM Liberty use no stretchable badges, so a tool that recognizes shield layers must accept both kinds. Only a stretchable badge sets `icon-text-fit` (default `none`), and `text-anchor` defaults to `center`, so leaving it unset says nothing about a layer.
 
 When reading layout values back out of a style, remember they are not always strings: `symbol-placement` above is a legacy `{stops: [...]}` zoom function, as in OSM Bright's three shield layers and OSM Liberty's one, and any layout value can hold an expression, so `layout['symbol-placement'] === 'point'` silently skips them. Test the value's shape before comparing it.
 
