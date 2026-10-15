@@ -1,0 +1,1049 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+negative — out-of-scope question about hillshade/terrain layers,skills/maplibre-fonts-glyphs/SKILL.md,How do I add a hillshade layer from a raster-dem source to my MapLibre GL JS style?,"Below is a complete, step‑by‑step recipe for adding a **hillshade** layer that is driven by a **raster‑DEM** source to a MapLibre GL JS map.  
+Everything is kept in one place (HTML + JS) so you can copy‑paste it into a test page, then adapt the URLs, layer names, and visual parameters to your own project.
+
+---
+
+## 1. What you need
+
+| Item | Why it matters |
+|------|----------------|
+| **Raster‑DEM source** (e.g. a Cloud‑Optimized GeoTIFF or a tiled PNG/WEBP DEM) | Hillshade works only with `type: ""raster-dem""` sources. |
+| **MapLibre GL JS ≥ 5.11** (any recent version) | Hillshade is part of the style spec and is fully supported. |
+| **CORS‑enabled endpoint** (or same‑origin) | The browser must be allowed to fetch the DEM tiles. |
+| (Optional) **Terrain source** (`type: ""raster-dem""` + `terrain` property) | If you also want 3‑D terrain, you can enable it; it does **not** affect the hillshade layer itself. |
+
+---
+
+## 2. Minimal style JSON
+
+You can either embed the style directly in the page (as shown below) or keep it in a separate `.json` file and load it with `map.setStyle()`.  
+The important parts are the **source definition** and the **hillshade layer**.
+
+```json
+{
+  ""version"": 8,
+  ""sources"": {
+    ""dem"": {
+      ""type"": ""raster-dem"",
+      ""url"": ""https://example.com/tiles/dem/{z}/{x}/{y}.png"",   // <-- your DEM tiles
+      ""tileSize"": 256,
+      ""maxzoom"": 14,
+      ""attribution"": ""© Your DEM provider""
+    }
+  },
+
+  ""layers"": [
+    {
+      ""id"": ""hillshade"",
+      ""type"": ""hillshade"",
+      ""source"": ""dem"",
+      ""layout"": {},
+      ""paint"": {
+        // Default values – feel free to tweak them
+        ""hillshade-illumination-direction"": 335,
+        ""hillshade-illumination-anchor"": ""viewport"",
+        ""hillshade-exaggeration"": 0.5,
+        ""hillshade-shadow-color"": ""#000000"",
+        ""hillshade-highlight-color"": ""#ffffff"",
+        ""hillshade-accent-color"": ""#777777""
+      }
+    }
+  ]
+}
+```
+
+**Key points**
+
+* `type: ""raster-dem""` tells MapLibre that the source contains elevation data, not imagery.
+* The `hillshade` layer **must** reference that source (`""source"": ""dem""`).
+* All visual tweaks live under `paint`. The defaults give a subtle, realistic shading; you can make the effect stronger by raising `hillshade-exaggeration` (e.g. `1.5`) or by adjusting the illumination direction.
+
+---
+
+## 3. Full HTML + JS example
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"">
+  <title>MapLibre – Hillshade from raster‑DEM</title>
+  <meta name=""viewport"" content=""width=device-width, initial-scale=1"">
+  <!-- MapLibre GL JS CSS -->
+  <link href=""https://unpkg.com/maplibre-gl@5.12.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body, html { margin:0; padding:0; height:100%; }
+    #map { width:100%; height:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script src=""https://unpkg.com/maplibre-gl@5.12.0/dist/maplibre-gl.js""></script>
+<script>
+  // 1️⃣ Initialise the map
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      ""version"": 8,
+      ""sources"": {
+        ""dem"": {
+          ""type"": ""raster-dem"",
+          // 👉 Replace with your own DEM tile URL template
+          ""url"": ""https://example.com/tiles/dem/{z}/{x}/{y}.png"",
+          ""tileSize"": 256,
+          ""maxzoom"": 14
+        }
+      },
+      ""layers"": [
+        // 👉 Hillshade layer (must come after any background layer)
+        {
+          ""id"": ""hillshade"",
+          ""type"": ""hillshade"",
+          ""source"": ""dem"",
+          ""paint"": {
+            ""hillshade-illumination-direction"": 335,
+            ""hillshade-illumination-anchor"": ""viewport"",
+            ""hillshade-exaggeration"": 0.7,
+            ""hillshade-shadow-color"": ""#000000"",
+            ""hillshade-highlight-color"": ""#ffffff"",
+            ""hillshade-accent-color"": ""#777777""
+          }
+        }
+      ]
+    },
+    center: [0, 0],   // lon, lat
+    zoom: 2,
+    pitch: 45,        // tilt the map so the shading is visible
+    bearing: 0,
+    antialias: true   // smoother rendering of the hillshade
+  });
+
+  // 2️⃣ (Optional) Add 3‑D terrain – this does NOT affect the hillshade layer
+  map.on('load', () => {
+    map.setTerrain({ source: 'dem', exaggeration: 1.5 });
+  });
+
+  // 3️⃣ (Optional) Add a simple base map for context
+  map.addSource('osm', {
+    type: 'raster',
+    tiles: ['https://a.tile.openstreetmap.org/{z}/{x}/{y}.png'],
+    tileSize: 256,
+    attribution: '&copy; OpenStreetMap contributors'
+  });
+  map.addLayer({
+    id: 'osm-basemap',
+    type: 'raster',
+    source: 'osm',
+    minzoom: 0,
+    maxzoom: 19
+  }, 'hillshade'); // insert below hillshade so hillshade stays on top
+</script>
+</body>
+</html>
+```
+
+### What the script does
+
+1. **Creates the map** with a minimal style that already contains the DEM source and the hillshade layer.
+2. **Sets `pitch`** (tilt) so the shading becomes visible; a flat, north‑up view would look like a plain raster.
+3. **(Optional) Enables terrain** – this adds true 3‑D extrusion of the DEM. The hillshade still works independently; you can keep or drop this line.
+4. **(Optional) Adds a background raster** (OpenStreetMap) underneath the hillshade for geographic reference.
+
+---
+
+## 4. Customising the visual appearance
+
+| Paint property | Typical range | What it changes |
+|----------------|---------------|-----------------|
+| `hillshade-illumination-direction` | 0‑360 (degrees) | Sun azimuth. 0 = north, 90 = east. |
+| `hillshade-illumination-anchor` | `""viewport""` or `""map""` | `""viewport""` makes the sun stay fixed on the screen; `""map""` rotates with the map bearing. |
+| `hillshade-exaggeration` | 0‑5 (default 0.5) | Height exaggeration – larger values make relief look more dramatic. |
+| `hillshade-shadow-color` | any CSS color | Dark side of slopes. |
+| `hillshade-highlight-color` | any CSS color | Bright side of slopes. |
+| `hillshade-accent-color` | any CSS color | Mid‑tone “ambient” shading. |
+
+Play with these values in the browser console, e.g.:
+
+```js
+map.setPaintProperty('hillshade', 'hillshade-exaggeration', 1.2);
+map.setPaintProperty('hillshade', 'hillshade-illumination-direction', 45);
+```
+
+---
+
+## 5. Common pitfalls & troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| **No hillshade appears** (map stays flat) | DEM source not loading (404, CORS, wrong URL) | Open the network tab, verify tile URLs, ensure the server sends `Access‑Control‑Allow‑Origin:*` (or your domain). |
+| **Hillshade looks like a solid gray** | `tileSize` mismatch (e.g., source tiles are 512 px but `tileSize` set to 256) | Set `tileSize` to the actual size of your DEM tiles. |
+| **Shading is extremely blocky** | Using low‑resolution DEM (e.g., 30 m tiles at zoom 2) | Zoom in to a level where the DEM resolution matches the map scale, or use a higher‑resolution DEM source. |
+| **Hillshade disappears after changing style** | The hillshade layer is placed **below** a raster layer that completely covers it. | Insert the hillshade layer **after** the background raster, or use `map.moveLayer('hillshade', 'some-other-layer-id')`. |
+| **Terrain 3‑D works but hillshade looks wrong** | `hillshade-exaggeration` is too low/high relative to terrain exaggeration. | Match the two values (e.g., both `1.5`) or adjust until the visual effect looks natural. |
+| **CORS error when loading DEM from a third‑party host** | Server does not send the proper header. | Proxy the tiles through your own domain, or ask the provider to enable CORS. |
+
+---
+
+## 6. Going further
+
+* **Vector‑tile DEMs** – If you have a vector source that contains elevation as a numeric property, you can’t use `hillshade` directly; you’d need to convert it to a raster‑DEM (e.g., with `mapbox-gl-dem` or a server‑side process).  
+* **Dynamic illumination** – You can animate the sun direction by updating `hillshade-illumination-direction` on each frame (e.g., to simulate a day‑night cycle).  
+* **Multiple DEM sources** – If you need different DEMs for different regions, add each as a separate source and create a separate hillshade layer for each, ordering them as needed.  
+
+---
+
+### TL;DR
+
+1. **Add a `raster-dem` source** that points at your DEM tiles.  
+2. **Add a layer** with `""type"": ""hillshade""` that references that source.  
+3. (Optional) **Set terrain** with `map.setTerrain({source: 'dem'})` if you also want 3‑D extrusion.  
+4. **Adjust paint properties** (`hillshade-exaggeration`, `hillshade-illumination-direction`, etc.) to get the look you want.  
+
+Copy the HTML example above, replace the DEM URL, and you’ll have a working hillshade overlay in seconds. Happy mapping!",PASS,1.00,,All assertions passed,
+negative — out-of-scope question about hillshade/terrain layers,skills/maplibre-fonts-glyphs/SKILL.md,How do I add a hillshade layer from a raster-dem source to my MapLibre GL JS style?,"Below is a complete, step‑by‑step recipe for adding a **hillshade** layer that is driven by a **raster‑DEM** source to a MapLibre GL JS map.  
+Everything is kept in one place (HTML + JS) so you can copy‑paste it into a test page, then adapt the URLs, layer names, and visual parameters to your own project.
+
+---
+
+## 1. What you need
+
+| Item | Why it matters |
+|------|----------------|
+| **Raster‑DEM source** (e.g. a Cloud‑Optimized GeoTIFF or a tiled PNG/WEBP DEM) | Hillshade works only with `type: ""raster-dem""` sources. |
+| **MapLibre GL JS ≥ 5.11** (any recent version) | Hillshade is part of the style spec and is fully supported. |
+| **CORS‑enabled endpoint** (or same‑origin) | The browser must be allowed to fetch the DEM tiles. |
+| (Optional) **Terrain source** (`type: ""raster-dem""` + `terrain` property) | If you also want 3‑D terrain, you can enable it; it does **not** affect the hillshade layer itself. |
+
+---
+
+## 2. Minimal style JSON
+
+You can either embed the style directly in the page (as shown below) or keep it in a separate `.json` file and load it with `map.setStyle()`.  
+The important parts are the **source definition** and the **hillshade layer**.
+
+```json
+{
+  ""version"": 8,
+  ""sources"": {
+    ""dem"": {
+      ""type"": ""raster-dem"",
+      ""url"": ""https://example.com/tiles/dem/{z}/{x}/{y}.png"",   // <-- your DEM tiles
+      ""tileSize"": 256,
+      ""maxzoom"": 14,
+      ""attribution"": ""© Your DEM provider""
+    }
+  },
+
+  ""layers"": [
+    {
+      ""id"": ""hillshade"",
+      ""type"": ""hillshade"",
+      ""source"": ""dem"",
+      ""layout"": {},
+      ""paint"": {
+        // Default values – feel free to tweak them
+        ""hillshade-illumination-direction"": 335,
+        ""hillshade-illumination-anchor"": ""viewport"",
+        ""hillshade-exaggeration"": 0.5,
+        ""hillshade-shadow-color"": ""#000000"",
+        ""hillshade-highlight-color"": ""#ffffff"",
+        ""hillshade-accent-color"": ""#777777""
+      }
+    }
+  ]
+}
+```
+
+**Key points**
+
+* `type: ""raster-dem""` tells MapLibre that the source contains elevation data, not imagery.
+* The `hillshade` layer **must** reference that source (`""source"": ""dem""`).
+* All visual tweaks live under `paint`. The defaults give a subtle, realistic shading; you can make the effect stronger by raising `hillshade-exaggeration` (e.g. `1.5`) or by changing the illumination direction.
+
+---
+
+## 3. Full HTML + JS example
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"">
+  <title>MapLibre – Hillshade from raster‑DEM</title>
+  <meta name=""viewport"" content=""width=device-width, initial-scale=1"">
+  <!-- MapLibre GL JS CSS -->
+  <link href=""https://unpkg.com/maplibre-gl@5.12.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body, html { margin:0; padding:0; height:100%; }
+    #map { width:100%; height:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script src=""https://unpkg.com/maplibre-gl@5.12.0/dist/maplibre-gl.js""></script>
+<script>
+  // 1️⃣ Initialise the map
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      ""version"": 8,
+      ""sources"": {
+        ""dem"": {
+          ""type"": ""raster-dem"",
+          // 👉 Replace with your own DEM tile URL template
+          ""url"": ""https://example.com/tiles/dem/{z}/{x}/{y}.png"",
+          ""tileSize"": 256,
+          ""maxzoom"": 14
+        }
+      },
+      ""layers"": [
+        // 2️⃣ Hillshade layer (must come after any background layer)
+        {
+          ""id"": ""hillshade"",
+          ""type"": ""hillshade"",
+          ""source"": ""dem"",
+          ""paint"": {
+            ""hillshade-illumination-direction"": 315,
+            ""hillshade-illumination-anchor"": ""viewport"",
+            ""hillshade-exaggeration"": 0.8,
+            ""hillshade-shadow-color"": ""#000000"",
+            ""hillshade-highlight-color"": ""#ffffff"",
+            ""hillshade-accent-color"": ""#777777""
+          }
+        }
+      ]
+    },
+    center: [0, 0],   // lon, lat
+    zoom: 2,
+    pitch: 45,        // tilt the map so the shading is visible
+    bearing: 0,
+    antialias: true   // smoother rendering of the hillshade
+  });
+
+  // Optional: add a base map (e.g. OSM raster) so you can see the hillshade over imagery
+  map.on('style.load', () => {
+    map.addSource('osm', {
+      type: 'raster',
+      tiles: ['https://a.tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      attribution: '&copy; OpenStreetMap contributors'
+    });
+    map.addLayer({
+      id: 'osm',
+      type: 'raster',
+      source: 'osm',
+      minzoom: 0,
+      maxzoom: 19
+    }, 'hillshade'); // insert below hillshade (so hillshade draws on top)
+  });
+</script>
+</body>
+</html>
+```
+
+### What the example does
+
+1. **Creates a map** with a minimal style that only contains the DEM source and the hillshade layer.
+2. **Sets `pitch`** (45°) so the shading becomes visible; without tilt the hillshade looks flat.
+3. **Adds an optional raster basemap** (`osm`) *under* the hillshade layer so you can see the terrain relief over real imagery.
+4. **Uses `antialias: true`** – recommended for smoother hillshade edges.
+
+---
+
+## 4. Common variations & gotchas
+
+| Situation | How to handle it |
+|-----------|------------------|
+| **You already have a full style (e.g. a Mapbox‑compatible JSON)** | Add the DEM source to the existing `""sources""` object, then append the hillshade layer to the `""layers""` array (usually after the background but before any label layers). |
+| **Your DEM is a single GeoTIFF, not tiled** | Serve it via a simple static‑file server and point `url` at the file (MapLibre will request the whole file once). For large areas you’ll want a tiled COG (Cloud‑Optimized GeoTIFF) or a tile server that returns PNG/WEBP tiles. |
+| **CORS errors** | Ensure the server sends `Access-Control-Allow-Origin: *` (or your domain). If you control the server, add that header; otherwise use a proxy or host the DEM on a CORS‑friendly CDN. |
+| **You also need 3‑D terrain** | After the map is loaded, call `map.setTerrain({source: 'dem', exaggeration: 1.5});`. The same DEM source can be used for both terrain and hillshade. |
+| **You want a different illumination direction** | Change `""hillshade-illumination-direction""` (0‑360° clockwise from north). |
+| **You want the hillshade to be darker or lighter** | Adjust `""hillshade-exaggeration""` (default 0.5). Larger values make shadows deeper; values > 1 can look exaggerated. |
+| **You need the hillshade to appear only at certain zoom levels** | Add `""minzoom""` / `""maxzoom""` to the hillshade layer definition. |
+| **Your DEM tiles are 512 px** | Set `""tileSize"": 512` in the source definition. |
+| **You want the hillshade to blend with a raster basemap** | Use the `raster-fade-duration` or add a `raster-opacity` paint property on the basemap layer. |
+
+---
+
+## 5. Quick checklist before you go live
+
+1. **DEM source URL works** – open a tile URL in the browser; you should see a grayscale image (elevation encoded as 8‑bit or 16‑bit PNG/WEBP).  
+2. **CORS header present** – check the network tab for `Access-Control-Allow-Origin`.  
+3. **`type: ""raster-dem""`** – not `""raster""`; otherwise the hillshade layer will not find elevation data.  
+4. **Layer order** – hillshade should be *above* any raster basemap but *below* label layers (otherwise labels get hidden).  
+5. **Map pitch > 0** – without tilt the hillshade is still rendered but looks flat; a pitch of 45° is a good default.  
+6. **Test on multiple browsers** – the rendering is GPU‑accelerated; older browsers may fall back to a slower software path.  
+
+---
+
+## 6. TL;DR – Minimal code snippet
+
+```js
+// Assuming `map` is an already‑initialized MapLibre GL JS map
+map.addSource('dem', {
+  type: 'raster-dem',
+  url: 'https://example.com/tiles/dem/{z}/{x}/{y}.png',
+  tileSize: 256,
+  maxzoom: 14
+});
+
+map.addLayer({
+  id: 'hillshade',
+  type: 'hillshade',
+  source: 'dem',
+  paint: {
+    'hillshade-illumination-direction': 315,
+    'hillshade-exaggeration': 0.8
+  }
+});
+```
+
+Add a basemap underneath if you want to see the shading over imagery, set `pitch` to something > 0, and you’re done.
+
+---
+
+**Happy mapping!** If you run into any specific error messages (e.g., 404 on DEM tiles, CORS failures, or the hillshade layer not appearing), drop the exact console output and I can help troubleshoot further.",PASS,1.00,,All assertions passed,
+negative — out-of-scope question about hillshade/terrain layers,skills/maplibre-fonts-glyphs/SKILL.md,How do I add a hillshade layer from a raster-dem source to my MapLibre GL JS style?,"Below is a step‑by‑step recipe for adding a **hillshade** layer that draws from a **raster‑DEM** source to a MapLibre GL JS map.  
+It works with any DEM that can be served as a raster tile set (e.g. GeoTIFF‑based tiles, Cloud‑Optimized GeoTIFFs, or a simple XYZ/WMTS endpoint).
+
+---
+
+## 1. Prepare / Choose a DEM source
+
+| Source type | URL template | Notes |
+|------------|--------------|-------|
+| **XYZ tiles** (e.g. Mapbox Terrain‑RGB, OpenTopoMap DEM) | `https://myserver.com/dem/{z}/{x}/{y}.png` | Must return a raster image where each pixel encodes elevation (see format below). |
+| **Cloud‑Optimized GeoTIFF (COG)** via **TileJSON** | `https://myserver.com/dem/tilejson.json` | MapLibre will request `/{z}/{x}/{y}.png` tiles that the server renders on‑the‑fly (e.g. using **tileserver‑gl**, **tegola**, **GeoServer**). |
+| **Static single‑image DEM** (for small areas) | `https://myserver.com/dem.tif` + `raster-dem` source with `url` pointing to the file | Use `type: ""raster-dem""` and set `tileSize: 256` (or 512) – the library will slice the image into tiles client‑side. |
+
+### Elevation encoding (the most common)
+
+* **Mapbox Terrain‑RGB** – 24‑bit RGB where elevation = ((R × 256 × 256 + G × 256 + B) / 10) – 10000 m.  
+* **MapLibre “raster‑dem”** also understands **single‑band 16‑bit** GeoTIFFs (value = meters).  
+
+If you are using a custom DEM, make sure it follows one of the supported encodings; otherwise the hillshade will be flat.
+
+---
+
+## 2. Add the DEM as a **raster‑dem** source
+
+```javascript
+// Assuming you already have a MapLibre map instance called `map`
+map.addSource('dem', {
+  type: 'raster-dem',
+  // For XYZ tiles:
+  // url: 'https://myserver.com/dem/{z}/{x}/{y}.png',
+  // For TileJSON:
+  // url: 'https://myserver.com/dem/tilejson.json',
+  // For a single COG file:
+  // url: 'https://myserver.com/dem.tif',
+  tileSize: 256,          // 256 or 512 – must match the source tiles
+  // Optional: improve performance on low‑end devices
+  maxzoom: 14,            // highest zoom you actually have tiles for
+  attribution: '© My DEM provider'
+});
+```
+
+*If you are using a COG or a single GeoTIFF, you may also add `bounds` and `minzoom`/`maxzoom` to help the client know the coverage.*
+
+---
+
+## 3. Add a **hillshade** layer that consumes the DEM source
+
+```javascript
+map.addLayer({
+  id: 'hillshade',
+  type: 'hillshade',
+  source: 'dem',
+  // The hillshade layer does **not** need a source‑layer name because raster‑dem sources have no vector layers.
+  paint: {
+    // Default values – tweak to taste
+    'hillshade-illumination-direction': 315, // sun azimuth (degrees clockwise from north)
+    'hillshade-illumination-anchor': 'map', // 'map' (fixed to north) or 'viewport' (rotates with map)
+    'hillshade-exaggeration': 0.5,          // vertical exaggeration (1 = true scale)
+    'hillshade-shadow-color': 'rgba(0,0,0,0.5)',
+    'hillshade-highlight-color': 'rgba(255,255,255,0.5)',
+    'hillshade-accent-color': 'rgba(255,255,255,0.2)'
+  }
+});
+```
+
+### Key paint properties
+
+| Property | Meaning | Typical range |
+|----------|---------|---------------|
+| `hillshade-illumination-direction` | Sun azimuth (0 = north, clockwise) | 0‑360 |
+| `hillshade-illumination-anchor` | Whether the sun direction stays fixed to the map (`'map'`) or rotates with the viewport (`'viewport'`) | `'map'` / `'viewport'` |
+| `hillshade-exaggeration` | Vertical exaggeration factor | 0‑2 (1 = true elevation) |
+| `hillshade-shadow-color` | Color of terrain shadows | any CSS color |
+| `hillshade-highlight-color` | Color of illuminated slopes | any CSS color |
+| `hillshade-accent-color` | Optional subtle accent for steep faces | any CSS color |
+
+Adjust these values until the terrain looks natural for your area and zoom levels.
+
+---
+
+## 4. Order the layer correctly
+
+Hillshade is a **raster** effect, so it should be placed **below** any vector label or symbol layers that you want to stay on top, but **above** your base map (e.g. a raster basemap or vector tiles). Example ordering:
+
+```javascript
+// Insert hillshade just above the base raster layer
+map.addLayer({
+  // ... hillshade definition ...
+}, 'waterway-label'); // insert before the first label layer
+```
+
+You can programmatically find the first label layer:
+
+```javascript
+const labelLayerId = map.getStyle().layers.find(l => l.type === 'symbol' && l.layout['text-field']).id;
+map.addLayer(hillshadeLayer, labelLayerId);
+```
+
+---
+
+## 5. CORS & Tile Access
+
+* **CORS** – The DEM tiles must be served with `Access-Control-Allow-Origin: *` (or your domain) so the browser can read the pixel data. If you control the server, add the header; otherwise use a proxy or a CDN that injects it.
+* **Authentication** – If your DEM endpoint requires a token, include it in the URL template (`.../{z}/{x}/{y}.png?token=YOUR_TOKEN`) or use a custom `fetch`‑style source (MapLibre currently only supports URL templates for raster‑dem).
+
+---
+
+## 6. Full minimal example
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>MapLibre Hillshade Demo</title>
+  <script src=""https://unpkg.com/maplibre-gl@5.13.0/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@5.13.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+<script>
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {
+        // Base raster basemap (optional)
+        'basemap': {
+          type: 'raster',
+          tiles: ['https://a.tile.openstreetmap.org/{z}/{x}/{y}.png'],
+          tileSize: 256,
+          attribution: '&copy; OpenStreetMap contributors'
+        }
+      },
+      layers: [
+        { id: 'basemap', type: 'raster', source: 'basemap' }
+      ]
+    },
+    center: [-122.447303, 37.753574],
+    zoom: 12
+  });
+
+  map.on('load', () => {
+    // 1️⃣ Add DEM source
+    map.addSource('dem', {
+      type: 'raster-dem',
+      url: 'https://demotiles.maplibre.org/terrain/{z}/{x}/{y}.png', // demo Terrain‑RGB tiles
+      tileSize: 256,
+      maxzoom: 14
+    });
+
+    // 2️⃣ Add hillshade layer just above the basemap
+    map.addLayer({
+      id: 'hillshade',
+      type: 'hillshade',
+      source: 'dem',
+      paint: {
+        'hillshade-illumination-direction': 315,
+        'hillshade-exaggeration': 0.7,
+        'hillshade-shadow-color': 'rgba(0,0,0,0.5)',
+        'hillshade-highlight-color': 'rgba(255,255,255,0.5)'
+      }
+    }, 'basemap'); // insert before the basemap (or after, depending on desired order)
+  });
+</script>
+</body>
+</html>
+```
+
+*The demo URL `https://demotiles.maplibre.org/terrain/{z}/{x}/{y}.png` serves Terrain‑RGB tiles that MapLibre can interpret as a raster‑dem.*
+
+---
+
+## 7. Troubleshooting checklist
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| **No hillshade appears (layer is empty)** | DEM source not loading (404, CORS) | Open dev‑tools → Network → verify tile requests succeed and have `Access-Control-Allow-Origin`. |
+| | DEM tiles use an unsupported encoding (e.g., plain grayscale) | Convert to Terrain‑RGB or 16‑bit elevation. |
+| | `maxzoom` lower than current zoom | Increase `maxzoom` or zoom out. |
+| **Flat, uniform color (no shading)** | `hillshade-exaggeration` set to `0` or very low | Raise to ≥ 0.2. |
+| | `hillshade-illumination-direction` set to a value that makes shadows invisible (e.g., sun directly overhead) | Change direction (e.g., 315°). |
+| **Tile seams / jitter** | Mismatched `tileSize` between source and actual tiles | Ensure `tileSize` matches the server (256 or 512). |
+| **Performance lag on mobile** | Very high‑resolution DEM (many zoom levels) | Limit `maxzoom`, use `tileSize: 512` (fewer tiles), or enable `prefetchZoomDelta` to reduce over‑fetching. |
+| **CJK or other text disappears after adding hillshade** | Not a font issue – unrelated. | Verify that the hillshade layer isn’t covering label layers; adjust layer order. |
+
+---
+
+## 8. Optional enhancements
+
+| Feature | How to enable |
+|---------|---------------|
+| **Dynamic sun position** (e.g., based on time of day) | Update `hillshade-illumination-direction` via `map.setPaintProperty('hillshade', 'hillshade-illumination-direction', newAzimuth)` on a timer. |
+| **Blend with a vector style** | Keep your vector tiles as a separate source/layer stack and insert the hillshade **below** them. |
+| **Terrain 3‑D extrusion** | Add a `terrain` property to the style: `terrain: { source: 'dem', exaggeration: 1.5 }`. Hillshade works together with 3‑D terrain. |
+| **Custom DEM generation** | Use GDAL to convert a DEM to Terrain‑RGB PNG tiles: `gdal_translate -of PNG -scale 0 3000 0 255 input.tif output.png` then tile with `gdal2tiles.py`. |
+
+---
+
+### TL;DR
+
+1. **Add a `raster-dem` source** pointing at your DEM tiles (or a single COG).  
+2. **Add a `hillshade` layer** that uses that source and configure its paint properties (`illumination-direction`, `exaggeration`, colors, etc.).  
+3. **Insert the layer** in the correct order (below labels, above the base map).  
+4. Ensure **CORS** headers are present and the DEM encoding is supported.  
+
+That’s all you need to get a working hillshade overlay on a MapLibre GL JS map. Happy mapping!",PASS,1.00,,All assertions passed,
+negative — out-of-scope question about hillshade/terrain layers,skills/maplibre-fonts-glyphs/SKILL.md,How do I add a hillshade layer from a raster-dem source to my MapLibre GL JS style?,"Below is a complete, step‑by‑step recipe for adding a **hillshade** layer that is driven by a **raster‑DEM** source to a MapLibre GL JS map.  
+Everything you need is in the code snippets, plus a short checklist of gotchas (CORS, projection, style ordering, etc.).
+
+---
+
+## 1. Prerequisites
+
+| What you need | Why it matters |
+|---------------|----------------|
+| **MapLibre GL JS ≥ 2.0** (or any recent 1.x version) | `type: ""hillshade""` is supported from the first release. |
+| A **raster‑DEM** tile service (e.g. Mapbox Terrain‑RGB, Open‑Topography, your own MBTiles server) that serves **`application/x-protobuf`** tiles (or PNG/JPEG if you set `encoding: ""terrarium""`). | The hillshade layer reads elevation values from the DEM tiles. |
+| **CORS** enabled on the DEM endpoint (or proxy it). | The browser must be allowed to fetch the tiles. |
+| (Optional) **Terrain source** if you also want 3‑D terrain. | Hillshade works independently, but you can combine both for a richer look. |
+
+---
+
+## 2. Add the raster‑DEM source to the style
+
+```js
+// 1️⃣ Create the map (basic example)
+const map = new maplibregl.Map({
+  container: 'map',               // HTML element id
+  style: 'https://demotiles.maplibre.org/style.json', // any base style
+  center: [0, 0],
+  zoom: 2
+});
+
+// 2️⃣ When the style is loaded, add the DEM source
+map.on('style.load', () => {
+  map.addSource('dem', {
+    type: 'raster-dem',
+    // ──► Choose ONE of the following URL patterns ────────────────────────
+    // 1) Mapbox Terrain‑RGB (requires a Mapbox token)
+    // url: 'mapbox://mapbox.terrain-rgb',
+    // 2) Open‑Topography (public DEM tiles)
+    // url: 'https://opentopography.org/tiles/terrain/{z}/{x}/{y}.png',
+    // 3) Your own MBTiles/TileServer endpoint (replace {z}/{x}/{y})
+    url: 'https://my-server.example.com/dem/{z}/{x}/{y}.png',
+    // ──► Common options ─────────────────────────────────────────────────────
+    tileSize: 256,               // 256 or 512 – must match the source tiles
+    maxzoom: 14,                 // highest zoom you have tiles for
+    // If your tiles are in **Terrarium** format (PNG with 0‑255 values):
+    // encoding: 'terrarium',
+    // If they are Mapbox Terrain‑RGB (default):
+    // encoding: 'mapbox',
+    // (omit `encoding` for the default “mapbox”)
+    // Optional: give the DEM a name for debugging
+    attribution: '© My DEM provider'
+  });
+});
+```
+
+### What the fields mean
+
+| Property | Description |
+|----------|-------------|
+| `type: ""raster-dem""` | Tells MapLibre the source contains elevation data, not ordinary imagery. |
+| `url` | Tile URL template. Use `{z}/{x}/{y}` placeholders. |
+| `tileSize` | Must match the tile size of the service (most are 256 px). |
+| `maxzoom` | Prevents the client from requesting tiles that don’t exist. |
+| `encoding` | `""mapbox""` for Terrain‑RGB (default), `""terrarium""` for the older Terrarium PNG format. |
+| `attribution` | Optional but good practice. |
+
+---
+
+## 3. Add the hillshade layer
+
+```js
+// 3️⃣ Add the hillshade layer *after* the DEM source exists
+map.addLayer({
+  id: 'hillshade',
+  type: 'hillshade',
+  source: 'dem',               // matches the source id above
+  // Optional: you can limit the layer to a specific zoom range
+  minzoom: 0,
+  maxzoom: 14,
+  // ──► Styling options (all are numbers in the range 0‑1) ─────────────────────
+  paint: {
+    // Light direction (azimuth) – 0 = north, 0.5 = south, etc.
+    'hillshade-illumination-direction': 0.5,
+    // Light intensity (0 = dark, 1 = full sun)
+    'hillshade-illumination-anchor': 'map',
+    // Shading intensity for the three components
+    'hillshade-exaggeration': 0.5,          // overall contrast boost
+    'hillshade-shadow-color': '#000000',   // dark side
+    'hillshade-highlight-color': '#ffffff'// bright side
+  }
+});
+```
+
+#### Paint properties you can tweak
+
+| Property | Typical range | Effect |
+|----------|---------------|--------|
+| `hillshade-illumination-direction` | 0 – 1 (0 = north) | Controls where the “sun” shines. |
+| `hillshade-illumination-anchor` | `""map""` or `""viewport""` | `""map""` rotates the light with the map; `""viewport""` keeps it fixed to the screen. |
+| `hillshade-exaggeration` | 0 – 1 (or >1 for extra contrast) | Boosts the depth of shadows/highlights. |
+| `hillshade-shadow-color` / `hillshade-highlight-color` | Any CSS color | Color of the dark and bright sides. |
+| `hillshade-shadow-color` and `hillshade-highlight-color` can also be expressed as `rgba()` to add transparency. |
+
+---
+
+## 4. (Optional) Combine with a terrain source for 3‑D
+
+If you also want a 3‑D terrain surface, add a **terrain source** (the same DEM can be reused) and enable it:
+
+```js
+// Add a terrain source (same DEM can be reused)
+map.addSource('terrain', {
+  type: 'raster-dem',
+  url: 'https://my-server.example.com/dem/{z}/{x}/{y}.png',
+  tileSize: 256,
+  maxzoom: 14
+});
+
+// Enable terrain rendering
+map.setTerrain({ source: 'terrain', exaggeration: 1.5 });
+```
+
+The hillshade layer will automatically shade the terrain surface, giving a realistic “relief” effect.
+
+---
+
+## 5. Full working example (HTML)
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>MapLibre Hillshade Demo</title>
+  <script src=""https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body, html { margin:0; height:100%; }
+    #map { width:100%; height:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+<script>
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://demotiles.maplibre.org/style.json',
+    center: [-122.447303, 37.753574],
+    zoom: 12,
+    pitch: 60,          // tilt to see the hillshade
+    bearing: -20
+  });
+
+  map.on('style.load', () => {
+    // DEM source
+    map.addSource('dem', {
+      type: 'raster-dem',
+      url: 'https://my-server.example.com/dem/{z}/{x}/{y}.png',
+      tileSize: 256,
+      maxzoom: 14
+    });
+
+    // Hillshade layer
+    map.addLayer({
+      id: 'hillshade',
+      type: 'hillshade',
+      source: 'dem',
+      paint: {
+        'hillshade-illumination-direction': 0.5,
+        'hillshade-exaggeration': 0.6,
+        'hillshade-shadow-color': 'rgba(0,0,0,0.5)',
+        'hillshade-highlight-color': 'rgba(255,255,255,0.5)'
+      }
+    });
+
+    // Optional 3‑D terrain
+    map.addSource('terrain', {
+      type: 'raster-dem',
+      url: 'https://my-server.example.com/dem/{z}/{x}/{y}.png',
+      tileSize: 256,
+      maxzoom: 14
+    });
+    map.setTerrain({ source: 'terrain', exaggeration: 1.2 });
+  });
+</script>
+</body>
+</html>
+```
+
+Open the file in a browser (or serve it via a local web server) and you’ll see a sloped, shaded landscape. Adjust the `paint` values to taste.
+
+---
+
+## 6. Checklist & Common Pitfalls
+
+| ✅ Checklist | ❌ What goes wrong if you miss it |
+|--------------|-----------------------------------|
+| **CORS** on the DEM tiles (header `Access-Control-Allow-Origin:*` or your domain) | Tiles are blocked → hillshade layer stays invisible, console shows “Cross‑origin request blocked”. |
+| **`type: ""raster-dem""`** (not `""raster""`). | MapLibre treats the source as imagery → no elevation → hillshade is flat/white. |
+| **Matching `tileSize`** with the server (256 vs 512). | Tiles are mis‑aligned → visual artifacts or missing tiles. |
+| **Correct `encoding`** (`""mapbox""` for Terrain‑RGB, `""terrarium""` for PNG). | Elevation values are interpreted incorrectly → hillshade looks like a noisy mess. |
+| **Layer order** – place the hillshade **below** any label or symbol layers you want to see. | Labels get hidden behind the hillshade. |
+| **Zoom range** – `maxzoom` on the source must be ≥ the map’s current zoom. | At high zoom you’ll see “no data” tiles and the hillshade disappears. |
+| **`localIdeographFontFamily`** (if you also have labels with CJK) – unrelated to hillshade but can affect label visibility. | CJK labels may disappear if the default local‑font fallback is disabled. |
+
+---
+
+## 7. Further Reading
+
+* **MapLibre GL JS style spec – `raster-dem` source**: <https://maplibre.org/maplibre-style-spec/sources/#raster-dem>
+* **Hillshade layer reference**: <https://maplibre.org/maplibre-gl-js/docs/style-spec/layers/#hillshade>
+* **Terrain‑RGB vs Terrarium**: <https://github.com/mapbox/raster-dem#terrain-rgb-and-terrarium>
+* **Performance tip** – keep `hillshade-exaggeration` modest; very high values can make the map look “over‑shaded” and increase GPU load.
+
+---
+
+### TL;DR
+
+1. **Add a `raster-dem` source** pointing at your DEM tiles.  
+2. **Add a `hillshade` layer** that uses that source and tweak its `paint` properties.  
+3. (Optional) **Enable 3‑D terrain** with the same DEM for a full relief effect.  
+4. Verify CORS, tile size, and encoding; then enjoy a nicely shaded terrain map.",PASS,1.00,,All assertions passed,
+negative — out-of-scope question about hillshade/terrain layers,skills/maplibre-fonts-glyphs/SKILL.md,How do I add a hillshade layer from a raster-dem source to my MapLibre GL JS style?,"Below is a complete, step‑by‑step recipe for adding a **hillshade** layer that is driven by a **raster‑DEM** source to a MapLibre GL JS map.  
+It works with any DEM that you can serve as a raster tile set (e.g. GeoTIFF → XYZ/WMTS tiles, Cloud‑Optimized GeoTIFF via `raster-dem` source, or a hosted tile service such as MapTiler, AWS Terrain Tiles, etc.).
+
+---
+
+## 1. Prepare the DEM tiles
+
+| Option | How to get tiles | Typical URL template |
+|--------|------------------|----------------------|
+| **Pre‑generated XYZ tiles** (PNG/JPEG) | Use GDAL, tippecanoe‑raster, MapTiler, or any raster‑tile server. | `https://myserver.com/dem/{z}/{x}/{y}.png` |
+| **Cloud‑Optimized GeoTIFF (COG)** | Store a single COG on S3, Azure, GCS, etc. | `https://mybucket.s3.amazonaws.com/dem.tif` (used with `type: ""raster-dem""` and `url: ...`) |
+| **MapTiler/Mapbox Terrain Tiles** | Sign‑up for a free key and use their endpoint. | `https://api.maptiler.com/tiles/terrain-rgb/{z}/{x}/{y}.png?key=YOUR_KEY` |
+
+> **Tip:** The DEM must be in **meters** (or the same vertical datum you want to visualise). If you have elevation in feet, convert it first – otherwise the hillshade will look too flat or too steep.
+
+---
+
+## 2. Add the DEM as a **raster‑dem** source
+
+```javascript
+// Assuming you already have a MapLibre map instance called `map`
+map.addSource('dem', {
+  type: 'raster-dem',          // <-- important: tells MapLibre this is elevation data
+  url: 'https://myserver.com/dem/{z}/{x}/{y}.png', // or a COG URL
+  tileSize: 256,               // 256 (default) or 512 – must match your tiles
+  // optional: improve performance / quality
+  // maxzoom: 14,               // highest zoom you have tiles for
+  // attribution: '© My DEM provider',
+});
+```
+
+**Key properties**
+
+| Property | Meaning |
+|----------|---------|
+| `type: ""raster-dem""` | Enables hillshade calculations on the GPU. |
+| `url` | Tile URL template (or a single COG URL). |
+| `tileSize` | Must match the size of the raster tiles you serve (256 px is most common). |
+| `maxzoom` / `minzoom` | Limit the zoom range to what you actually have. |
+| `encoding` (optional) | `""terrarium""` (Mapbox) or `""mapbox""` (Mapbox Terrain‑RGB). If you serve raw elevation values (e.g. a single‑band DEM), omit it. |
+| `bounds` (optional) | `[west, south, east, north]` – helps the map know the source extent. |
+
+> **COG shortcut:** If you point `url` at a single COG file, you can also add `type: ""raster-dem""` and `url: ""https://.../my-dem.tif""`; MapLibre will request the needed byte ranges automatically.
+
+---
+
+## 3. Add a **hillshade** layer that consumes the DEM source
+
+```javascript
+map.addLayer({
+  id: 'hillshade',
+  type: 'hillshade',
+  source: 'dem',               // matches the source id above
+  // Optional: you can limit the layer to certain zoom levels
+  minzoom: 0,
+  maxzoom: 14,
+
+  // Paint properties – tweak to taste
+  paint: {
+    // Light direction (azimuth) – 0° = north, 90° = east
+    'hillshade-illumination-direction': 315, // default 315 (north‑west)
+    // Light intensity (0‑1)
+    'hillshade-illumination-anchor': 'map', // or 'viewport'
+    'hillshade-exaggeration': 0.5,          // 0‑1, makes relief look stronger
+    // Optional colour tweaks
+    'hillshade-shadow-color': 'rgba(0,0,0,0.5)',
+    'hillshade-highlight-color': 'rgba(255,255,255,0.5)',
+    'hillshade-accent-color': 'rgba(255,255,255,0.2)'
+  }
+});
+```
+
+### Paint properties explained
+
+| Property | Typical range | Effect |
+|----------|---------------|--------|
+| `hillshade-illumination-direction` | 0‑360° | Sun azimuth; rotate to change shading direction. |
+| `hillshade-illumination-anchor` | `""map""` or `""viewport""` | `""map""` keeps the sun fixed to the map north; `""viewport""` makes it follow the camera. |
+| `hillshade-exaggeration` | 0‑1 (or >1 for extreme) | Scales vertical relief; >1 makes mountains look steeper. |
+| `hillshade-shadow-color` / `hillshade-highlight-color` / `hillshade-accent-color` | Any CSS color | Tweak contrast and colour balance. |
+
+---
+
+## 4. Order the layer correctly
+
+Hillshade is a **raster** layer, so it should be placed **below** any vector label or symbol layers you want to keep visible, but **above** your base map (if you have one). Example ordering:
+
+```javascript
+// Add base map (e.g. vector tiles)
+map.addLayer(baseVectorLayer);
+
+// Add DEM source & hillshade layer
+map.addSource('dem', {...});
+map.addLayer({
+  id: 'hillshade',
+  type: 'hillshade',
+  source: 'dem',
+  // place it right after the base map
+}, 'waterway-label'); // insert before the first label layer
+```
+
+You can also use `map.moveLayer('hillshade', 'some-other-layer-id')` after the fact.
+
+---
+
+## 5. Full minimal example (HTML + JS)
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>MapLibre Hillshade Demo</title>
+  <script src=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body, html { margin:0; height:100%; }
+    #map { width:100%; height:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+<script>
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {
+        // a simple raster basemap (optional)
+        'osm': {
+          type: 'raster',
+          tiles: ['https://a.tile.openstreetmap.org/{z}/{x}/{y}.png'],
+          tileSize: 256,
+          attribution: '&copy; OpenStreetMap contributors'
+        }
+      },
+      layers: [
+        { id: 'osm', type: 'raster', source: 'osm' }
+      ]
+    },
+    center: [8.54, 47.38],
+    zoom: 10
+  });
+
+  map.on('load', () => {
+    // 1️⃣ DEM source
+    map.addSource('dem', {
+      type: 'raster-dem',
+      url: 'https://api.maptiler.com/tiles/terrain-rgb/{z}/{x}/{y}.png?key=YOUR_KEY',
+      tileSize: 256,
+      // MapTiler uses Mapbox Terrain‑RGB encoding
+      encoding: 'mapbox'
+    });
+
+    // 2️⃣ Hillshade layer
+    map.addLayer({
+      id: 'hillshade',
+      type: 'hillshade',
+      source: 'dem',
+      paint: {
+        'hillshade-exaggeration': 0.6,
+        'hillshade-illumination-direction': 315,
+        'hillshade-shadow-color': 'rgba(0,0,0,0.5)',
+        'hillshade-highlight-color': 'rgba(255,255,255,0.5)'
+      }
+    }, 'osm'); // insert right after the base raster
+  });
+</script>
+</body>
+</html>
+```
+
+*Replace `YOUR_KEY` with a valid MapTiler key or point `url` at your own DEM tiles.*
+
+---
+
+## 6. Common pitfalls & troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| **No hillshade appears (layer is empty)** | DEM source not loading (404, CORS, wrong tileSize) | Open dev‑tools → Network → look for `.../dem/...pbf` or `...png`. Ensure the URL works, CORS headers allow `*` or your domain, and `tileSize` matches the source. |
+| **Hillshade looks flat / no relief** | DEM values are too small (e.g. stored as 0‑255 instead of meters) or `hillshade-exaggeration` is 0 | Verify the DEM’s vertical units. If you have a Mapbox Terrain‑RGB source, set `encoding: ""mapbox""`; for raw elevation, omit `encoding`. Increase `hillshade-exaggeration`. |
+| **Craters or “banding” artifacts** | Using 256 px tiles at very high zooms where the DEM resolution is low | Provide higher‑resolution DEM tiles (maxzoom ≥ desired zoom) or use a larger `tileSize` (512) if your source supplies them. |
+| **Hillshade disappears after zooming** | `maxzoom` on the DEM source is lower than the map zoom | Raise `maxzoom` in the source definition or add higher‑zoom tiles. |
+| **Labels are hidden behind hillshade** | Hillshade layer placed above label layers | Move the hillshade layer below the first label layer (`map.moveLayer('hillshade', 'waterway-label')`). |
+| **Performance lag on mobile** | Large DEM tiles (e.g. 512 px) + many concurrent requests | Use a CDN, enable HTTP/2, and consider reducing `maxzoom` or serving a lower‑resolution DEM for low‑end devices. |
+
+---
+
+## 7. Optional enhancements
+
+| Feature | How to enable |
+|---------|---------------|
+| **Dynamic sun direction** (e.g., rotate with map bearing) | Set `hillshade-illumination-anchor: ""viewport""` and update `hillshade-illumination-direction` via `map.setPaintProperty('hillshade', 'hillshade-illumination-direction', newAzimuth)`. |
+| **Blend with a vector basemap** | Keep the vector basemap as a separate source/layer and insert the hillshade **below** the vector layers you want to keep visible. |
+| **Add a contour overlay** | Add a separate `raster` or `vector` source with contour lines and style them with `line-color`, `line-width`, etc. |
+| **Offline usage** | Store the DEM tiles (or a single COG) in the browser via Cache API or IndexedDB, then point the source URL at the cached location. |
+| **Custom colour ramp** | Use `hillshade-shadow-color`, `hillshade-highlight-color`, and `hillshade-accent-color` to match a map’s visual theme. |
+
+---
+
+### TL;DR checklist
+
+1. **Serve** a raster‑DEM tile set (XYZ or COG).  
+2. **Add** a `raster-dem` source (`type: ""raster-dem""`).  
+3. **Add** a `hillshade` layer that uses that source.  
+4. **Adjust** paint properties (`exaggeration`, `illumination-direction`, colours).  
+5. **Place** the layer below any labels you need.  
+6. **Test** for CORS, tileSize, and correct vertical units.
+
+That’s all you need to get a working hillshade overlay on a MapLibre GL JS map. Happy mapping!",PASS,1.00,,All assertions passed,
