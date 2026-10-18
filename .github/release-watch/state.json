@@ -1,23 +1,23 @@
 {
   "maplibre/maplibre-gl-js": {
-    "tag": "v6.13.0",
-    "published_at": "2026-10-06T19:51:17Z"
+    "tag": "v6.15.0",
+    "published_at": "2026-10-18T12:57:17Z"
   },
   "maplibre/maplibre-style-spec": {
     "tag": "v26.4.4",
     "published_at": "2026-09-15T13:10:04Z"
   },
   "maplibre/maplibre-native": {
-    "tag": "android-v13.5.3",
-    "published_at": "2026-10-08T12:04:08Z"
+    "tag": "android-v13.7.1",
+    "published_at": "2026-10-15T12:56:04Z"
   },
   "maplibre/martin": {
     "tag": "martin-core-v0.13.0",
     "published_at": "2026-10-09T13:11:01Z"
   },
   "maplibre/maplibre-tile-spec": {
-    "tag": "rust-mlt-wasm-v0.1.42",
-    "published_at": "2026-10-10T21:05:26Z"
+    "tag": "mlt-wasm-js-v0.2.0",
+    "published_at": "2026-10-17T14:16:06Z"
   },
   "felt/tippecanoe": {
     "tag": "2.79.0",
