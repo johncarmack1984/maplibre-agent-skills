@@ -25,6 +25,7 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Internal
 
+- `eval.yml`: every eval request gets an answer cap that fits the generator's per-minute limit, and the drift check runs daily, grading the configs that have waited longest for a verdict as far as the day's tokens hold ([#126](https://github.com/maplibre/maplibre-agent-skills/pull/126))
 - `changelog.yml`: each run records every recently merged PR the changelog lacks, so merging several PRs at once no longer drops entries ([#123](https://github.com/maplibre/maplibre-agent-skills/pull/123))
 - evals: answers are graded with U+2011 (non-breaking hyphen) replaced by `-`, so a hyphenated name written in prose matches its `icontains` ([#122](https://github.com/maplibre/maplibre-agent-skills/pull/122))
 - `eval.yml`: a test that does not pass runs twice more, and its failure is recorded only if a re-run fails too ([#119](https://github.com/maplibre/maplibre-agent-skills/pull/119))
