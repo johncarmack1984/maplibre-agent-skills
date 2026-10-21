@@ -64,6 +64,11 @@ const MAX_DURATION = 'Evaluation exceeded max duration of 2700000ms';
 // that component.
 const JUDGE_UNAVAILABLE =
   'Error: No candidates returned in API response.\n\nGot response: {"error":{"code":503,"message":"This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.","status":"UNAVAILABLE"}}';
+// Groq refusing a request over the organization's tokens per minute, verbatim
+// from the 2026-10-21 maplibre-sprites-icons sidecar (run 39585050825, test 2),
+// organization id elided.
+const REQUEST_TOO_LARGE =
+  'API error: 413 Payload Too Large\n{"error":{"message":"Request too large for model `openai/gpt-oss-120b` in organization `org_…` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Requested 8008, please reduce your message size and try again. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}';
 // A rubric the judge did grade, from the 2026-09-06 maplibre-pmtiles-patterns
 // sidecar (the addProtocol anti-pattern test).
 const RUBRIC_FAILURE =
@@ -292,6 +297,10 @@ describe('signatureOf', () => {
       ),
       'other'
     );
+  });
+
+  it('names a request too large for the minute, though its body says rate_limit_exceeded', () => {
+    assert.equal(signatureOf(REQUEST_TOO_LARGE), 'request-too-large');
   });
 
   it('names a generator rate limit from a 429 or its text', () => {
@@ -533,6 +542,21 @@ describe('headlineFor', () => {
     );
   });
 
+  it('says request too large when a request can never fit the minute', () => {
+    const summary = withConfigs([
+      { skill: 'maplibre-cartography', verdict: 'pass', signatures: [] },
+      {
+        skill: 'maplibre-fonts-glyphs',
+        verdict: 'error',
+        signatures: ['request-too-large']
+      }
+    ]);
+    assert.equal(
+      headlineFor({ summary, evalResult: 'failure' }),
+      'request too large'
+    );
+  });
+
   it('says cut off when the time bound or the budget ended the run', () => {
     const bound = withConfigs([
       {
@@ -651,6 +675,32 @@ describe('classificationBlock', () => {
     });
     assert.match(block, /\| maplibre-cartography \| fail \| re-ran 1 test \|/);
     assert.match(block, /\| maplibre-fonts-glyphs \| pass \| — \|/);
+  });
+
+  it('says which configs wait for another day, and when Groq said the day was spent', () => {
+    const summary = {
+      ...withConfigs([
+        {
+          skill: 'maplibre-cartography',
+          verdict: 'error',
+          signatures: ['rate-limit-exhausted']
+        },
+        { skill: 'maplibre-fonts-glyphs', verdict: 'pass', signatures: [] }
+      ]),
+      day: {
+        tokensPerDay: 200000,
+        spent: 151000,
+        waiting: ['maplibre-sprites-icons'],
+        spentByGroq: { tokensPerDay: 150000, used: 149990 }
+      }
+    };
+    const block = classificationBlock({
+      summary,
+      evalResult: 'failure',
+      publish: {}
+    });
+    assert.match(block, /daily limit \(149,990 of 150,000 tokens used\)/);
+    assert.match(block, /Waiting for another day.*: maplibre-sprites-icons\./);
   });
 
   it('reports a rejected push in the publish steps', () => {
