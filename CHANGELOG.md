@@ -25,6 +25,7 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Internal
 
+- `eval.yml`: each config's requests are paced to the generator's measured per-minute limit, each config may use what the run's budget has left, and the run log and drift issue name every rate-limit wait ([#131](https://github.com/maplibre/maplibre-agent-skills/pull/131))
 - evals: `npm run lint:tripwires` fails on a `not-icontains` that matches the skill its test injects, and the two that did, in `maplibre-terrain-rendering` and `maplibre-v6-migration`, are gone ([#129](https://github.com/maplibre/maplibre-agent-skills/pull/129))
 - `eval.yml`: every eval request gets an answer cap that fits the generator's per-minute limit, and the drift check runs daily, grading the configs that have waited longest for a verdict as far as the day's tokens hold ([#126](https://github.com/maplibre/maplibre-agent-skills/pull/126))
 - `changelog.yml`: each run records every recently merged PR the changelog lacks, so merging several PRs at once no longer drops entries ([#123](https://github.com/maplibre/maplibre-agent-skills/pull/123))
