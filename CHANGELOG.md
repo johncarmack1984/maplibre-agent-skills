@@ -18,6 +18,7 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Fixed
 
+- `maplibre-sprites-icons`: gives each OSM Bright sheet's shield badges per network, and its shield test checks those ranges without the judge ([#135](https://github.com/maplibre/maplibre-agent-skills/pull/135))
 - `maplibre-source-wiring`: says a `{z}/{x}/{y}` template is not a URL to test by hand, which its TileJSON advice had crowded out ([#120](https://github.com/maplibre/maplibre-agent-skills/pull/120))
 - `maplibre-fonts-glyphs`: no longer adds font and glyph advice to answers about layers that draw no text ([#121](https://github.com/maplibre/maplibre-agent-skills/pull/121))
 - `maplibre-tile-sources`: back to the narrowed skill #69 verified, which fits the eval provider's request limit again; `maplibre-source-wiring` now says TileJSON 3.0 requires `vector_layers` and names Protomaps' `earth` layer ([#118](https://github.com/maplibre/maplibre-agent-skills/pull/118))
@@ -25,6 +26,7 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Internal
 
+- `eval.yml`: a config the judge's or the generator's daily limit cuts off waits for the next day instead of failing the run, and a 5xx from either provider is retried ([#134](https://github.com/maplibre/maplibre-agent-skills/pull/134))
 - evals: `maplibre-terrain-rendering` test 4 fails an answer that sets a Mapbox-only sky key, which the judge had passed ([#130](https://github.com/maplibre/maplibre-agent-skills/pull/130))
 - `eval.yml`: each config's requests are paced to the generator's measured per-minute limit, each config may use what the run's budget has left, and the run log and drift issue name every rate-limit wait ([#131](https://github.com/maplibre/maplibre-agent-skills/pull/131))
 - evals: `npm run lint:tripwires` fails on a `not-icontains` that matches the skill its test injects, and the two that did, in `maplibre-terrain-rendering` and `maplibre-v6-migration`, are gone ([#129](https://github.com/maplibre/maplibre-agent-skills/pull/129))
