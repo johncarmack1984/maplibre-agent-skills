@@ -1,7 +1,7 @@
 {
   "maplibre/maplibre-gl-js": {
-    "tag": "v6.15.0",
-    "published_at": "2026-10-18T12:57:17Z"
+    "tag": "v6.16.0",
+    "published_at": "2026-10-25T13:14:29Z"
   },
   "maplibre/maplibre-style-spec": {
     "tag": "v26.4.4",
@@ -12,12 +12,12 @@
     "published_at": "2026-10-15T12:56:04Z"
   },
   "maplibre/martin": {
-    "tag": "martin-core-v0.13.0",
-    "published_at": "2026-10-09T13:11:01Z"
+    "tag": "martin-config-macros-v0.1.4",
+    "published_at": "2026-10-23T00:04:41Z"
   },
   "maplibre/maplibre-tile-spec": {
-    "tag": "mlt-wasm-js-v0.2.0",
-    "published_at": "2026-10-17T14:16:06Z"
+    "tag": "mlt-wasm-js-v0.2.2",
+    "published_at": "2026-10-21T22:24:28Z"
   },
   "felt/tippecanoe": {
     "tag": "2.79.0",
