@@ -107,6 +107,14 @@ mkdir -p .claude
 ln -s /path/to/maplibre-agent-skills/skills .claude/skills
 ```
 
+### As a Claude Code plugin
+
+```text
+/plugin install maplibre-agent-skills --marketplace maplibre/maplibre-agent-skills
+```
+
+The plugin carries every skill in `skills/` except the maintainers' eval runbook.
+
 ### Via the skills CLI
 
 The [skills CLI](https://github.com/vercel-labs/skills) is a package manager for AI agent skills. It installs each skill where your agent looks for it.
