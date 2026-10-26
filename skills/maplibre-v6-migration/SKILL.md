@@ -28,7 +28,7 @@ v6 removed the UMD bundle and the separate CSP build. There's no `dist/maplibre-
 
 <!-- ✅ v6 — ESM build, type="module" required -->
 <script type="module">
-  import maplibregl from 'https://unpkg.com/maplibre-gl@^6.0.0/dist/maplibre-gl.mjs';
+  import * as maplibregl from 'https://unpkg.com/maplibre-gl@^6.0.0/dist/maplibre-gl.mjs';
   const map = new maplibregl.Map({ container: 'map', style: '...' });
 </script>
 ```
@@ -79,11 +79,13 @@ map.on('styleimagemissing', (e) => {
   map.addImage(e.id, generateIcon(e.id));
 });
 
-// ✅ v6 — register a resolver
-map.setMissingStyleImageResolver((id) => {
-  return generateIcon(id); // or return a Promise
+// ✅ v6 — register a resolver that adds the image itself
+map.setMissingStyleImageResolver(async (id) => {
+  map.addImage(id, await generateIcon(id));
 });
 ```
+
+The resolver has to call `map.addImage()`. MapLibre ignores its return value, so returning the image does nothing.
 
 Use this whenever a style references `icon-image` names that aren't in the sprite sheet and need to be generated or fetched at runtime.
 
@@ -140,7 +142,7 @@ const map = new Map({
   /* ... */
 });
 
-// ✅ Vite — the `?worker&url` query bundles the worker's own dependencies with it
+// ✅ Vite — the `?worker&url` query
 import { Map, setWorkerUrl } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
@@ -150,13 +152,13 @@ const map = new Map({
   /* ... */
 });
 
-// ✅ Webpack 5+ (Rspack and Rsbuild use the same pattern) — call setWorkerUrl() the same way, then create the Map
+// ✅ webpack 5+, Rspack, Rsbuild, and Next.js 15+ (Turbopack or webpack) — call setWorkerUrl() the same way, then create the Map
 import { Map, setWorkerUrl } from 'maplibre-gl';
 
 setWorkerUrl(new URL('maplibre-gl/dist/maplibre-gl-worker.mjs', import.meta.url).toString());
 ```
 
-In Vite, use `?worker&url`, not plain `?url`. The worker file imports a sibling `maplibre-gl-shared.mjs`, and plain `?url` emits the worker verbatim without it. That makes the worker fail on its first import in production, so no vector tiles load. Esbuild, Rollup, and Turbopack need the same one-time call with their own asset-handling syntax; Next.js needs a different approach entirely. See the [install guide](https://maplibre.org/maplibre-gl-js/docs/) for current per-bundler snippets — this changes with tooling versions faster than the rest of this skill.
+In Vite, use `?worker&url`, as the install guide does. From 6.0.0 to 6.12.x, plain `?url` leaves behind the `maplibre-gl-shared.mjs` the worker imports, so no vector tiles load in production; 6.13.0 made the worker self-contained. esbuild and Rollup copy the worker file and pass its URL to the same one-time call. See the [install guide](https://maplibre.org/maplibre-gl-js/docs/) for current per-bundler snippets; they change with tooling versions faster than the rest of this skill.
 
 **Don't carry this into item 1's CDN case.** A plain `<script type="module">` import from a CDN URL never needs `setWorkerUrl()`.
 
@@ -164,3 +166,7 @@ In Vite, use `?worker&url`, not plain `?url`. The worker file imports a sibling 
 
 - [MapLibre GL JS v5→v6 migration guide](https://maplibre.org/maplibre-gl-js/docs/guides/v5-to-v6-migration-guide/) and its [CHANGELOG](https://github.com/maplibre/maplibre-gl-js/blob/main/CHANGELOG.md) (v6.0.0 section)
 - [CustomLayerInterface API docs](https://maplibre.org/maplibre-gl-js/docs/API/interfaces/CustomLayerInterface/) and [install guide](https://maplibre.org/maplibre-gl-js/docs/) (per-bundler `setWorkerUrl()` snippets)
+
+---
+
+**This skill is a snapshot.** Where a primary source contradicts it — the References above, MapLibre's current documentation, or what MapLibre does when you run it — that source wins. Follow it, then [report the disagreement](https://github.com/maplibre/maplibre-agent-skills/issues/new?template=ai-failure-report.md), citing the source and your MapLibre version: editing your installed copy helps no one else and is overwritten on the next update.

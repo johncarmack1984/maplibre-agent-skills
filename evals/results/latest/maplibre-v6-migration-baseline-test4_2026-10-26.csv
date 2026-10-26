@@ -1,0 +1,789 @@
+Description,skillFile,injectSkill,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+explicit — dynamically supply a missing sprite icon at runtime,skills/maplibre-v6-migration/SKILL.md,false,"How do I dynamically supply an icon at runtime when MapLibre GL JS can't find it in the style's sprite?
+","Below is a complete, step-by-step recipe for “on-the-fly” icons in **MapLibre GL JS** when the style’s sprite does not contain the requested image.  
+The core idea is to listen for the `styleimagemissing` event, fetch or generate the image yourself, and register it with `map.addImage()`. Once the image is added, any layer that references the same `icon-image` name will instantly start drawing the new icon.
+
+---
+
+## 1️⃣ Why the error happens
+
+When a layer’s `layout.icon-image` (or `layout.text-field` with an `icon-` token) refers to a name that is **not** present in the style’s sprite, MapLibre throws a `StyleImageMissingError` and the layer is rendered with a transparent placeholder.  
+The library deliberately does **not** silently ignore the missing image because it wants you to know that the style is incomplete.
+
+> **Key point:** The error is emitted as a **`styleimagemissing`** event, which gives you a perfect hook to supply the missing asset yourself.
+
+---
+
+## 2️⃣ The “official” way – `styleimagemissing` event
+
+```js
+// Assume `map` is an already-created MapLibre GL JS instance
+map.on('load', () => {
+  // 1️⃣ Register a global handler for any missing image
+  map.on('styleimagemissing', async (e) => {
+    const missingId = e.id;               // the name the style tried to use
+    console.warn(`Missing icon ""${missingId}"" – loading it now…`);
+
+    try {
+      // 2️⃣ Load the image (you can fetch from a CDN, a data-uri, a canvas, etc.)
+      const image = await loadIcon(missingId); // <-- see helper below
+
+      // 3️⃣ Register it with the map
+      //    `sdf: true` if you want to tint the icon with `icon-color`
+      map.addImage(missingId, image, { sdf: false, pixelRatio: 2 });
+
+      // 4️⃣ (Optional) Force a repaint if the layer was already drawn
+      //    Usually not needed – MapLibre will automatically re-render.
+    } catch (err) {
+      console.error(`Failed to load icon ""${missingId}"":`, err);
+    }
+  });
+
+  // …add your layers that reference icons here
+});
+```
+
+### What the handler receives
+
+| Property | Meaning |
+|----------|---------|
+| `e.id`   | The **icon name** the style tried to resolve (e.g. `""my-custom-pin""`). |
+| `e.source` | The source that requested the image (rarely needed). |
+| `e.type` | Always `""styleimagemissing""` – useful if you attach a generic listener. |
+
+---
+
+## 3️⃣ Helper: `loadIcon(id)` – fetch / generate the image
+
+You can implement `loadIcon` in many ways. Below are three common patterns:
+
+#### a) Load from a remote URL (e.g. a CDN)
+
+```js
+async function loadIcon(id) {
+  // Map your icon IDs to URLs however you like
+  const urlMap = {
+    'airport':      'https://my.cdn.com/icons/airport.svg',
+    'restaurant':   'https://my.cdn.com/icons/restaurant.png',
+    // fallback for any unknown id
+    'default':      'https://my.cdn.com/icons/default.png',
+  };
+  const url = urlMap[id] ?? urlMap['default'];
+
+  // MapLibre ships with a tiny wrapper that returns an ImageBitmap
+  return new Promise((resolve, reject) => {
+    map.loadImage(url, (error, image) => {
+      if (error) return reject(error);
+      resolve(image); // `image` is an ImageBitmap ready for addImage()
+    });
+  });
+}
+```
+
+#### b) Load a **Base64-encoded** data-uri (useful for tiny icons)
+
+```js
+async function loadIcon(id) {
+  const dataUriMap = {
+    'star': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53...'
+    // …
+  };
+  const dataUri = dataUriMap[id] ?? dataUriMap['fallback'];
+  return new Promise((resolve, reject) => {
+    map.loadImage(dataUri, (err, img) => err ? reject(err) : resolve(img));
+  });
+}
+```
+
+#### c) Generate on-the-fly with a `<canvas>` (e.g. coloured circles, text)
+
+```js
+async function loadIcon(id) {
+  // Example: a coloured circle whose colour is encoded in the id: ""circle-#ff0000""
+  const match = id.match(/^circle-(#[0-9a-f]{6})$/i);
+  if (!match) throw new Error('Unsupported dynamic icon id');
+
+  const colour = match[1];
+  const size = 64; // pixel size of the icon
+
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  // Draw a simple filled circle
+  ctx.fillStyle = colour;
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Convert canvas → ImageBitmap (required by addImage)
+  return await createImageBitmap(canvas);
+}
+```
+
+> **Tip:** `map.loadImage()` works with **any** URL that the browser can resolve (including `blob:` URLs you create from a `File` or `ArrayBuffer`). If you already have an `HTMLImageElement`, `HTMLCanvasElement`, or `ImageBitmap`, you can pass it directly to `map.addImage()` – no need to go through `loadImage`.
+
+---
+
+## 4️⃣ Adding the image *before* the layer is created (optional)
+
+If you know ahead of time which icons you’ll need, you can pre-load them **once** and then add the layers. This avoids the “flash of missing-icon” that can happen when the layer renders before the async fetch finishes.
+
+```js
+async function preloadIcons(iconIds) {
+  await Promise.all(iconIds.map(async (id) => {
+    const img = await loadIcon(id);
+    map.addImage(id, img, { sdf: false });
+  }));
+}
+
+// Example usage:
+map.on('load', async () => {
+  await preloadIcons(['airport', 'restaurant']);
+  // now add layers that reference those icons – they will be instantly available
+});
+```
+
+---
+
+## 5️⃣ Handling **SDF** (Signed Distance Field) icons
+
+If you want to tint the icon with `icon-color` (or use `icon-opacity`), you need to add the image as an **SDF** image:
+
+```js
+map.addImage('my-sdf-icon', imgBitmap, { sdf: true, pixelRatio: 2 });
+```
+
+*Make sure the source SVG/PNG is actually an SDF (i.e. a monochrome image where the shape is encoded as a distance field). Otherwise the tinting will look wrong.*
+
+---
+
+## 6️⃣ Full-working example (copy-paste)
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>MapLibre – Dynamic Icons</title>
+  <script src=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+<script>
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {
+        osm: { type: 'raster', tiles: ['https://a.tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256 }
+      },
+      layers: [
+        { id: 'osm', type: 'raster', source: 'osm' }
+      ]
+    },
+    center: [-122.447303, 37.753574],
+    zoom: 12
+  });
+
+  // ---------- 1️⃣ Listen for missing icons ----------
+  map.on('load', () => {
+    map.on('styleimagemissing', async (e) => {
+      const id = e.id;
+      console.log(`🔎 Missing icon ""${id}"" – trying to load…`);
+
+      try {
+        const img = await loadIcon(id);
+        // If you want tintable icons, set `sdf: true` and provide an SDF source.
+        map.addImage(id, img, { sdf: false, pixelRatio: 2 });
+        console.log(`✅ Added icon ""${id}""`);
+      } catch (err) {
+        console.error(`❌ Could not load icon ""${id}""`, err);
+      }
+    });
+
+    // ---------- 2️⃣ Add a layer that references a *non-existent* icon ----------
+    map.addLayer({
+      id: 'dynamic-points',
+      type: 'symbol',
+      source: {
+        type: 'geojson',
+        data: {
+          type: 'FeatureCollection',
+          features: [
+            {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [-122.447303, 37.753574] },
+              properties: { icon: 'airport' } // <-- this name is NOT in the sprite
+            },
+            {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [-122.453, 37.76] },
+              properties: { icon: 'circle-#ff6600' } // <-- generated on-the-fly
+            }
+          ]
+        }
+      },
+      layout: {
+        // Use the property value as the icon name
+        'icon-image': ['get', 'icon'],
+        'icon-size': 0.8,
+        'icon-allow-overlap': true
+      }
+    });
+  });
+
+  // ---------- 3️⃣ Helper that knows how to fetch each kind of icon ----------
+  async function loadIcon(id) {
+    // 1️⃣ Remote PNG/SVG icons
+    const remoteMap = {
+      'airport': 'https://raw.githubusercontent.com/mapbox/maki/main/icons/airport-15.svg',
+      // add more static URLs here …
+    };
+    if (remoteMap[id]) {
+      return new Promise((resolve, reject) => {
+        map.loadImage(remoteMap[id], (err, img) => err ? reject(err) : resolve(img));
+      });
+    }
+
+    // 2️⃣ Dynamically generated circles (id pattern: ""circle-#rrggbb"")
+    const circleMatch = id.match(/^circle-(#[0-9a-f]{6})$/i);
+    if (circleMatch) {
+      const colour = circleMatch[1];
+      const size = 64;
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = colour;
+      ctx.beginPath();
+      ctx.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2);
+      ctx.fill();
+      return await createImageBitmap(canvas);
+    }
+
+    // 3️⃣ Fallback – a tiny transparent PNG so the map doesn’t stay blank
+    const fallback = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AApEB",FAIL,0.00,,"The provided output describes using the `styleimagemissing` event to handle missing icons and calls `map.addImage()` within the event handler. This approach is outdated and incorrect for recent versions of MapLibre GL JS (v6+). The rubric specifies that the recommended method is `map.setMissingStyleImageResolver()`, and that the `styleimagemissing` event is now 'notify-only' and does not resolve the pending request. The output does not mention `map.setMissingStyleImageResolver()` at all. Furthermore, the output's explanation of the `styleimagemissing` event implies that it's used to *resolve* the missing image, which is contrary to the rubric's statement that the event is notify-only and the return value is ignored.",
+explicit — dynamically supply a missing sprite icon at runtime,skills/maplibre-v6-migration/SKILL.md,false,"How do I dynamically supply an icon at runtime when MapLibre GL JS can't find it in the style's sprite?
+","Below is a complete, copy-and-paste-ready recipe for “on-the-fly” icons in **MapLibre GL JS**.  
+It works the same way the original Mapbox GL JS `styleimagemissing` event does: when the style asks for an image that isn’t in the sprite, you intercept the request, load the image yourself (from a URL, a data-URI, a canvas, etc.), add it to the map’s image cache, and the layer instantly picks it up.
+
+---
+
+## TL;DR
+
+```js
+// 1️⃣ Wait for the map to be ready
+map.on('load', () => {
+  // 2️⃣ Listen for missing-image events
+  map.on('styleimagemissing', async (e) => {
+    const id = e.id;                     // the name the style tried to use
+    const url = `/icons/${id}.png`;      // ← decide where to fetch it from
+
+    try {
+      // 3️⃣ Load the image (any of the three helpers works)
+      const img = await loadImage(url); // returns an HTMLImageElement or ImageBitmap
+
+      // 4️⃣ Add it to the map’s internal image cache
+      map.addImage(id, img, { sdf: false, pixelRatio: 2 });
+
+      // 5️⃣ (optional) force a repaint if the layer is already on the map
+      map.triggerRepaint();
+    } catch (err) {
+      console.warn(`⚠️ Could not load icon ""${id}"" from ${url}`, err);
+    }
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Helper that works in every modern browser (fetch → createImageBitmap) */
+async function loadImage(url) {
+  const resp = await fetch(url, { mode: 'cors' });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const blob = await resp.blob();
+  // createImageBitmap is faster & works off-screen, but falls back to Image if unavailable
+  return (self.createImageBitmap ? await createImageBitmap(blob) : await imgFromBlob(blob));
+}
+
+/* Fallback that creates a regular HTMLImageElement */
+function imgFromBlob(blob) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = URL.createObjectURL(blob);
+  });
+}
+```
+
+That’s it. Every time the style references an icon that isn’t already in the sprite, the `styleimagemissing` handler runs, fetches the PNG (or SVG, or even a canvas-generated image), registers it with `map.addImage()`, and the layer instantly shows the new icon.
+
+---
+
+## Why This Works (and why you can’t just “edit the sprite”)
+
+* **Sprites are static** – they are a single PNG + JSON file that the style loads once at startup. Changing them after the style has been parsed would require a full `setStyle()` call, which would destroy all your runtime state.
+* **`map.addImage()` is the public API for dynamic images** – it stores the image in an internal cache that the renderer consults *every* time it draws a symbol layer. The cache lives alongside the sprite, so you can mix static-sprite icons and runtime-added icons without any conflict.
+* **`styleimagemissing` is a built-in “fallback” hook** – MapLibre GL JS fires this event *exactly* when a layer’s `icon-image` property resolves to a name that isn’t in the cache. It gives you a perfect place to plug in your own loader.
+
+---
+
+## Step-by-Step Walk-through
+
+### 1️⃣ Wait for the map to be ready
+
+You must attach the listener **after** the `load` event (or any later point) because the `styleimagemissing` event is only emitted once the style has been parsed.
+
+```js
+map.on('load', () => {
+  // … attach listener here …
+});
+```
+
+### 2️⃣ Listen for `styleimagemissing`
+
+```js
+map.on('styleimagemissing', (e) => {
+  // e.id is the string the style tried to use, e.sourceId is undefined for sprites
+});
+```
+
+*The event object only contains `{ id: string }` – you decide where to get the image from.*
+
+### 3️⃣ Load the image
+
+You have three common ways to get an image into a form that `addImage` accepts:
+
+| Method | Returns | When to use |
+|--------|---------|-------------|
+| `map.loadImage(url, callback)` | `HTMLImageElement` (or `ImageBitmap` on newer browsers) | Quick one-liner, but callback-based. |
+| `fetch → createImageBitmap` (as in the helper above) | `ImageBitmap` | Faster, works off-screen, works with CORS-enabled resources. |
+| Draw on a `<canvas>` and call `canvas.transferToImageBitmap()` | `ImageBitmap` | When you need to generate the icon programmatically (e.g., text, charts). |
+
+All three are accepted by `map.addImage()`.
+
+### 4️⃣ Register the image
+
+```js
+map.addImage(id, img, {
+  // Optional flags:
+  sdf: false,          // true if the image is an SDF (signed distance field) for tinting
+  pixelRatio: 2,       // match the @2x version if you have one
+  stretchX: [],        // for sprite-sheet slicing – not needed for single icons
+  stretchY: []
+});
+```
+
+If you try to add an image with a name that already exists, `addImage` throws. You can guard against that with `if (!map.hasImage(id)) …`.
+
+### 5️⃣ Force a repaint (usually not needed)
+
+If the layer that requested the missing icon is already on the map, the renderer will automatically pick up the newly added image on the next frame. In rare cases (e.g., you added the image after the layer’s `icon-image` property was already evaluated) you can call:
+
+```js
+map.triggerRepaint();
+```
+
+---
+
+## Full Example – A Real-World Use-Case
+
+Suppose you have a GeoJSON source of points, each feature has a property `icon` that matches a file name in `/icons/`. Some icons are shipped in the static sprite, others are only available on demand.
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>Dynamic Icons with MapLibre GL JS</title>
+  <script src=""https://unpkg.com/maplibre-gl@4.0.0/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@4.0.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>#map { position:absolute; top:0; bottom:0; width:100%; }</style>
+</head>
+<body>
+<div id=""map""></div>
+<script>
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {
+        points: {
+          type: 'geojson',
+          data: {
+            type: 'FeatureCollection',
+            features: [
+              { type: 'Feature', geometry: { type: 'Point', coordinates: [-122.4, 37.8] }, properties: { icon: 'restaurant' } },
+              { type: 'Feature', geometry: { type: 'Point', coordinates: [-122.41, 37.81] }, properties: { icon: 'cafe' } },
+              { type: 'Feature', geometry: { type: 'Point', coordinates: [-122.42, 37.79] }, properties: { icon: 'custom-01' } } // not in sprite
+            ]
+          }
+        }
+      },
+      layers: [
+        {
+          id: 'points',
+          type: 'symbol',
+          source: 'points',
+          layout: {
+            // The icon name comes directly from the feature property
+            'icon-image': ['get', 'icon'],
+            'icon-size': 1,
+            'icon-allow-overlap': true
+          }
+        }
+      ],
+      // Optional: a minimal sprite that contains only a few fallback icons
+      sprite: 'https://example.com/sprite/sprite.json'
+    },
+    center: [-122.4, 37.8],
+    zoom: 13
+  });
+
+  // ---- Dynamic-icon handler -------------------------------------------------
+  map.on('load', () => {
+    map.on('styleimagemissing', async (e) => {
+      const id = e.id;                     // e.g. ""custom-01""
+      const url = `/icons/${id}.png`;      // adjust to your own folder/extension
+
+      // Bail out early if we already added it (race condition safety)
+      if (map.hasImage(id)) return;
+
+      try {
+        const img = await loadImage(url);
+        map.addImage(id, img, { sdf: false, pixelRatio: 2 });
+        // No need to call triggerRepaint – the layer will re-evaluate automatically
+      } catch (err) {
+        console.warn(`⚠️ Could not load dynamic icon ""${id}"" from ${url}`, err);
+        // Optionally add a fallback placeholder:
+        if (!map.hasImage('missing-icon')) {
+          const placeholder = await loadImage('/icons/missing.png');
+          map.addImage('missing-icon', placeholder);
+        }
+        // Force the layer to use the placeholder
+        map.setLayoutProperty('points', 'icon-image', ['coalesce', ['get', 'icon'], 'missing-icon']);
+      }
+    });
+  });
+
+  // ---- Helper: fetch → ImageBitmap -----------------------------------------
+  async function loadImage(url) {
+    const resp = await fetch(url, { mode: 'cors' });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const blob = await resp.blob();
+    return (self.createImageBitmap ? await createImageBitmap(blob) : await imgFromBlob(blob));
+  }
+
+  function imgFromBlob(blob) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = URL.createObjectURL(blob);
+    });
+  }
+</script>
+</body>
+</html>
+```
+
+**What this does**
+
+1. The style contains a *tiny* sprite (maybe just a generic “missing” icon).  
+2. The `points` layer asks for `icon-image` = the value of each feature’s `icon` property.  
+3. For `restaurant` and `cafe` the sprite already has those names → they render instantly.  
+4. For `custom-01` the sprite has no entry → `styleimagemissing` fires.  
+5. The handler fetches `/icons/custom-01.png`, registers it, and the point instantly shows the new picture.  
+6. If the fetch fails, we fall back to a built-in `missing-icon` placeholder.
+
+---
+
+## Common Gotchas & How to Avoid Them
+
+| Issue | Why it Happens | Fix |
+|-------|----------------|-----|
+| **CORS errors** (`tainted canvas`) | The image is hosted on a different origin without `Access-Control-Allow-Origin:*` | Serve the icons with proper CORS headers **or** proxy them through your own domain. Set `img.crossOrigin = 'anonymous'` when you create an `HTMLImageElement`. |
+| **Duplicate `addImage` calls** | Two features request the same missing icon at the same time, causing a race condition. | Guard with",FAIL,0.00,,"The output describes using the `styleimagemissing` event and directly calling `map.addImage()` within the event handler. This is the older, deprecated method. The current recommendation in MapLibre GL JS (v6+) is to use `map.setMissingStyleImageResolver()`, which takes a resolver function that itself is responsible for loading the image and adding it using `map.addImage()`. The output also incorrectly implies that the return value of the resolver is used to supply the image, which is not the case; MapLibre GL JS ignores the resolver's return value.",
+explicit — dynamically supply a missing sprite icon at runtime,skills/maplibre-v6-migration/SKILL.md,false,"How do I dynamically supply an icon at runtime when MapLibre GL JS can't find it in the style's sprite?
+","Below is a complete, step-by-step recipe for “on-the-fly” icons in **MapLibre GL JS** when the style’s sprite does not contain the requested image.  
+The core idea is to listen for the `styleimagemissing` event, fetch or generate the image yourself, and register it with `map.addImage()`. Once the image is added, any layer that references the same `icon-image` name will instantly start drawing the new icon – no page reload or style rebuild required.
+
+---
+
+## 1️⃣ Why the error happens
+
+When a layer’s `layout.icon-image` (or `layout.text-field` with an `icon-` token) refers to a name that is **not** present in the style’s sprite, MapLibre throws a `StyleImageMissingError` and the layer is rendered with a transparent placeholder.  
+The library deliberately does **not** silently ignore the missing image because it wants you to know that the style is incomplete.
+
+> **Key point:** The error is emitted as a **`styleimagemissing`** event, which gives you a perfect hook to supply the missing asset yourself.
+
+---
+
+## 2️⃣ The “official” way – `styleimagemissing` event
+
+```js
+// Assume `map` is an already-created MapLibre GL JS instance
+map.on('load', () => {
+  // 1️⃣ Register a global handler for any missing image
+  map.on('styleimagemissing', async (e) => {
+    const missingId = e.id;               // the name the style tried to use
+    console.warn(`Missing icon ""${missingId}"" – loading it now…`);
+
+    try {
+      // 2️⃣ Load the image (you can fetch from a URL, a data-uri, a canvas, etc.)
+      const image = await loadIcon(missingId); // <-- see helper below
+
+      // 3️⃣ Register it with the map
+      //    `sdf: true` if you are using signed-distance-field icons (e.g. Mapbox icons)
+      map.addImage(missingId, image, { sdf: false, pixelRatio: window.devicePixelRatio });
+
+      // 4️⃣ (Optional) Force a repaint if the layer was already drawn once
+      map.triggerRepaint();
+    } catch (err) {
+      console.error(`Failed to load icon ""${missingId}"":`, err);
+    }
+  });
+});
+```
+
+### What the handler receives
+
+| Property | Meaning |
+|----------|---------|
+| `e.id`   | The **icon name** the style tried to look up (exactly the string you would put in `layout.icon-image`). |
+| `e.source` | The source of the request – always `""style""` for sprite look-ups. |
+| `e.type` | Always `""styleimagemissing""` (useful if you attach the same listener to multiple maps). |
+
+---
+
+## 3️⃣ Helper: `loadIcon(id)` – fetch or generate the image
+
+You can implement `loadIcon` in any way that makes sense for your app:
+
+| Source | Example implementation |
+|--------|------------------------|
+| **Remote PNG/JPEG** | `map.loadImage(url)` (built-in convenience) |
+| **Data-URI** | `await fetch(dataUri).then(r => r.blob()).then(createImageBitmap)` |
+| **Canvas / SVG** | Draw on a `<canvas>` or convert an `<svg>` to a bitmap |
+| **Font-awesome / Icon fonts** | Render a glyph onto a canvas, then `createImageBitmap` |
+| **Dynamic generation** | Use a library like `sharp` (Node) or `fabric.js` (browser) to draw on-the-fly |
+
+Below are three common patterns.
+
+#### 3.1 Remote PNG via `map.loadImage`
+
+```js
+async function loadIcon(id) {
+  // Convention: your icon files live under /icons/<id>.png
+  const url = `/icons/${encodeURIComponent(id)}.png`;
+  return new Promise((resolve, reject) => {
+    map.loadImage(url, (error, image) => {
+      if (error) return reject(error);
+      resolve(image);
+    });
+  });
+}
+```
+
+#### 3.2 Data-URI (e.g., base64-encoded SVG)
+
+```js
+async function loadIcon(id) {
+  // Suppose you have a map of id → data-uri somewhere
+  const dataUri = ICON_DATA_URIS[id];
+  if (!dataUri) throw new Error(`No data-uri for ${id}`);
+
+  const response = await fetch(dataUri);
+  const blob = await response.blob();
+  return await createImageBitmap(blob);
+}
+```
+
+#### 3.3 Canvas-generated icon (e.g., a colored circle)
+
+```js
+async function loadIcon(id) {
+  // Example: id = ""circle-red-24""
+  const [shape, color, sizeStr] = id.split('-');
+  const size = Number(sizeStr); // e.g., 24
+
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  if (shape === 'circle') {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // … add more shapes as you like
+
+  return await createImageBitmap(canvas);
+}
+```
+
+> **Tip:** `createImageBitmap` is fast and returns an `ImageBitmap` that `addImage` accepts directly. If you prefer the older `HTMLImageElement`, you can also pass that, but `ImageBitmap` avoids an extra layout pass.
+
+---
+
+## 4️⃣ Using the newly added image in a layer
+
+If the layer already exists and references the missing name, you **don’t** need to touch the layer definition – once `addImage` finishes, MapLibre will automatically re-render the layer with the new icon.
+
+If you are adding a brand-new layer after the image is loaded, just reference the same `icon-image` name:
+
+```js
+map.addLayer({
+  id: 'dynamic-points',
+  type: 'symbol',
+  source: 'my-points',
+  layout: {
+    'icon-image': 'my-custom-icon', // <-- must match the id you added
+    'icon-size': 1.2,
+    'icon-allow-overlap': true
+  }
+});
+```
+
+---
+
+## 5️⃣ Advanced options for `addImage`
+
+| Option | Description | Typical use |
+|--------|-------------|-------------|
+| `sdf` | **Signed-distance-field** – set to `true` if the image is an SDF (e.g., Mapbox’s default icons). Allows you to recolor the icon with `icon-color`. | Font-awesome-style icons, Mapbox-Maki icons |
+| `pixelRatio` | Device pixel ratio for retina displays. Usually `window.devicePixelRatio`. | Improves sharpness on high-DPI screens |
+| `stretchX` / `stretchY` | Define stretchable regions for 9-slice scaling (rarely needed for simple icons). | UI-style markers that need to stretch |
+| `content` | An array `[left, top, right, bottom]` that defines the *icon’s* anchor box relative to the image dimensions. | When you need a custom anchor point (e.g., bottom-center) |
+
+Example with an SDF icon:
+
+```js
+map.addImage('my-sdf-icon', imageBitmap, { sdf: true, pixelRatio: 2 });
+```
+
+Now you can recolor it on the fly:
+
+```js
+map.setPaintProperty('my-layer', 'icon-color', '#ff6600');
+```
+
+---
+
+## 6️⃣ Caching – avoid re-fetching the same icon
+
+If you expect the same missing icon to appear many times (e.g., many features reference `""restaurant""`), keep a **Set** or **Map** of already-loaded ids:
+
+```js
+const loadedIcons = new Set();
+
+map.on('styleimagemissing', async (e) => {
+  const id = e.id;
+  if (loadedIcons.has(id)) return; // already added earlier
+
+  try {
+    const img = await loadIcon(id);
+    map.addImage(id, img);
+    loadedIcons.add(id);
+  } catch (err) {
+    console.error(err);
+  }
+});
+```
+
+---
+
+## 7️⃣ Full-working example (copy-paste)
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>MapLibre – Dynamic Icons</title>
+  <script src=""https://unpkg.com/maplibre-gl@4.0.0/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@4.0.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+<script>
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://demotiles.maplibre.org/style.json', // any style without the custom icons
+    center: [-122.447303, 37.753574],
+    zoom: 12
+  });
+
+  // Dummy GeoJSON source with a feature that references a non-existent icon
+  const geojson = {
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [-122.447303, 37.753574] },
+      properties: { name: 'Dynamic Icon' }
+    }]
+  };
+
+  map.on('load', () => {
+    // Add source + layer that uses a missing icon name
+    map.addSource('points', { type: 'geojson', data: geojson });
+    map.addLayer({
+      id: 'points',
+      type: 'symbol',
+      source: 'points',
+      layout: {
+        'icon-image': 'my-dynamic-pin', // <-- not in the sprite
+        'icon-size': 1,
+        'text-field': ['get', 'name'],
+        'text-offset': [0, 1.5],
+        'text-anchor': 'top'
+      }
+    });
+
+    // ---------- Dynamic-icon handler ----------
+    const loaded = new Set();
+
+    map.on('styleimagemissing', async (e) => {
+      const id = e.id;
+      if (loaded.has(id)) return; // already done
+
+      console.log(`🔎 Need icon ""${id}"" – loading…`);
+
+      try {
+        // Example: fetch a PNG from /icons/<id>.png
+        const url = `/icons/${encodeURIComponent(id)}.png`;
+        const img = await new Promise((resolve, reject) => {
+          map.loadImage(url, (err, image) => err ? reject(err) : resolve(image));
+        });
+
+        map.addImage(id, img, { pixelRatio: window.devicePixelRatio });
+        loaded.add(id);
+        console.log(`✅ Icon ""${id}"" added`);
+      } catch (err) {
+        console.error(`❌ Could not load ""${id}""`, err);
+      }
+    });
+  });
+</script>
+</body>
+</html>
+```
+
+*Replace `/icons/<id>.png` with the real path to your icon assets, or swap the `loadIcon` implementation for any of the helpers shown earlier.*
+
+---
+
+## 8️⃣ Common pitfalls & how to avoid them
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| **`Error: Image ""foo"" not found in style sprite` keeps repeating** | The `styleimagemissing` handler never resolves (e.g., you forgot to call `resolve`/",FAIL,0.00,,"The output correctly identifies the `styleimagemissing` event and the `map.addImage()` method as the core components for handling missing icons. However, it fails to mention the newer `map.setMissingStyleImageResolver()` mechanism introduced in v6, which is the recommended approach for directly resolving missing images. The output also incorrectly implies that the `styleimagemissing` event handler itself can directly resolve the pending request by calling `map.addImage()`. In v6, this event is purely for notification, and the actual resolution needs to happen via the resolver function set by `setMissingStyleImageResolver()` and its return value is ignored.",
