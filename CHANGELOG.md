@@ -18,6 +18,8 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Fixed
 
+- README: the install section gives the skill folders Cursor, GitHub Copilot, Codex and Claude Code read, and `-a github-copilot` in place of `-a vscode`, which the skills CLI rejects ([#139](https://github.com/maplibre/maplibre-agent-skills/pull/139))
+- `maplibre-source-wiring` and `maplibre-tile-sources`: replace "silently omitted" with the console warning GL JS logs for a missing sprite or icon, and `map.hasImage()` ([#104](https://github.com/maplibre/maplibre-agent-skills/pull/104))
 - `maplibre-sprites-icons`: gives each OSM Bright sheet's shield badges per network, and its shield test checks those ranges without the judge ([#135](https://github.com/maplibre/maplibre-agent-skills/pull/135))
 - `maplibre-source-wiring`: says a `{z}/{x}/{y}` template is not a URL to test by hand, which its TileJSON advice had crowded out ([#120](https://github.com/maplibre/maplibre-agent-skills/pull/120))
 - `maplibre-fonts-glyphs`: no longer adds font and glyph advice to answers about layers that draw no text ([#121](https://github.com/maplibre/maplibre-agent-skills/pull/121))
@@ -26,6 +28,8 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Internal
 
+- `scripts/setup-hooks.js`: `npm install` outside a git checkout skips the pre-push hook instead of failing ([#140](https://github.com/maplibre/maplibre-agent-skills/pull/140))
+- `changelog.yml`: the changelog bot runs `npm run check` before pushing, so an entry that fails it fails the run instead of reaching `main` unchecked ([#109](https://github.com/maplibre/maplibre-agent-skills/pull/109))
 - workflows: every job runs the Node version in `.nvmrc`, now 26, with each action on its Node 24 release, and `check.yml` runs the unit tests ([#137](https://github.com/maplibre/maplibre-agent-skills/pull/137))
 - `eval.yml`: a config the judge's or the generator's daily limit cuts off waits for the next day instead of failing the run, and a 5xx from either provider is retried ([#134](https://github.com/maplibre/maplibre-agent-skills/pull/134))
 - evals: `maplibre-terrain-rendering` test 4 fails an answer that sets a Mapbox-only sky key, which the judge had passed ([#130](https://github.com/maplibre/maplibre-agent-skills/pull/130))
