@@ -8,6 +8,7 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Fixed
 
+- `maplibre-v6-migration`: opens with its scope rule, so an answer to an unrelated question no longer adds v6 migration sections ([#153](https://github.com/maplibre/maplibre-agent-skills/pull/153))
 - `maplibre-fonts-glyphs`: GL JS reads `font-faces` since 6.7.0, needs no right-to-left plugin since 6.9.0, and draws Devanagari and other complex scripts correctly since 6.15.0 ([#152](https://github.com/maplibre/maplibre-agent-skills/pull/152))
 - `maplibre-terrain-rendering`: says MapLibre GL JS has no `setFog` method or root `fog` object, so haze goes in `sky`, and the sky test fails a `setFog` call ([#151](https://github.com/maplibre/maplibre-agent-skills/pull/151))
 
