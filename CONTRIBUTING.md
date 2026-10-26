@@ -8,7 +8,7 @@ Providers, API keys, commands, and how to write prompts and rubrics all live in 
 
 ## Correctness Validation
 
-Please review [What a skill's status means](README.md#what-a-skills-status-means) in the README. Everything below is how a contribution actually gets to `status: verified`, and how that's maintained.
+Please review [What Status Means](README.md#what-status-means) in the README. Everything below is how a contribution actually gets to `status: verified`, and how that's maintained.
 
 Correctness is established two ways:
 
@@ -76,7 +76,7 @@ Then:
 4. **Write the results doc**: `evals/results/maplibre-<name>.md`, one row per test — baseline and with-skill outcome, failure mode compressed into the cell — a `Run:` header line (date, model, judge), closing with a bold pass/fail tally. [`maplibre-cartography.md`](evals/results/maplibre-cartography.md) and [`maplibre-v6-migration.md`](evals/results/maplibre-v6-migration.md) are the pattern to copy. (A handful of older results docs use a longer full-transcript format instead — left as-is, not something to replicate.)
 5. **Test with an AI assistant** before marking the PR ready: `npx skills add .` to install the skill locally, then ask it the questions from your rubric to confirm the fix holds.
 
-If the eval setup is onerous, ship as `status: provisional` instead — but accept that your content may be edited or dropped if it later turns out not to match a verified gap. See [What a skill's status means](README.md#what-a-skills-status-means).
+If the eval setup is onerous, ship as `status: provisional` instead — but accept that your content may be edited or dropped if it later turns out not to match a verified gap. See [What Status Means](README.md#what-status-means).
 
 ### Edit an existing skill
 
