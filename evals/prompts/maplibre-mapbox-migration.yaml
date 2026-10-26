@@ -28,7 +28,7 @@ tests:
         value: gl-style-validate
       - type: llm-rubric
         value: >
-          Must mention the @maplibre/maplibre-style-spec package and the
+          Must mention the @maplibre/maplibre-gl-style-spec package and the
           gl-style-validate command for validating a style JSON file. Must
           not suggest only browser devtools or generic JSON validators as
           the primary answer.
