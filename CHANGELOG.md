@@ -8,6 +8,7 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Added
 
+- `maplibre-sprites-icons` skill, extracted from `maplibre-cartography`: a decision tree for a `Marker`, a sprite, or `addImage`; `sprite` URL forms and several sheets; self-hosting; SVGs through `addImage`; finding a missing icon; route shields (#68) ([#96](https://github.com/maplibre/maplibre-agent-skills/pull/96))
 - `maplibre-running-evals` process skill: the step-by-step procedure for running the Promptfoo evals; `evals/README.md` now treats the pinned judge as the default and says when another judge is legitimate ([#81](https://github.com/maplibre/maplibre-agent-skills/pull/81))
 
 ### Changed
@@ -17,10 +18,25 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Fixed
 
+- `maplibre-sprites-icons`: gives each OSM Bright sheet's shield badges per network, and its shield test checks those ranges without the judge ([#135](https://github.com/maplibre/maplibre-agent-skills/pull/135))
+- `maplibre-source-wiring`: says a `{z}/{x}/{y}` template is not a URL to test by hand, which its TileJSON advice had crowded out ([#120](https://github.com/maplibre/maplibre-agent-skills/pull/120))
+- `maplibre-fonts-glyphs`: no longer adds font and glyph advice to answers about layers that draw no text ([#121](https://github.com/maplibre/maplibre-agent-skills/pull/121))
+- `maplibre-tile-sources`: back to the narrowed skill #69 verified, which fits the eval provider's request limit again; `maplibre-source-wiring` now says TileJSON 3.0 requires `vector_layers` and names Protomaps' `earth` layer ([#118](https://github.com/maplibre/maplibre-agent-skills/pull/118))
 - `maplibre-pmtiles-patterns`: state the GL JS 4.0.0 `addProtocol` handler contract (`{data, cacheControl?, expires?}`, module-level registration), that sources locate tiles with `url` or `tiles` only, and the real `pmtiles` inspection commands ([#92](https://github.com/maplibre/maplibre-agent-skills/pull/92))
 
 ### Internal
 
+- workflows: every job runs the Node version in `.nvmrc`, now 26, with each action on its Node 24 release, and `check.yml` runs the unit tests ([#137](https://github.com/maplibre/maplibre-agent-skills/pull/137))
+- `eval.yml`: a config the judge's or the generator's daily limit cuts off waits for the next day instead of failing the run, and a 5xx from either provider is retried ([#134](https://github.com/maplibre/maplibre-agent-skills/pull/134))
+- evals: `maplibre-terrain-rendering` test 4 fails an answer that sets a Mapbox-only sky key, which the judge had passed ([#130](https://github.com/maplibre/maplibre-agent-skills/pull/130))
+- `eval.yml`: each config's requests are paced to the generator's measured per-minute limit, each config may use what the run's budget has left, and the run log and drift issue name every rate-limit wait ([#131](https://github.com/maplibre/maplibre-agent-skills/pull/131))
+- evals: `npm run lint:tripwires` fails on a `not-icontains` that matches the skill its test injects, and the two that did, in `maplibre-terrain-rendering` and `maplibre-v6-migration`, are gone ([#129](https://github.com/maplibre/maplibre-agent-skills/pull/129))
+- `eval.yml`: every eval request gets an answer cap that fits the generator's per-minute limit, and the drift check runs daily, grading the configs that have waited longest for a verdict as far as the day's tokens hold ([#126](https://github.com/maplibre/maplibre-agent-skills/pull/126))
+- `changelog.yml`: each run records every recently merged PR the changelog lacks, so merging several PRs at once no longer drops entries ([#123](https://github.com/maplibre/maplibre-agent-skills/pull/123))
+- evals: answers are graded with U+2011 (non-breaking hyphen) replaced by `-`, so a hyphenated name written in prose matches its `icontains` ([#122](https://github.com/maplibre/maplibre-agent-skills/pull/122))
+- `eval.yml`: a test that does not pass runs twice more, and its failure is recorded only if a re-run fails too ([#119](https://github.com/maplibre/maplibre-agent-skills/pull/119))
+- `eval.yml`: a failed judge call inside an `llm-rubric` records `error` instead of `fail`, so it no longer demotes a skill ([#110](https://github.com/maplibre/maplibre-agent-skills/pull/110))
+- `eval.yml`: the weekly drift check runs as three scheduled slices (Sunday, Wednesday, Friday) sized to Groq's daily token cap, and the status sync measures a run against its own plan instead of every config ([#113](https://github.com/maplibre/maplibre-agent-skills/pull/113))
 - `scripts/setup-hooks.js`: `npm install` from a git worktree installs the pre-push hook instead of failing ([#103](https://github.com/maplibre/maplibre-agent-skills/pull/103))
 - `eval.yml`: the runner rejects config and output paths that are not plain `evals/prompts/<skill>.yaml` files or plain directories before they reach `npm run`, answering the CodeQL shell-command alert ([#95](https://github.com/maplibre/maplibre-agent-skills/pull/95))
 - evals: the judge and the deterministic assertions grade the generator's answer only; the reasoning trace is no longer prepended to the graded output ([#94](https://github.com/maplibre/maplibre-agent-skills/pull/94))

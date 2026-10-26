@@ -1,0 +1,877 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+"explicit — client-side hypsometric tint (color-relief layer, GL JS 5.6+)",skills/maplibre-terrain-rendering/SKILL.md,"I have terrain tiles as a raster-dem source in MapLibre GL JS and I want to color the map by elevation ranges (a hypsometric tint) directly client-side — blues at sea level through greens and browns to white peaks — without pre-rendering colored raster tiles. What layer type do I use and how do I configure the color ramp?
+","**Short answer**
+
+*Use a **`color-relief`** layer.*  
+It reads the same `raster-dem` source you already have and lets you tint the terrain on the fly with an `interpolate` expression over the special `[""elevation""]` expression.
+
+Below is a complete, ready-to-copy example that shows:
+
+1. Adding the DEM source (if you haven’t already).  
+2. Adding a `color-relief` layer that paints the DEM with a hypsometric ramp (blue → green → brown → white).  
+3. Optional tweaks (opacity, exaggeration, sky, camera pitch) so you can see the effect.
+
+---
+
+## 1. DEM source (raster-dem)
+
+```js
+// Assuming you already have a MapLibre map instance called `map`
+map.addSource('terrain-dem', {
+  type: 'raster-dem',
+  // URL can be a TileJSON, a template string, or a PMTiles URL, etc.
+  url: 'https://tiles.example.com/terrain/{z}/{x}/{y}.webp',
+  // If your DEM uses a non-default encoding (e.g. ""terrarium"") set it here:
+  // encoding: 'terrarium',
+  maxzoom: 12               // whatever your tiles support
+});
+```
+
+> **Note** – The source is *only* a `raster-dem`. Do **not** add a `raster` layer for it; that would just display the raw RGB values of the DEM.
+
+---
+
+## 2. Hypsometric (color-relief) layer
+
+```js
+map.addLayer({
+  id: 'hypsometric-tint',
+  type: 'color-relief',          // <-- the layer type you need
+  source: 'terrain-dem',
+  // No `source-layer` – raster-dem sources have no vector layers
+  paint: {
+    // The ramp – an interpolate expression over the special [""elevation""] value
+    'color-relief-color': [
+      'interpolate',
+      ['linear'],
+      ['elevation'],               // elevation in metres (relative to the DEM's datum)
+
+      // ---- elevation (m) ----   ---- colour ----
+      -200, '#2e3b8f',   // deep water (optional, if your DEM includes bathymetry)
+       0,   '#2c7bb6',   // sea level – deep blue
+     200,   '#61a6d1',   // shallow water / low coast
+     500,   '#a6d96a',   // low land – greenish
+    1500,   '#ffffbf',   // mid-elevation – light yellow
+    2500,   '#fdae61',   // higher – orange-brown
+    3500,   '#d73027',   // sub-alpine – reddish
+    4500,   '#ffffff'    // snow-capped peaks – white
+    ],
+
+    // Optional – make the tint semi-transparent so underlying imagery can be seen
+    'color-relief-opacity': 0.85
+  }
+});
+```
+
+### How the ramp works
+
+* `[""elevation""]` is **only valid inside** the `color-relief-color` paint property.  
+* The expression is evaluated for every pixel of the DEM tile, so the coloring happens entirely on the client.  
+* The ramp can be as fine-grained as you like – add as many stops as you need to get the exact hue transitions you want.  
+* The values are **meters above the DEM’s vertical datum** (usually sea level). If your DEM is encoded with an offset (e.g. Terrarium), the `encoding` you set on the source will be taken into account automatically.
+
+---
+
+## 3. (Optional) Show the terrain in 3-D so the tint is obvious
+
+If you also want to see the surface extruded, add terrain and pitch the camera:
+
+```js
+// Enable 3-D terrain (uses the same DEM source)
+map.setTerrain({
+  source: 'terrain-dem',
+  exaggeration: 1.0   // increase >1.0 if you want more dramatic relief
+});
+
+// Add a sky so the horizon isn’t just a blank background
+map.setSky({
+  'sky-color': '#199EF3',
+  'sky-horizon-blend': 0.5,
+  'horizon-color': '#ffffff',
+  'horizon-fog-blend': 0.5,
+  'fog-color': '#cceeff',
+  'fog-ground-blend': 0.5
+});
+
+// Tilt the view so the relief is visible
+map.easeTo({ pitch: 60, bearing: 0, duration: 1500 });
+```
+
+> **Important:** The `color-relief` layer works **independently** of `setTerrain()`. You can keep the layer even if you later turn terrain off – it will simply render as a 2-D shaded raster.
+
+---
+
+## 4. Full minimal example (HTML + JS)
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>MapLibre – Hypsometric Color-Relief</title>
+  <script src=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body, html { margin:0; padding:0; height:100%; }
+    #map { width:100%; height:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+<script>
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {},
+      layers: []   // we’ll add everything programmatically
+    },
+    center: [0, 45],
+    zoom: 5,
+    pitch: 0,
+    bearing: 0
+  });
+
+  map.on('load', () => {
+    // 1️⃣ DEM source
+    map.addSource('terrain-dem', {
+      type: 'raster-dem',
+      url: 'https://tiles.example.com/terrain/{z}/{x}/{y}.webp',
+      maxzoom: 12
+    });
+
+    // 2️⃣ Color-relief layer
+    map.addLayer({
+      id: 'hypsometric-tint',
+      type: 'color-relief',
+      source: 'terrain-dem',
+      paint: {
+        'color-relief-color': [
+          'interpolate',
+          ['linear'],
+          ['elevation'],
+          -200, '#2e3b8f',
+           0,   '#2c7bb6',
+         200,   '#61a6d1',
+         500,   '#a6d96a',
+        1500,   '#ffffbf',
+        2500,   '#fdae61',
+        3500,   '#d73027',
+        4500,   '#ffffff'
+        ],
+        'color-relief-opacity': 0.85
+      }
+    });
+
+    // 3️⃣ (optional) 3-D terrain + sky + pitch
+    map.setTerrain({ source: 'terrain-dem', exaggeration: 1 });
+    map.setSky({
+      'sky-color': '#199EF3',
+      'sky-horizon-blend': 0.5,
+      'horizon-color': '#ffffff',
+      'horizon-fog-blend': 0.5,
+      'fog-color': '#cceeff',
+      'fog-ground-blend': 0.5
+    });
+    map.easeTo({ pitch: 60, duration: 1200 });
+  });
+</script>
+</body>
+</html>
+```
+
+---
+
+## 5. Quick checklist
+
+| ✅ | What you need |
+|---|----------------|
+| **Layer type** | `type: ""color-relief""` |
+| **Source** | A `raster-dem` source (the same one you use for `setTerrain` if you have 3-D). |
+| **Ramp** | `color-relief-color` → `[""interpolate"", [""linear""], [""elevation""], …]` |
+| **Opacity** | `color-relief-opacity` (default 1). |
+| **No pre-rendered tiles** | All coloring happens client-side; you don’t need a separate raster-color tileset. |
+| **Works with terrain** | Yes – you can keep `map.setTerrain()` on or off; the layer is independent. |
+| **Unsupported Mapbox-only props** | `raster-color`, `raster-value`, `raster-color-mix`, etc. – they are ignored in MapLibre. |
+
+That’s it! With a `color-relief` layer you get a fully dynamic hypsometric map that updates instantly when you change the ramp, the opacity, or even the DEM source, without any extra server-side processing. Happy mapping!",PASS,1.00,,All assertions passed,
+"explicit — client-side hypsometric tint (color-relief layer, GL JS 5.6+)",skills/maplibre-terrain-rendering/SKILL.md,"I have terrain tiles as a raster-dem source in MapLibre GL JS and I want to color the map by elevation ranges (a hypsometric tint) directly client-side — blues at sea level through greens and browns to white peaks — without pre-rendering colored raster tiles. What layer type do I use and how do I configure the color ramp?
+","**Short answer**
+
+*Use a **`color-relief`** layer.*  
+It reads the same `raster-dem` source you already have and lets you tint the terrain on-the-fly with an `interpolate` expression over the special `[""elevation""]` expression.
+
+Below is a complete, copy-and-paste-ready example that shows:
+
+1. Adding the DEM source (if you haven’t already).  
+2. Adding a `color-relief` layer that implements a classic hypsometric ramp – blue → green → brown → white.  
+3. Optional tweaks (opacity, resampling, exaggeration, etc.).
+
+---
+
+## 1. DEM source (once)
+
+```json
+{
+  ""id"": ""terrain-dem"",
+  ""type"": ""raster-dem"",
+  ""url"": ""https://my.tileserver.com/terrain/{z}/{x}/{y}.webp"",
+  ""tileSize"": 256,
+  ""maxzoom"": 14,
+  ""encoding"": ""terrarium""          // or ""mapbox"" – must match your tiles
+}
+```
+
+Add it in JS (or in the style JSON) before you add the layer:
+
+```js
+map.addSource('terrain-dem', {
+  type: 'raster-dem',
+  url: 'https://my.tileserver.com/terrain/{z}/{x}/{y}.webp',
+  tileSize: 256,
+  maxzoom: 14,
+  encoding: 'terrarium'   // <-- adjust to your DEM encoding
+});
+```
+
+> **Note** – The source is *only* a `raster-dem`. Do **not** add a `raster` layer for it; the `color-relief` layer will read the elevation values directly.
+
+---
+
+## 2. `color-relief` layer
+
+```json
+{
+  ""id"": ""hypsometric-tint"",
+  ""type"": ""color-relief"",
+  ""source"": ""terrain-dem"",
+  ""paint"": {
+    /* 1️⃣ The colour ramp – an interpolate over [""elevation""] (meters) */
+    ""color-relief-color"": [
+      ""interpolate"",
+      [""linear""],               // linear interpolation between stops
+      [""elevation""],            // special expression that returns the DEM height
+      /* ---- elevation (m) ----   ---- colour (hex / rgba) ---- */
+      -200, ""#2e3b8f"",          // deep ocean (optional, below sea-level)
+      0,    ""#2c7bb6"",          // sea level – deep blue
+      200,  ""#61a6d1"",          // shallow water – lighter blue
+      500,  ""#a6cee3"",          // coast / low land – cyan-green
+      1000, ""#b2df8a"",          // low hills – light green
+      1500, ""#33a02c"",          // mid-elevation – green
+      2000, ""#b15928"",          // sub-alpine – brown
+      2500, ""#d99b3c"",          // alpine – darker brown / ochre
+      3000, ""#fdb863"",          // high alpine – orange-tan
+      3500, ""#f7f7f7"",          // near-summit – very light gray
+      4000, ""#ffffff""           // peaks – pure white
+    ],
+
+    /* 2️⃣ Optional opacity (default = 1) */
+    ""color-relief-opacity"": 0.85,
+
+    /* 3️⃣ Optional resampling (GL JS ≥ 5.20) – controls how the DEM is filtered */
+    ""resampling"": ""linear""
+  }
+}
+```
+
+### How it works
+
+| Piece | What it does |
+|------|--------------|
+| `type: ""color-relief""` | Tells MapLibre to treat the source as a DEM and colour it client-side. |
+| `[""elevation""]` | A **special expression** that returns the elevation (in metres) for the pixel being rendered. It can **only** be used inside `color-relief-color`. |
+| `interpolate` | Builds a smooth colour ramp between the stops you provide. Use `""linear""` for a straight-line ramp; `""exponential""` is also allowed but rarely needed for hypsometry. |
+| Stops (`elevation`, `colour`) | Define the *range* → *colour* mapping. Add as many stops as you like; the more you add, the more control you have over subtle transitions. |
+| `color-relief-opacity` | Blends the tint with any underlying raster imagery (e.g., satellite or vector basemap). |
+| `resampling` | Controls how the DEM values are filtered when the map is zoomed. `""linear""` is a good default; `""nearest""` can give a more “pixelated” look. |
+
+---
+
+## 3. Full JavaScript snippet (add layer after the source)
+
+```js
+// 1️⃣ Add the DEM source (if you haven’t already)
+map.addSource('terrain-dem', {
+  type: 'raster-dem',
+  url: 'https://my.tileserver.com/terrain/{z}/{x}/{y}.webp',
+  tileSize: 256,
+  maxzoom: 14,
+  encoding: 'terrarium'   // match your tiles
+});
+
+// 2️⃣ Add the hypsometric colour-relief layer
+map.addLayer({
+  id: 'hypsometric-tint',
+  type: 'color-relief',
+  source: 'terrain-dem',
+  paint: {
+    'color-relief-color': [
+      'interpolate',
+      ['linear'],
+      ['elevation'],
+      -200, '#2e3b8f',
+      0,    '#2c7bb6',
+      200,  '#61a6d1',
+      500,  '#a6cee3',
+      1000, '#b2df8a',
+      1500, '#33a02c',
+      2000, '#b15928',
+      2500, '#d99b3c',
+      3000, '#fdb863',
+      3500, '#f7f7f7',
+      4000, '#ffffff'
+    ],
+    'color-relief-opacity': 0.85,
+    // optional, only if you are on GL JS ≥ 5.20
+    // 'resampling': 'linear'
+  }
+});
+```
+
+---
+
+## 4. Things to keep in mind
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| The layer shows **gray/black** instead of colours | You used a `raster` layer or `raster-color` property (Mapbox-only). Switch to `type: ""color-relief""` and use the `[""elevation""]` expression. |
+| The colours look **flat** or **banded** | Your stops are too far apart or you have `color-relief-opacity: 0`. Add more intermediate stops or raise the opacity. |
+| The ramp is **shifted** (e.g., sea-level appears brown) | The DEM’s vertical datum is different from sea level, or you used the wrong `encoding`. Verify the DEM’s encoding (`terrarium`, `mapbox`, or custom) and adjust the stop values accordingly. |
+| Performance drops when panning at high zoom | `color-relief` is the most expensive elevation layer (it decodes the DEM on the GPU). Keep the DEM tile size modest (256 px) and avoid stacking multiple `color-relief` or `hillshade` layers. |
+| You want **both** a hypsometric tint **and** hillshade | Add a separate `hillshade` layer *below* the `color-relief` layer (or vice-versa) – they are independent. The `color-relief` layer does **not** provide shading. |
+
+---
+
+## 5. Quick checklist before you ship
+
+- ✅ **Source type** is `raster-dem`.  
+- ✅ **Layer type** is `color-relief`.  
+- ✅ The colour ramp is built with `[""elevation""]` inside `color-relief-color`.  
+- ✅ No `raster-color`, `raster-value`, or `raster-color-mix` properties (those are Mapbox-only).  
+- ✅ `color-relief-opacity` is set to something > 0 if you want the tint visible.  
+- ✅ If you also need hillshade, add a separate `hillshade` layer (or `multidirectional` method) **after** the `color-relief` layer in the style order.
+
+That’s it! With the `color-relief` layer you get a fully client-side hypsometric tint, no pre-rendered coloured tiles required, and you can tweak the palette on the fly. Happy mapping!",FAIL,0.50,,Could not extract JSON from llm-rubric response,
+"negative — adjacent question, a pre-rendered shaded-relief raster basemap",skills/maplibre-terrain-rendering/SKILL.md,"I licensed a beautiful pre-rendered shaded-relief basemap, served as ordinary JPEG raster tiles. I want it under my vector data layers with the labels still on top. How do I add it?
+","Below is a **complete, copy-and-paste ready** recipe for putting a pre-rendered shaded-relief basemap (JPEG/PNG tiles) behind all of your vector data and label layers in a MapLibre GL JS map.
+
+---
+
+## 1. What you need to know
+
+| What you have | How MapLibre draws it |
+|---------------|----------------------|
+| **Pre-rendered relief tiles** (e.g. `https://mytileserver.com/relief/{z}/{x}/{y}.jpg`) | **`raster` source + `raster` layer**.  The `hillshade` or `color-relief` layer types are *only* for DEM (`raster-dem`) sources, so they won’t work with a JPEG. |
+| **Vector data & labels** (e.g. `fill`, `line`, `symbol` layers) | Already in your style.  Symbol layers (labels) are drawn on top of everything else unless you explicitly move them. |
+| **Goal** | Add the raster layer **below** all other layers, but **above** the background.  Keep the vector layers (especially the label `symbol` layers) on top. |
+
+---
+
+## 2. Minimal style JSON (only the parts you have to add)
+
+If you are building the style from scratch, you can insert the following objects into the `sources` and `layers` arrays of your style JSON.
+
+```json
+{
+  ""version"": 8,
+  ""sources"": {
+    /* ────────────────────────────────────────
+       1️⃣ Your existing vector sources go here
+       ──────────────────────────────────────── */
+    ""relief-basemap"": {
+      ""type"": ""raster"",
+      ""tiles"": [
+        ""https://mytileserver.com/relief/{z}/{x}/{y}.jpg""
+      ],
+      ""tileSize"": 256,               // most raster tiles are 256 px
+      ""maxzoom"": 14,                 // set to the max zoom your tiles support
+      ""attribution"": ""© My Relief Tiles""
+    }
+  },
+
+  ""layers"": [
+    /* ────────────────────────────────────────
+       2️⃣ Insert the raster layer **first** (or before any other
+           layers you want it to sit under).  The `before` key
+           is optional if you add the layer programmatically.
+       ──────────────────────────────────────── */
+    {
+      ""id"": ""relief-raster"",
+      ""type"": ""raster"",
+      ""source"": ""relief-basemap"",
+      ""paint"": {
+        ""raster-opacity"": 1.0,          // 0-1 – tweak if you want the relief a bit translucent
+        ""raster-fade-duration"": 0,      // no fade when you pan/zoom (optional)
+        ""raster-brightness-min"": 0,     // keep the original JPEG brightness
+        ""raster-brightness-max"": 1
+      }
+    },
+
+    /* ────────────────────────────────────────
+       3️⃣ Your existing vector layers (fills, lines, etc.)
+           go **after** the raster layer.  If you already have
+           a style file, just make sure the raster layer appears
+           before the first vector layer you want it under.
+       ──────────────────────────────────────── */
+    /* example vector layer */
+    {
+      ""id"": ""roads"",
+      ""type"": ""line"",
+      ""source"": ""my-vector-source"",
+      ""source-layer"": ""roads"",
+      ""paint"": {
+        ""line-color"": ""#ffffff"",
+        ""line-width"": 2
+      }
+    },
+
+    /* ────────────────────────────────────────
+       4️⃣ Finally, your label (symbol) layers.
+           Symbol layers are drawn in the order they appear,
+           so keep them **after** everything else.
+       ──────────────────────────────────────── */
+    {
+      ""id"": ""place-labels"",
+      ""type"": ""symbol"",
+      ""source"": ""my-vector-source"",
+      ""source-layer"": ""places"",
+      ""layout"": {
+        ""text-field"": [""get"", ""name""],
+        ""text-size"": 12,
+        ""text-font"": [""Open Sans Regular"", ""Arial Unicode MS Regular""]
+      },
+      ""paint"": {
+        ""text-color"": ""#000000"",
+        ""text-halo-color"": ""#ffffff"",
+        ""text-halo-width"": 1
+      }
+    }
+  ]
+}
+```
+
+### What the key fields do
+
+| Field | Why it matters |
+|-------|----------------|
+| `type: ""raster""` (source) | Tells MapLibre the tiles are images, not DEM data. |
+| `tiles: [...]` | URL template for your JPEG tiles. |
+| `tileSize` | Most raster tiles are 256 px; change to 512 if you serve 512-px tiles. |
+| `maxzoom` | Prevents the map from requesting tiles that don’t exist. |
+| `type: ""raster""` (layer) | The layer that actually draws the source. |
+| `raster-opacity` | Set < 1 if you want the relief to be semi-transparent so underlying vector fill colors can “show through”. |
+| `raster-fade-duration: 0` | Removes the default 300 ms fade-in when you pan/zoom (optional but makes the raster feel snappier). |
+| Layer order | The raster layer must be **before** any vector layers you want it under.  Symbol (label) layers should be the **last** ones. |
+
+---
+
+## 3. Adding the raster layer **programmatically** (if you already have a map instance)
+
+If you prefer to keep your style JSON untouched and just inject the relief after the map loads, do this:
+
+```javascript
+// 1️⃣ Create the raster source
+map.addSource('relief-basemap', {
+  type: 'raster',
+  tiles: [
+    'https://mytileserver.com/relief/{z}/{x}/{y}.jpg'
+  ],
+  tileSize: 256,
+  maxzoom: 14,
+  attribution: '© My Relief Tiles'
+});
+
+// 2️⃣ Add the raster layer *below* everything else
+//    (use the id of the first layer you want it under, e.g. ""roads"")
+map.addLayer(
+  {
+    id: 'relief-raster',
+    type: 'raster',
+    source: 'relief-basemap',
+    paint: {
+      'raster-opacity': 1,
+      'raster-fade-duration': 0
+    }
+  },
+  // <-- second argument is the layer id to insert *before*
+  //     If you have a background layer you want it above, use that id.
+  //     If you want it just under all vector data, pass the id of the
+  //     first vector layer (e.g. ""roads"").
+  'roads'   // <-- change to whatever your first vector layer id is
+);
+
+// 3️⃣ (Optional) Make sure label layers stay on top
+//    If you ever add a new layer later, you can move it above the labels:
+map.moveLayer('place-labels'); // moves it to the top of the stack
+```
+
+### Why the `before` argument matters
+
+`map.addLayer(layerObject, beforeId)` inserts the new layer **just before** the layer whose id you pass.  
+If you omit the second argument, the raster will be added on top of everything (covering your labels).  
+So always give the id of the *first* vector layer you want the raster to sit **under**.
+
+---
+
+## 4. Common pitfalls & how to avoid them
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| **Labels disappear** | Raster layer added *after* the label `symbol` layers (or without a `before` argument). | Re-order: `map.moveLayer('place-labels')` or add the raster with a `before` id. |
+| **Tiles look blurry / pixelated** | Wrong `tileSize` (e.g. using 256 px source but telling MapLibre it’s 512). | Set `tileSize` to the actual size of your JPEG tiles. |
+| **Map requests tiles at zoom levels you don’t have** | `maxzoom` missing or too high. | Add `maxzoom` (and optionally `minzoom`) to the source definition. |
+| **Relief looks too dark or too bright** | JPEG already baked with contrast; you may want to tone it down. | Use `raster-brightness-min`, `raster-brightness-max`, or lower `raster-opacity`. |
+| **Performance drops when panning** | Very high `raster-opacity` + many over-drawn vector layers. | Keep the raster as the *bottom* layer and avoid stacking multiple raster layers. |
+| **Map shows a blank background where the raster should be** | URL template wrong, CORS blocked, or tiles not reachable. | Verify the tile URL works in a browser, and that the server sends `Access-Control-Allow-Origin: *` (or your domain). |
+
+---
+
+## 5. Full example (HTML + JS)
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>Relief basemap under vector data</title>
+  <meta name=""viewport"" content=""initial-scale=1,maximum-scale=1,user-scalable=no"" />
+  <script src=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body { margin:0; padding:0; }
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+<script>
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {
+        // 1️⃣ Your vector source (replace with your own)
+        ""my-vector-source"": {
+          type: ""vector"",
+          url: ""https://mytileserver.com/tileset.json""
+        },
+        // 2️⃣ Relief raster source
+        ""relief-basemap"": {
+          type: ""raster"",
+          tiles: [
+            ""https://mytileserver.com/relief/{z}/{x}/{y}.jpg""
+          ],
+          tileSize: 256,
+          maxzoom: 14,
+          attribution: ""© My Relief Tiles""
+        }
+      },
+      layers: [
+        // 3️⃣ Raster layer – placed before any vector layers
+        {
+          id: ""relief-raster"",
+          type: ""raster"",
+          source: ""relief-basemap"",
+          paint: {
+            ""raster-opacity"": 1,
+            ""raster-fade-duration"": 0
+          }
+        },
+
+        // 4️⃣ Example vector fill layer
+        {
+          id: ""landuse"",
+          type: ""fill"",
+          source: ""my-vector-source"",
+          ""source-layer"": ""landuse"",
+          paint: {
+            ""fill-color"": ""#e0e0e0"",
+            ""fill-opacity"": 0.6
+          }
+        },
+
+        // 5️⃣ Example road line layer
+        {
+          id: ""roads"",
+          type: ""line"",
+          source: ""my-vector-source"",
+          ""source-layer"": ""roads"",
+          paint: {
+            ""line-color"": ""#ffffff"",
+            ""line-width"": 2
+          }
+        },
+
+        // 6️⃣ Labels (symbol layer) – **must be last**
+        {
+          id: ""place-labels"",
+          type: ""symbol"",
+          source: ""my-vector-source"",
+          ""source-layer"": ""places"",
+          layout: {
+            ""text-field"": [""get"", ""name""],
+            ""text-size"": 12,
+            ""text-font"": [""Open Sans Regular"", ""Arial Unicode MS Regular""]
+          },
+          paint: {
+            ""text-color"": ""#000000"",
+            ""text-halo-color"": ""#ffffff"",
+            ""text-halo-width"": 1
+          }
+        }
+      ]
+    },
+    center: [0, 0],
+    zoom: 2,
+    pitch: 0,
+    bearing: 0
+  });
+
+  // Optional: add navigation controls
+  map.addControl(new maplibregl.NavigationControl());
+</script>
+</body>
+</html>
+```
+
+*Replace the URLs (`mytileserver.com/...`) with the real endpoints for your raster relief tiles and your vector source.*
+
+---
+
+## 6. TL;DR checklist
+
+1. **Add a `raster",PASS,1.00,,All assertions passed,
+"negative — adjacent question, a pre-rendered shaded-relief raster basemap",skills/maplibre-terrain-rendering/SKILL.md,"I licensed a beautiful pre-rendered shaded-relief basemap, served as ordinary JPEG raster tiles. I want it under my vector data layers with the labels still on top. How do I add it?
+","Below is a step-by-step recipe for putting a **pre-rendered shaded-relief basemap** (JPEG/PNG tiles) behind all of your vector data (roads, parks, labels, etc.) in a MapLibre GL JS map.
+
+---
+
+## 1.  What you’re really adding
+
+* A **raster source** (`type: ""raster""`).  
+* A **raster layer** (`type: ""raster""`).  
+* Nothing else – you don’t need a `raster-dem`, `hillshade`, or `color-relief` layer because the relief is already baked into the image tiles.
+
+> **Why this works** – A raster layer is drawn exactly like any other layer in the style. Its only job is to copy the image pixels to the screen. If you put it early in the layer stack, everything that comes later (your vector layers, label symbols, etc.) will be drawn on top.
+
+---
+
+## 2.  Minimal working example
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>Shaded-relief basemap + vector data</title>
+  <script src=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body, html { margin:0; padding:0; height:100%; }
+    #map { width:100%; height:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script>
+  // -------------------------------------------------
+  // 1️⃣  Initialise the map (any style you like)
+  // -------------------------------------------------
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {
+        // ---- your vector sources (e.g. OSM, custom tiles) ----
+        ""osm"": {
+          type: ""vector"",
+          url: ""https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.pbf""
+        }
+      },
+      layers: [
+        // ---- a placeholder background (optional) ----
+        {
+          id: ""bg"",
+          type: ""background"",
+          paint: { ""background-color"": ""#e0e0e0"" }
+        },
+
+        // -------------------------------------------------
+        // 2️⃣  Add the *shaded-relief* raster source & layer
+        // -------------------------------------------------
+        // (We add the source first, then the layer later – see step 3)
+      ]
+    },
+    center: [0, 0],
+    zoom: 2,
+    pitch: 0,
+    bearing: 0
+  });
+
+  // -------------------------------------------------
+  // 2️⃣  Define the raster source (your JPEG tiles)
+  // -------------------------------------------------
+  map.addSource('shaded-relief', {
+    type: 'raster',
+    // Example URL pattern – replace with your own tile endpoint
+    tiles: [
+      'https://my.tileserver.com/relief/{z}/{x}/{y}.jpg'
+    ],
+    tileSize: 256,          // most JPEG/PNG tiles are 256 px
+    // optional: maxzoom/minzoom if you know them
+    // maxzoom: 14,
+    // minzoom: 0,
+    // optional: attribution
+    attribution: '© My Shaded-Relief Tiles'
+  });
+
+  // -------------------------------------------------
+  // 3️⃣  Add the raster layer *before* any vector layers
+  // -------------------------------------------------
+  map.addLayer({
+    id: 'relief-basemap',
+    type: 'raster',
+    source: 'shaded-relief',
+    // If you want the raster a little transparent so underlying background shows:
+    // paint: { 'raster-opacity': 0.95 }
+  }, /* before layer id */ 'bg');   // <-- insert before the background (or any other layer you name)
+
+  // -------------------------------------------------
+  // 4️⃣  Add your vector data (roads, parks, labels, …)
+  // -------------------------------------------------
+  // Example: add a vector source + a line layer for roads
+  map.addSource('roads', {
+    type: 'vector',
+    url: 'https://tiles.openstreetmap.org/roads/{z}/{x}/{y}.pbf'
+  });
+
+  map.addLayer({
+    id: 'road-lines',
+    type: 'line',
+    source: 'roads',
+    'source-layer': 'road',   // change to the actual source-layer name
+    paint: {
+      'line-color': '#ffffff',
+      'line-width': 1.5
+    }
+  });
+
+  // Example: add a symbol layer for place-name labels
+  map.addSource('places', {
+    type: 'vector',
+    url: 'https://tiles.openstreetmap.org/places/{z}/{x}/{y}.pbf'
+  });
+
+  map.addLayer({
+    id: 'place-labels',
+    type: 'symbol',
+    source: 'places',
+    'source-layer': 'place',
+    layout: {
+      'text-field': ['get', 'name'],
+      'text-size': 12,
+      'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular']
+    },
+    paint: {
+      'text-color': '#000000',
+      'text-halo-color': '#ffffff',
+      'text-halo-width': 1
+    }
+  });
+
+  // -------------------------------------------------
+  // 5️⃣  (Optional) Fine-tune layer order
+  // -------------------------------------------------
+  // If you ever need to move the basemap later:
+  // map.moveLayer('relief-basemap', 'road-lines'); // puts it just below roads
+</script>
+</body>
+</html>
+```
+
+### What the code does
+
+| Step | What happens | Why it matters |
+|------|--------------|----------------|
+| **1️⃣** | Starts a map with any base style (you can even start from an empty style). | Gives you a canvas to work on. |
+| **2️⃣** | Registers a **raster source** called `shaded-relief`. | MapLibre now knows where to fetch the JPEG tiles. |
+| **3️⃣** | Adds a **raster layer** (`relief-basemap`) that draws the source. The second argument (`'bg'`) tells MapLibre to insert this layer *before* the background layer, i.e. at the very bottom of the stack. | Anything added **after** this layer (roads, labels, etc.) will appear on top. |
+| **4️⃣** | Adds vector sources + layers (roads, labels). | Your data now sits above the shaded-relief image. |
+| **5️⃣** | Shows how to re-order layers later if you need to. | Layer order is the only thing that determines “what’s on top”. |
+
+---
+
+## 3.  Quick checklist – does it work for you?
+
+| ✅ | Item | What to verify |
+|----|------|----------------|
+| 1 | **Tile URL pattern** – `https://my.tileserver.com/relief/{z}/{x}/{y}.jpg` | Replace with your own domain, file extension, and any sub-domains (`{a-c}`) you use. |
+| 2 | **Tile size** – `tileSize: 256` (or `512` if you serve 512 px tiles) | Wrong size makes the raster look blurry or mis-aligned. |
+| 3 | **CORS** – The tile server must send `Access-Control-Allow-Origin:*` (or your domain) | Otherwise the browser will block the tiles. |
+| 4 | **Layer order** – `relief-basemap` is *below* every vector layer you care about | Use `map.moveLayer()` or the `before` argument when you add a layer to guarantee ordering. |
+| 5 | **Opacity (optional)** – `paint: { ""raster-opacity"": 0.9 }` if you want the raster a little translucent | Helpful when you have a background colour you want to see through. |
+| 6 | **Attribution** – Add an `attribution` string to the source (or to the map’s `attributionControl`) | Keeps you compliant with the tile-provider’s license. |
+| 7 | **Zoom range** – If your tiles only exist up to zoom 12, set `maxzoom: 12` on the source. | Prevents the map from requesting non-existent tiles (which would show as gray/blank). |
+
+---
+
+## 4.  Common pitfalls & how to fix them
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| **Tiles appear as a solid colour or “missing”** | CORS header missing, or URL pattern wrong (404). | Open the tile URL directly in the browser → should show the JPEG. Add proper CORS headers on the server. |
+| **Raster looks blurry at high zoom** | Tile size mismatch (`tileSize: 256` vs. 512) or `maxzoom` too low. | Set `tileSize` to the actual size of your tiles. If you only have tiles to zoom 12, set `maxzoom: 12`. |
+| **Labels disappear under the raster** | Raster layer placed *after* the label layer. | Move the raster layer to the bottom: `map.moveLayer('relief-basemap', 'road-lines')` (or any layer that should be on top). |
+| **Map background shows through the raster** | Raster opacity < 1 or the raster has transparent pixels. | Set `paint: { ""raster-opacity"": 1 }` or use fully-opaque JPEGs. |
+| **Performance drops when panning** | Very large JPEGs (e.g., 1024 px) or many high-resolution zoom levels. | Stick to 256 px tiles, enable `tileSize: 256`, and consider using a CDN with HTTP/2 or Cloudflare caching. |
+| **You want a hillshade effect *in addition* to the pre-rendered relief** | You can stack a `hillshade` layer on top of the raster, but it will double-shade and may look odd. | Usually unnecessary – the pre-rendered image already contains the shading you want. If you still need a subtle extra highlight, add a `hillshade` layer with `hillshade-method: ""multidirectional""` and low `hillshade-exaggeration` (e.g., `0.2`). |
+
+---
+
+## 5.  Optional: Adding a **sky** or **fog** for a 3-D feel
+
+If later you decide to enable true 3-D terrain (e.g., `map.setTerrain({source: 'my-dem'})`) you’ll probably want a sky so the horizon isn’t just the page background. That is **independent** of the raster basemap you just added:
+
+```js
+// After you have a DEM source called ""terrain-dem""
+map.setTerrain({ source: 'terrain-dem', exaggeration: 1.2 });
+
+map.setSky({
+  'sky-color': '#88c0d0',
+  'sky-horizon-blend': 0.5,
+  'horizon-color': '#ffffff',
+  'horizon-fog-blend': 0.5,
+  'fog-color': '#c0d0ff',
+  'fog-ground-blend': 0.5
+});
+```
+
+*The sky does **not** affect your JPEG raster layer* – it only appears when the camera is pitched and terrain is on.
+
+---
+
+## 6.  TL;DR – Minimal code snippet
+
+```js
+// 1️⃣ Add raster source
+map.addSource('relief', {
+  type: 'raster',
+  tiles: ['https://my.tileserver.com/relief/{z}/{x}/{y}.jpg'],
+  tileSize: 256,
+  attribution: '© My Shaded-Relief Tiles'
+});
+
+// 2️⃣ Add raster layer at the very bottom
+map.addLayer({
+  id: 'relief-basemap',
+  type: 'raster',
+  source: 'relief',
+  paint: { 'raster-opacity': 1 }
+}, /* before */ 'background');   // or any other layer you know is near the bottom
+
+// 3️⃣ Add your vector layers (roads, labels, etc.) *after* the raster layer
+//    – they will automatically appear on top.
+```
+
+That’s it! Your pre-rendered shaded-relief basemap will now sit snugly beneath all of your vector data, with labels and other symbols rendered on top, just like a classic “raster-under-vector” map. Happy mapping!",PASS,1.00,,All assertions passed,

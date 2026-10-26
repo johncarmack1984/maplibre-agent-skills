@@ -1,0 +1,322 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+anti-pattern — tiles array template bypasses PMTiles header zoom range,skills/maplibre-pmtiles-patterns/SKILL.md,"I wired my PMTiles source with a tiles array (pmtiles://.../{z}/{x}/{y}) instead of url, and past a certain zoom the tiles go blank. The file is fine in pmtiles show. Why?
+","**Short answer:**  
+When you declare a PMTiles source with a `tiles:` array (e.g. `pmtiles://https://example.com/data.pmtiles/{z}/{x}/{y}`) you bypass the **TileJSON header that lives inside the .pmtiles file**.  
+MapLibre therefore falls back to its default zoom limits (`minzoom: 0`, `maxzoom: 22`).  
+If the archive only contains tiles up to, say, `maxzoom = 14`, the client will still ask for zoom 15, 16 … 22. The PMTiles protocol can’t find those tiles in the file, so it returns an empty tile → you see blanks.
+
+The file itself is fine (you already verified it with `pmtiles show`), the problem is the way the style tells MapLibre what zoom range exists.
+
+---
+
+## What’s happening under the hood
+
+| Step | Using `url:` (the recommended way) | Using `tiles:` (your current way) |
+|------|------------------------------------|-----------------------------------|
+| **1. Source creation** | `url: ""pmtiles://https://example.com/data.pmtiles""` | `tiles: [""pmtiles://https://example.com/data.pmtiles/{z}/{x}/{y}""]` |
+| **2. Protocol handler** | The `pmtiles` library intercepts the `pmtiles://` scheme, opens the file, reads its **header** (min-/max-zoom, bounds, attribution, etc.) and returns a **TileJSON** object to MapLibre. | The handler still intercepts the request, but MapLibre never asks it for a TileJSON – it already has a tile-template. |
+| **3. Zoom range** | `minzoom` / `maxzoom` are taken from the archive header, so MapLibre knows the highest zoom that actually exists. Over-zooming is handled automatically (the client re-uses the highest-available tiles). | No TileJSON → MapLibre uses its defaults (`maxzoom: 22`). It will request tiles that are not present in the archive. The protocol returns an empty response → blank tiles. |
+| **4. Caching / metadata** | All other metadata (bounds, vector-layer names, etc.) are also supplied automatically. | You have to supply them yourself (or leave them undefined). |
+
+Because of step 3 you see the “blank after a certain zoom” symptom.
+
+---
+
+## How to fix it
+
+### 1. Use the `url:` property (the simplest, most robust)
+
+```json
+{
+  ""type"": ""vector"",
+  ""url"": ""pmtiles://https://example.com/data.pmtiles""
+}
+```
+
+* The protocol reads the header, injects the correct `minzoom`/`maxzoom`, and MapLibre will automatically over-zoom past the archive’s max (re-using the highest-resolution tiles).  
+* No need to manually set `tiles`, `minzoom`, or `maxzoom`.
+
+### 2. If you *must* keep a `tiles:` array (rare)
+
+```json
+{
+  ""type"": ""vector"",
+  ""tiles"": [""pmtiles://https://example.com/data.pmtiles/{z}/{x}/{y}""],
+  ""minzoom"": 0,
+  ""maxzoom"": 14   // <-- set to the max zoom that actually exists in the file
+}
+```
+
+* You have to **hard-code** the correct `maxzoom` (and optionally `minzoom`).  
+* Over-zooming will *not* happen automatically; you’ll get the same-resolution tiles up to `maxzoom` and then the client will stop requesting higher zooms.
+
+### 3. Verify the archive’s zoom range
+
+```bash
+pmtiles show data.pmtiles
+# Look for:
+#   minzoom: 0
+#   maxzoom: 14
+```
+
+Make sure the number you set in `maxzoom` matches the value shown.
+
+### 4. Double-check CORS & Range support
+
+Even with the correct `url:` you still need:
+
+* **CORS** – `Access-Control-Allow-Origin: *` (or your domain) and `Access-Control-Allow-Headers: Range`.
+* **Range support** – the host must return `Accept-Ranges: bytes`. All S3-compatible static hosts (S3, Cloudflare R2, GitHub Pages, Netlify, Vercel, etc.) do this out of the box.
+
+If those headers are missing you’ll see network errors, not blank tiles, but it’s worth confirming while you’re debugging.
+
+---
+
+## Why the `tiles:` form is discouraged for PMTiles
+
+* **Loss of self-describing metadata** – The .pmtiles file already knows its bounds, zoom range, and layer names. By using `tiles:` you discard that information and have to duplicate it in the style.
+* **Potential for human error** – Forgetting to update `maxzoom` after re-generating the archive leads exactly to the blank-tile symptom you observed.
+* **Future-proofing** – Newer versions of the PMTiles protocol may add extra fields (e.g., vector-layer metadata, attribution) that are only exposed via the TileJSON path.
+
+---
+
+## Quick checklist to get your map working again
+
+1. **Switch to `url:`** (or add the correct `maxzoom` if you stay with `tiles:`).  
+2. **Re-deploy** the style (clear any cached style JSON if you’re using a style server).  
+3. **Open the browser dev-tools → Network** and look at a tile request that was blank before.  
+   * You should now see a `Range` request that returns `206 Partial Content` with a non-zero `Content-Length`.  
+4. **Confirm the map renders** at the highest zoom you expect.  
+
+If you still see blanks:
+
+* Verify the archive actually contains tiles at that zoom (`pmtiles show` → `tile count` per zoom).  
+* Check the network tab for `404` or `204` responses – those indicate the protocol couldn’t find the tile.  
+* Make sure the **protocol registration** is still in place:
+
+```js
+import * as pmtiles from ""pmtiles"";
+import * as maplibregl from ""maplibre-gl"";
+
+const protocol = new pmtiles.Protocol();
+maplibregl.addProtocol(""pmtiles"", protocol.tile);
+```
+
+(Only needs to run once, before any `new maplibregl.Map()`.)
+
+---
+
+### TL;DR
+
+* **`tiles:` + template → MapLibre assumes `maxzoom: 22`.**  
+* Your PMTiles file stops at a lower zoom → requests beyond that return empty → blank tiles.  
+* **Fix:** use `url: ""pmtiles://…""` (let the protocol read the header) **or** manually set `maxzoom` to the archive’s max zoom.
+
+That’s all there is to it—once you switch to the `url:` form the blanks disappear and you get the full benefit of a self-describing, single-file tile archive. Happy mapping!",ERROR,0.00,,,
+anti-pattern — tiles array template bypasses PMTiles header zoom range,skills/maplibre-pmtiles-patterns/SKILL.md,"I wired my PMTiles source with a tiles array (pmtiles://.../{z}/{x}/{y}) instead of url, and past a certain zoom the tiles go blank. The file is fine in pmtiles show. Why?
+","### TL;DR  
+You used a **`tiles:`** array (`pmtiles://…/{z}/{x}/{y}`) instead of a **`url:`** property.  
+When MapLibre reads a PMTiles source via `tiles:` it **doesn’t read the archive’s header**, so it has no idea what the real `minzoom`/`maxzoom` of the file are.  
+MapLibre therefore falls back to the default `maxzoom: 22`.  
+As soon as the map asks for a zoom level that the archive **doesn’t contain**, the PMTiles protocol returns an empty tile → you see blanks.
+
+The file itself is fine (you verified it with `pmtiles show`); the problem is only the way the source is declared.
+
+---
+
+## 1. What the style spec expects
+
+| Property | What it does | How it works with PMTiles |
+|----------|--------------|---------------------------|
+| `url`    | Points to a **TileJSON** document (or a PMTiles-aware protocol that can return TileJSON). | The PMTiles protocol reads the archive header, builds a tiny TileJSON on-the-fly (including `minzoom`, `maxzoom`, `bounds`, `vector_layers`, etc.) and returns it to MapLibre. |
+| `tiles`  | An **array of URL templates** (`…/{z}/{x}/{y}`) that MapLibre will request directly. | The protocol **does not** look inside the archive; it just treats the string as a normal HTTP URL. The PMTiles library only knows how to handle `pmtiles://<full-file-url>` (no `{z}/{x}/{y}` placeholders). It therefore cannot serve the individual tiles correctly beyond the zooms that happen to exist in the file. |
+
+### Why `tiles:` breaks for PMTiles
+
+1. **No header lookup** – MapLibre never asks the PMTiles file what zoom levels exist.  
+2. **Default zoom range** – The style spec says “if `minzoom`/`maxzoom` are omitted, assume `0-22`”.  
+3. **Requests beyond the archive’s maxzoom** – The protocol receives a request for, say, `z=15` when the file only contains tiles up to `z=13`. It tries to read the byte range for that tile, finds nothing, and returns an empty `ArrayBuffer`. MapLibre draws a blank tile.  
+4. **Template mismatch** – The PMTiles library’s handler (`protocol.tile`) expects the *full* URL of the `.pmtiles` file, not a templated path. When you write `pmtiles://https://example.com/data.pmtiles/{z}/{x}/{y}` the handler strips the `{z}/{x}/{y}` part, treats the rest as the archive URL, and then tries to interpret the remaining `{z}/{x}/{y}` as part of the file name – which obviously fails.
+
+---
+
+## 2. The correct way to wire a PMTiles source
+
+```json
+{
+  ""version"": 8,
+  ""sources"": {
+    ""myTiles"": {
+      ""type"": ""vector"",               // or ""raster"" / ""raster-dem""
+      ""url"": ""pmtiles://https://example.com/data.pmtiles""
+      // No `tiles:` array! The protocol will generate TileJSON for you.
+    }
+  },
+  ""layers"": [
+    {
+      ""id"": ""water"",
+      ""type"": ""fill"",
+      ""source"": ""myTiles"",
+      ""source-layer"": ""water"",
+      ""paint"": { ""fill-color"": ""#a0c8f0"" }
+    }
+    // …more layers that reference the same source
+  ]
+}
+```
+
+### What happens under the hood
+
+1. **`addProtocol('pmtiles', protocol.tile)`** registers a handler that intercepts any URL that starts with `pmtiles://`.  
+2. When MapLibre sees `url: ""pmtiles://https://…/data.pmtiles""` it calls the handler **once** to fetch a *TileJSON*-like object.  
+3. The handler reads the PMTiles header, extracts `minzoom`, `maxzoom`, `bounds`, `vector_layers`, etc., and returns `{ data: <TileJSON> }`.  
+4. MapLibre now knows the exact zoom range. When you pan/zoom, it asks the handler for individual tiles (`/z/x/y`) **via range requests** on the same `.pmtiles` file.  
+5. If you request a zoom higher than `maxzoom`, MapLibre automatically **over-zooms** (re-uses the highest-available tiles) – no blanks.
+
+---
+
+## 3. If you really need a `tiles:` array (rare)
+
+You can still use `tiles:` **but you must supply the correct zoom limits yourself**:
+
+```json
+{
+  ""type"": ""vector"",
+  ""tiles"": [
+    ""pmtiles://https://example.com/data.pmtiles""
+  ],
+  ""minzoom"": 0,
+  ""maxzoom"": 13   // <-- exact maxzoom of the archive
+}
+```
+
+*Notice*: the array contains **only the file URL**, **no `{z}/{x}/{y}` placeholders**. The PMTiles protocol will interpret the request as “give me tile *z/x/y* from this archive”. This works because the protocol internally adds the tile coordinates to the range request; you just don’t expose them in the style.
+
+However, this pattern is **not recommended**:
+
+* You lose the automatic TileJSON metadata (bounds, vector_layers) that MapLibre would otherwise get.  
+* You have to manually keep `maxzoom` in sync with the archive whenever you rebuild it.  
+* It’s easy to forget the `minzoom`/`maxzoom` keys, leading to the exact blank-tile bug you observed.
+
+---
+
+## 4. Checklist – why your tiles went blank
+
+| ✅ | Check | Why it matters |
+|---|-------|----------------|
+| 1 | **Source uses `url:`**, not `tiles:` | Guarantees header-driven zoom range and correct protocol handling. |
+| 2 | **Protocol is registered before any map is created** | `maplibregl.addProtocol('pmtiles', new pmtiles.Protocol().tile)` must run once at app start. |
+| 3 | **CORS & Range support on the host** | The host must return `Access-Control-Allow-Origin:*` (or your domain) and `Accept-Ranges: bytes`. |
+| 4 | **Cache-Control headers are set** (optional but recommended) | Long-term caching speeds up subsequent loads. |
+| 5 | **If you keep `tiles:`**, you have set `maxzoom` (and optionally `minzoom`) to the exact values in the archive. | Prevents MapLibre from requesting non-existent zoom levels. |
+
+If any of the above is missing, you’ll see the “blank after a certain zoom” symptom.
+
+---
+
+## 5. Quick fix for your existing style
+
+1. **Replace the `tiles` array** with a `url` property:
+
+   ```diff
+   - ""tiles"": [""pmtiles://https://example.com/data.pmtiles/{z}/{x}/{y}""]
+   + ""url"": ""pmtiles://https://example.com/data.pmtiles""
+   ```
+
+2. **(Optional) Remove any manually set `maxzoom`** – the protocol will supply the correct value automatically.
+
+3. **Reload the page** (or re-initialize the map). The blank tiles should disappear, and over-zoom will work as expected.
+
+---
+
+## 6. Example – Full minimal HTML/JS
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>PMTiles with MapLibre</title>
+  <link href=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>#map {position:absolute;top:0;bottom:0;width:100%;}</style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script type=""module"">
+import maplibregl from 'https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.js';
+import * as pmtiles from 'https://cdn.jsdelivr.net/npm/pmtiles@3.0.0/dist/index.min.js';
+
+// Register the protocol **once** before any map is created
+const protocol = new pmtiles.Protocol();
+maplibregl.addProtocol('pmtiles', protocol.tile);
+
+const map = new maplibregl.Map({
+  container: 'map',
+  style: {
+    version: 8,
+    sources: {
+      world: {
+        type: 'vector',
+        url: 'pmtiles://https://my-bucket.s3.amazonaws.com/world.pmtiles'
+      }
+    },
+    layers: [
+      {
+        id: 'water',
+        type: 'fill',
+        source: 'world',
+        'source-layer': 'water',
+        paint: { 'fill-color': '#a0c8f0' }
+      },
+      {
+        id: 'roads',
+        type: 'line',
+        source: 'world',
+        'source-layer': 'road',
+        paint: { 'line-color': '#777', 'line-width': 1 }
+      }
+    ]
+  },
+  center: [0, 0],
+  zoom: 2
+});
+</script>
+</body>
+</html>
+```
+
+*Key points*:
+
+* `url:` is used, not `tiles:`.  
+* The protocol is added **once** at the top.  
+* No manual `maxzoom` needed – the PMTiles header drives it.
+
+---
+
+## 7. Bonus – When you *must* use `tiles:` (e.g., mixing with other non-PMTiles sources)
+
+If you have a style that already mixes a `tiles:` array for other sources and you want to keep that structure, you can still add the PMTiles file as a **single-entry array** **without placeholders**:
+
+```json
+{
+  ""type"": ""vector"",
+  ""tiles"": [
+    ""pmtiles://https://example.com/data.pmtiles""
+  ],
+  ""minzoom"": 0,
+  ""maxzoom"": 13   // <-- match the archive
+}
+```
+
+Just remember to keep `maxzoom` in sync whenever you rebuild the archive.
+
+---
+
+## 8. TL;DR Recap
+
+* **Problem** – Using `tiles: [""pmtiles://…/{z}/{x}/{y}""]` bypasses the PMTiles header, so MapLibre assumes a default `maxzoom: 22`. When you zoom past the archive’s real maxzoom, the protocol returns empty tiles → blanks.
+* **Fix** – Use `url: ""pmtiles://…/file.pmtiles""` (or a `tiles:` array **without** `{z}/{x}/{y}` and with explicit `maxzoom`/`minzoom`).  
+* **Result** – MapLibre reads the archive’s header, knows the correct zoom range, and over-zooms gracefully; no more blank tiles.
+
+If you follow the checklist and switch to `url:`, the blanks will disappear and you’ll get the full benefit of a single-file, server-less tile stack. Happy mapping!",PASS,1.00,,All assertions passed,

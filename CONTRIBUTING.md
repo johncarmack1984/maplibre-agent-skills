@@ -168,6 +168,8 @@ Process skills are reviewed by reading them against the files they describe, and
 
 **1. Clone the repo and install dependencies:**
 
+Use the Node version in `.nvmrc`.
+
 ```bash
 git clone https://github.com/maplibre/maplibre-agent-skills.git
 cd maplibre-agent-skills
@@ -187,7 +189,9 @@ Run `npm run check` frequently while developing, not just before pushing — it 
 3. **Markdown linting** — markdownlint
 4. **Terminology** — proper noun capitalization (e.g. `MapLibre` not `Maplibre`)
 5. **Model pins** — provider ids must match the pinned generator/judge
-6. **Skills validation** — YAML frontmatter and structure
+6. **Eval request sizes** — every eval answer keeps at least half its token budget, and every config fits in a day's generator tokens ([details](evals/README.md#request-size))
+7. **Eval tripwires** — no `not-icontains` check matches the skill its test injects ([details](evals/README.md#writing-eval-prompts))
+8. **Skills validation** — YAML frontmatter and structure
 
 All checks pass when the output ends with:
 
@@ -203,6 +207,7 @@ All checks pass when the output ends with:
 | Terminology      | `npm run fix:terminology`                                                 |
 | Markdown linting | `npm run format` fixes MD060 (table spacing); others require manual edits |
 | Spell check      | Correct manually                                                          |
+| Request size     | Shorten the `SKILL.md` or the test prompt it names                        |
 
 **Markdown linting details:** error output includes the rule ID and line number. The most common manual fix is **MD051** (invalid link fragment) — verify the heading exists and the anchor is lowercase with hyphens.
 
