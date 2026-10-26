@@ -4,6 +4,12 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ## [Unreleased]
 
+<!-- bump: patch -->
+
+### Internal
+
+- `eval.yml`: the publish job's status sync imports no package again, and a unit test keeps every script that job runs free of packages ([#148](https://github.com/maplibre/maplibre-agent-skills/pull/148))
+
 ## [0.3.0] - 2026-10-26
 
 ### Added
