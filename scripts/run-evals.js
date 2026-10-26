@@ -4,18 +4,17 @@
  * config, and leaves a complete record whatever happens.
  *
  * The bound is promptfoo's own: `PROMPTFOO_MAX_EVAL_TIME_MS` arms a global timer
- * (`getMaxEvalTimeMs`, node_modules/promptfoo/dist/src/logger-B9f-j62Q.js:126,
- * read at node_modules/promptfoo/dist/src/evaluator-SSlcaq_U.js:8950), and on
+ * (`getMaxEvalTimeMs`, node_modules/promptfoo/dist/src/logger-*.js,
+ * read at node_modules/promptfoo/dist/src/evaluator-*.js), and on
  * expiry every unprocessed test becomes an ERROR row reading "Evaluation
- * exceeded max duration of Nms" (`createMaxDurationTimeoutResult`, same file,
- * :8196) before the eval finalizes and writes its outputs. A job-level kill
+ * exceeded max duration of Nms" (`createMaxDurationTimeoutResult`, same file) before the eval finalizes and writes its outputs. A job-level kill
  * writes nothing at all, which is how the 2026-08-30 run ended with six hours
  * spent and no evidence of what happened.
  *
  * Each config asks for two output files: the dated CSV the publish job commits,
  * and a JSON sidecar in the work dir that carries the failure reason behind each
- * row (`-o, --output <paths...>` is variadic, node_modules/promptfoo/dist/src/main.js:4908,
- * and both are written before the exit code is set, :4787 then :4845). The CSV's
+ * row (`-o, --output <paths...>` is variadic, node_modules/promptfoo/dist/src/main.js,
+ * and both are written before the exit code is set). The CSV's
  * ERROR rows have an empty output and an empty grader reason, so the sidecar is
  * the only place the error text survives.
  *
@@ -66,7 +65,7 @@
  * after a config's first drew a 429 for the minute, and promptfoo 0.122 sizes
  * its wait after one from Groq's daily-request refill header
  * (`x-ratelimit-reset-requests`, read first by `parseRateLimitHeaders` in
- * node_modules/promptfoo/dist/src/fetch-DTVomFtf.js) rather than from the
+ * node_modules/promptfoo/dist/src/fetch-*.js) rather than from the
  * seconds Groq states: 86 s or more per request from 2026-10-16 to 10-22. Each
  * child's bound is whatever the run's budget has left after the least time the
  * configs planned after it need at their pace (`boundFor`, `reserveAfter`), so
@@ -300,7 +299,7 @@ export function buildCommand({
 
 /**
  * A child's environment. `PROMPTFOO_RETRY_5XX` has promptfoo retry a 5xx with
- * backoff (`fetchWithRetries`, node_modules/promptfoo/dist/src/fetch-DTVomFtf.js:1288)
+ * backoff (`fetchWithRetries`, node_modules/promptfoo/dist/src/fetch-*.js)
  * instead of filing it as an ERROR row: the judge's "This model is currently
  * experiencing high demand" 503 cost a test its grade on 2026-10-16, 10-22 and
  * 10-24.
@@ -335,7 +334,7 @@ export function dayRefusal(text) {
  * The rate-limit waits a child's debug log records, by host: how many and how
  * long in all. promptfoo logs each one as "Rate limited on URL <url>: HTTP
  * <status>" and then "Rate limited, waiting <n>ms" (fetchWithRetries,
- * node_modules/promptfoo/dist/src/fetch-DTVomFtf.js:1094 and :1264), and only
+ * node_modules/promptfoo/dist/src/fetch-*.js), and only
  * at debug level, so the CI log never shows them otherwise.
  */
 export function rateLimitWaits(text) {
