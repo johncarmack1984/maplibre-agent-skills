@@ -4,18 +4,17 @@
  * config, and leaves a complete record whatever happens.
  *
  * The bound is promptfoo's own: `PROMPTFOO_MAX_EVAL_TIME_MS` arms a global timer
- * (`getMaxEvalTimeMs`, node_modules/promptfoo/dist/src/logger-B9f-j62Q.js:126,
- * read at node_modules/promptfoo/dist/src/evaluator-SSlcaq_U.js:8950), and on
+ * (`getMaxEvalTimeMs`, node_modules/promptfoo/dist/src/logger-*.js,
+ * read at node_modules/promptfoo/dist/src/evaluator-*.js), and on
  * expiry every unprocessed test becomes an ERROR row reading "Evaluation
- * exceeded max duration of Nms" (`createMaxDurationTimeoutResult`, same file,
- * :8196) before the eval finalizes and writes its outputs. A job-level kill
+ * exceeded max duration of Nms" (`createMaxDurationTimeoutResult`, same file) before the eval finalizes and writes its outputs. A job-level kill
  * writes nothing at all, which is how the 2026-08-30 run ended with six hours
  * spent and no evidence of what happened.
  *
  * Each config asks for two output files: the dated CSV the publish job commits,
  * and a JSON sidecar in the work dir that carries the failure reason behind each
- * row (`-o, --output <paths...>` is variadic, node_modules/promptfoo/dist/src/main.js:4908,
- * and both are written before the exit code is set, :4787 then :4845). The CSV's
+ * row (`-o, --output <paths...>` is variadic, node_modules/promptfoo/dist/src/main.js,
+ * and both are written before the exit code is set). The CSV's
  * ERROR rows have an empty output and an empty grader reason, so the sidecar is
  * the only place the error text survives.
  *
@@ -43,16 +42,24 @@
  * re-run, since their gap tests are meant to fail; neither is a config the bound
  * cut off, nor one with more than MAX_RETRIED_TESTS tests down.
  *
+ * A run grades only the configs that are due (`planRun`): those whose inputs
+ * (scripts/lib/eval-inputs.js) differ from what their last graded run recorded
+ * in `<run name>.json` beside its CSVs, and, with EVAL_REGRADE_DAYS set as the
+ * scheduled run sets it, those whose last grade is that many days old, which is
+ * what shows a provider changing a model behind its pinned id. A run with
+ * nothing due runs nothing and succeeds. Configs named by hand, or a shard, run
+ * as named.
+ *
  * A week of evals is bigger than the generator key's day: a full pass over
  * every config needs more generator tokens than the Groq key's daily free-tier
  * cap, which is how the last four configs ended as `error` every Sunday from
  * 2026-09-06 on (#108). So every run plans its own day. It measures the
- * generator's limits (`measureLimits`), sizes each config's requests by them,
- * puts the configs in `longestWaiting` order by the day each last got a verdict
- * (`lastGraded`), and runs each one whose worst case, re-runs included, fits in
- * what EVAL_TOKENS_PER_DAY has left after what the run has spent. What does not
- * fit is first in line the next day, so how often a config is graded follows
- * from how many configs there are and how big they are, and nothing has to be
+ * generator's limits (`measureLimits`), sizes each due config's requests by
+ * them, and runs each one, longest-waiting first by the day each last got a
+ * verdict (`lastGraded`), whose worst case, re-runs included, fits in what
+ * EVAL_TOKENS_PER_DAY has left after what the run has spent. What does not fit
+ * is first in line the next day, so how many days a round of due configs takes
+ * follows from how many there are and how big they are, and nothing has to be
  * retuned as they grow. When Groq refuses a request for its daily limit, which
  * only promptfoo's debug log records in Groq's words (`dayRefusal`), no further
  * config starts; a day already spent is caught before the first (`daySpent`). `--shard k/n` (or EVAL_SHARD) takes the k-th of n contiguous
@@ -66,7 +73,7 @@
  * after a config's first drew a 429 for the minute, and promptfoo 0.122 sizes
  * its wait after one from Groq's daily-request refill header
  * (`x-ratelimit-reset-requests`, read first by `parseRateLimitHeaders` in
- * node_modules/promptfoo/dist/src/fetch-DTVomFtf.js) rather than from the
+ * node_modules/promptfoo/dist/src/fetch-*.js) rather than from the
  * seconds Groq states: 86 s or more per request from 2026-10-16 to 10-22. Each
  * child's bound is whatever the run's budget has left after the least time the
  * configs planned after it need at their pace (`boundFor`, `reserveAfter`), so
@@ -106,12 +113,13 @@
  *   --work-dir <d>       where the sidecars, verdicts, and summary go
  *   --config-dir <d>     where the eval configs live (default evals/prompts)
  *
- * Env: EVAL_BUDGET_MINUTES, EVAL_WORK_DIR, EVAL_TOKENS_PER_DAY, EVAL_SHARD,
- * INPUT_CONFIGS, INPUT_BASELINE, GROQ_API_KEY. The workflow sets the budget and
- * the plan's settings in YAML so they are visible and tunable there; the
- * defaults here match.
+ * Env: EVAL_BUDGET_MINUTES, EVAL_WORK_DIR, EVAL_TOKENS_PER_DAY,
+ * EVAL_REGRADE_DAYS, EVAL_SHARD, INPUT_CONFIGS, INPUT_BASELINE, GROQ_API_KEY.
+ * The workflow sets the budget and the plan's settings in YAML so they are
+ * visible and tunable there; the defaults here match, except that a run with
+ * no EVAL_REGRADE_DAYS grades only what changed.
  */
-import { spawn as spawnChild } from 'node:child_process';
+import { execFileSync, spawn as spawnChild } from 'node:child_process';
 import {
   appendFileSync,
   copyFileSync,
@@ -135,6 +143,12 @@ import {
 } from './lib/eval-verdicts.js';
 import { setOutputs } from './lib/github-output.js';
 import { countTokens, limitsFrom } from '../evals/prompts/lib/request-size.mjs';
+import {
+  changedInputs,
+  harnessOf,
+  inputsOf,
+  recordedInputs
+} from './lib/eval-inputs.js';
 import { passCost, sizeConfig } from './lib/prompt-budget.js';
 import { lastGraded } from './lib/results-history.js';
 
@@ -300,7 +314,7 @@ export function buildCommand({
 
 /**
  * A child's environment. `PROMPTFOO_RETRY_5XX` has promptfoo retry a 5xx with
- * backoff (`fetchWithRetries`, node_modules/promptfoo/dist/src/fetch-DTVomFtf.js:1288)
+ * backoff (`fetchWithRetries`, node_modules/promptfoo/dist/src/fetch-*.js)
  * instead of filing it as an ERROR row: the judge's "This model is currently
  * experiencing high demand" 503 cost a test its grade on 2026-10-16, 10-22 and
  * 10-24.
@@ -335,7 +349,7 @@ export function dayRefusal(text) {
  * The rate-limit waits a child's debug log records, by host: how many and how
  * long in all. promptfoo logs each one as "Rate limited on URL <url>: HTTP
  * <status>" and then "Rate limited, waiting <n>ms" (fetchWithRetries,
- * node_modules/promptfoo/dist/src/fetch-DTVomFtf.js:1094 and :1264), and only
+ * node_modules/promptfoo/dist/src/fetch-*.js), and only
  * at debug level, so the CI log never shows them otherwise.
  */
 export function rateLimitWaits(text) {
@@ -682,6 +696,72 @@ export function longestWaiting({ configs, graded }) {
   );
 }
 
+const DAY_MS = 24 * 60 * 60000;
+
+const daysFrom = (date, today) =>
+  Math.round((Date.parse(today) - Date.parse(date)) / DAY_MS);
+
+const addDays = (date, days) =>
+  new Date(Date.parse(date) + days * DAY_MS).toISOString().slice(0, 10);
+
+const listed = (names) =>
+  names.length < 3
+    ? names.join(' and ')
+    : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+
+/**
+ * Which configs a run grades, and why. A config is due when its `inputs`
+ * differ from those `recorded` by its last graded run (`graded` gives that
+ * run's day), or when it has no such run or record; with `regradeDays` set,
+ * also when its last grade is that many days old. Changed configs go first,
+ * then the aged ones, each longest-waiting first. `later` names the rest and
+ * why each one is not due.
+ */
+export function planRun({
+  configs,
+  graded,
+  recorded,
+  inputs,
+  today,
+  regradeDays = 0
+}) {
+  const changed = [];
+  const aged = [];
+  const later = [];
+  for (const config of longestWaiting({ configs, graded })) {
+    const date = graded.get(skillOf(config));
+    const now = inputs.get(config);
+    const then = recorded.get(skillOf(config)) ?? null;
+    const differ = changedInputs(now, then);
+    if (date === undefined) {
+      changed.push({ config, why: 'no graded run yet' });
+    } else if (now?.error) {
+      changed.push({ config, why: `inputs unreadable: ${now.error}` });
+    } else if (then === null) {
+      changed.push({
+        config,
+        why: `graded ${date} by a run that recorded no inputs`
+      });
+    } else if (differ.length > 0) {
+      changed.push({
+        config,
+        why: `${listed(differ)} changed since its grade of ${date}`
+      });
+    } else if (regradeDays > 0 && daysFrom(date, today) >= regradeDays) {
+      aged.push({
+        config,
+        why: `last graded ${date}, ${daysFrom(date, today)} days ago`
+      });
+    } else {
+      later.push({
+        config,
+        why: `graded ${date} on its current inputs${regradeDays > 0 ? `; due again ${addDays(date, regradeDays)}` : ''}`
+      });
+    }
+  }
+  return { due: [...changed, ...aged], later };
+}
+
 function sumTokenUsage(a, b) {
   if (!a || !b) return a ?? b ?? null;
   const sum = { ...a };
@@ -919,6 +999,8 @@ export async function runEvals({
   tokensPerDay = TOKENS_PER_DAY_DEFAULT,
   logsDir = null,
   judge = null,
+  inputs = null,
+  commit = null,
   env = process.env,
   spawn = spawnEval,
   fetch = globalThis.fetch,
@@ -956,6 +1038,11 @@ export async function runEvals({
     configs: []
   };
   writeFileSync(summaryPath, JSON.stringify(summary, null, 2) + '\n');
+  // What each config the run graded was graded on, committed beside its CSVs,
+  // so a later run can tell whether any of it has changed since (`planRun`).
+  const gradedOnPath = join(resultsDir, `${name}.json`);
+  const gradedOn = { commit, configs: {} };
+  writeFileSync(gradedOnPath, JSON.stringify(gradedOn, null, 2) + '\n');
 
   // Asks the judge itself after a child whose grading met rate limits and left
   // its config short of a pass.
@@ -1200,6 +1287,10 @@ export async function runEvals({
     appendFileSync(verdictsPath, `${skill}:${record.verdict}\n`);
     summary.configs.push(record);
     writeFileSync(summaryPath, JSON.stringify(summary, null, 2) + '\n');
+    if (record.verdict === 'pass' || record.verdict === 'fail') {
+      gradedOn.configs[skill] = { inputs: inputs?.get(config) ?? null, judge };
+      writeFileSync(gradedOnPath, JSON.stringify(gradedOn, null, 2) + '\n');
+    }
   }
 
   // A day a provider ended early is not a failure; a day that graded nothing
@@ -1239,6 +1330,18 @@ export function setAside({ resultsDir, workDir, name, skill }) {
     } catch {
       // Not written: nothing to set aside.
     }
+  }
+}
+
+/** The commit the run grades, or null outside a git checkout. */
+function headCommit() {
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore']
+    }).trim();
+  } catch {
+    return null;
   }
 }
 
@@ -1300,7 +1403,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
 
   const baseline = args.baseline || process.env.INPUT_BASELINE === 'true';
-  const name = runName(new Date().toISOString().slice(0, 10), baseline);
+  const today = new Date().toISOString().slice(0, 10);
+  const name = runName(today, baseline);
   const resultsDir = args.resultsDir ?? 'evals/results';
   const workDir =
     args.workDir ?? process.env.EVAL_WORK_DIR ?? join(tmpdir(), 'eval');
@@ -1319,6 +1423,63 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.exit(1);
   }
 
+  // When each config last got a verdict, and what it would be graded on now.
+  let resultFiles = [];
+  try {
+    resultFiles = readdirSync(resultsDir);
+  } catch {
+    // No results yet: no config has had a verdict.
+  }
+  const graded = lastGraded(resultFiles, (fileName) =>
+    readFileSync(join(resultsDir, fileName), 'utf8')
+  );
+  const inputs = new Map();
+  let harness = null;
+  for (const config of configs) {
+    try {
+      harness ??= harnessOf();
+      inputs.set(config, inputsOf(config, { harness }));
+    } catch (error) {
+      inputs.set(config, { error: error.message });
+    }
+  }
+
+  // A discovered list runs what is due: the configs whose inputs changed since
+  // their last graded run, then those graded EVAL_REGRADE_DAYS or more ago.
+  // Configs named by hand run as named; a shard runs longest-waiting first.
+  const regradeDays = Number(process.env.EVAL_REGRADE_DAYS || 0);
+  const plan =
+    explicit === null && shard === null
+      ? planRun({
+          configs,
+          graded,
+          recorded: recordedInputs(graded, (date) =>
+            JSON.parse(readFileSync(join(resultsDir, `${date}.json`), 'utf8'))
+          ),
+          inputs,
+          today,
+          regradeDays
+        })
+      : null;
+  for (const { config, why } of plan?.due ?? []) {
+    console.log(`${skillOf(config)}: due (${why}).`);
+  }
+  for (const { config, why } of plan?.later ?? []) {
+    console.log(`${skillOf(config)}: not due (${why}).`);
+  }
+  const order = plan
+    ? plan.due.map(({ config }) => config)
+    : explicit === null
+      ? longestWaiting({ configs, graded })
+      : configs;
+  if (order.length === 0) {
+    console.log(
+      'Nothing is due: every config was graded on its current inputs.'
+    );
+    if (!args.dryRun) setOutputs({ name, ran: 'false' });
+    process.exit(0);
+  }
+
   const pin = /^id:\s*(\S+)/m.exec(
     readFileSync('evals/prompts/lib/providers.yaml', 'utf8')
   )?.[1];
@@ -1332,15 +1493,13 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       : `Generator limits not measured; using ${limits.tokensPerMinute} tokens a minute and a ${limits.templateTokens}-token template.`
   );
 
-  // The day's order: longest-waiting first, by the day each config last got a
-  // verdict, unless the caller named configs. runEvals then runs each one whose
-  // worst case fits in what the day has left, so how often a config is graded
-  // follows from how many there are and how big they are.
+  // runEvals runs, in this order, each config whose worst case fits in what the
+  // day has left.
   const tokensPerDay = Number(
     process.env.EVAL_TOKENS_PER_DAY || TOKENS_PER_DAY_DEFAULT
   );
   const costs = new Map();
-  for (const config of configs) {
+  for (const config of order) {
     try {
       costs.set(config, passCost(sizeConfig(config, { limits })));
     } catch (error) {
@@ -1349,21 +1508,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       );
     }
   }
-  let resultFiles = [];
-  try {
-    resultFiles = readdirSync(resultsDir);
-  } catch {
-    // No results yet: no config has had a verdict.
-  }
-  const order =
-    explicit === null
-      ? longestWaiting({
-          configs,
-          graded: lastGraded(resultFiles, (fileName) =>
-            readFileSync(join(resultsDir, fileName), 'utf8')
-          )
-        })
-      : configs;
 
   if (args.dryRun) {
     for (const config of order) {
@@ -1419,7 +1563,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     // Beside the work dir, not in it: the work dir is uploaded as an artifact,
     // and these logs hold every request and response in full.
     logsDir: `${workDir}-logs`,
-    judge: judgePin(JSON.parse(readFileSync('package.json', 'utf8')))
+    judge: judgePin(JSON.parse(readFileSync('package.json', 'utf8'))),
+    inputs,
+    commit: headCommit()
   });
   // A day that graded nothing has nothing for the publish job.
   setOutputs({ ran: String(summary.planned.length > 0) });

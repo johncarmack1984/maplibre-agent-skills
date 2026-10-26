@@ -25,6 +25,13 @@ function gitCommonDir() {
   return resolve(rootDir, commonDir);
 }
 
+// A source archive or a copy inside node_modules has no .git, and so no hook to
+// install; failing there would fail the whole `npm install`.
+if (!existsSync(join(rootDir, '.git'))) {
+  console.log('Not a git checkout, so no pre-push hook to install.');
+  process.exit(0);
+}
+
 const HOOKS_DIR = join(gitCommonDir(), 'hooks');
 const SOURCE_HOOKS_DIR = join(rootDir, '.githooks');
 

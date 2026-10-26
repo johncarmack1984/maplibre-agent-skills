@@ -1,6 +1,6 @@
 {
   "name": "@maplibre/agent-skills",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Agent Skills for building MapLibre applications with open tile sources and open-source tooling",
   "type": "module",
   "scripts": {
@@ -15,7 +15,7 @@
     "lint:prompt-budget": "node scripts/prompt-budget-check.js",
     "lint:tripwires": "node scripts/tripwire-check.js",
     "eval": "promptfoo eval",
-    "eval:graded": "promptfoo eval --grader google:gemini-2.5-flash-lite --delay 8000 --no-cache -j 1",
+    "eval:graded": "promptfoo eval --grader google:gemini-3.1-flash-lite --delay 8000 --no-cache -j 1",
     "test": "node --test \"scripts/**/*.test.js\"",
     "check:changelog-field": "node scripts/check-changelog-field.js",
     "generate:skills-table": "node scripts/generate-skills-table.js",
@@ -43,13 +43,16 @@
   "devDependencies": {
     "cspell": "^8.0.0",
     "js-tiktoken": "^1.0.21",
-    "js-yaml": "^5.2.3",
-    "markdownlint-cli": "^0.49.1",
+    "js-yaml": "^5.5.0",
+    "markdownlint-cli": "^0.50.0",
     "prettier": "^3.8.1",
-    "promptfoo": "^0.122.0"
+    "promptfoo": "^0.125.1"
   },
   "overrides": {
     "adm-zip": "^0.6.0",
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.3",
+    "basic-ftp": "^6.2.3",
+    "@azure/msal-node": "^7.1.1",
+    "katex": "^0.18.2"
   }
 }

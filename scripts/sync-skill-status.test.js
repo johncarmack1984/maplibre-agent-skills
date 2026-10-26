@@ -11,7 +11,8 @@ import {
 import { listEvalConfigs, skillOf } from './lib/eval-verdicts.js';
 
 // A skills dir holding one SKILL.md per entry, `status` being the frontmatter
-// field under test — or null for a skill that never opted into auto-sync.
+// `metadata.status` under test — or null for a skill that never opted into
+// auto-sync.
 function skillsDir(skills) {
   const dir = mkdtempSync(join(tmpdir(), 'skill-status-'));
   for (const [name, status] of Object.entries(skills)) {
@@ -22,7 +23,7 @@ function skillsDir(skills) {
         '---',
         `name: ${name}`,
         'description: A skill. Use when testing.',
-        ...(status === null ? [] : [`status: ${status}`]),
+        ...(status === null ? [] : ['metadata:', `  status: ${status}`]),
         '---',
         '',
         '# Body'
@@ -34,7 +35,7 @@ function skillsDir(skills) {
 
 function statusOf(dir, name) {
   const content = readFileSync(join(dir, name, 'SKILL.md'), 'utf8');
-  return content.match(/^status:\s*(\S+)/m)?.[1] ?? null;
+  return content.match(/^ {2}status:\s*(\S+)/m)?.[1] ?? null;
 }
 
 describe('syncSkillStatus', () => {
@@ -90,6 +91,43 @@ describe('syncSkillStatus', () => {
     assert.deepEqual(result.changes, []);
     assert.equal(statusOf(dir, 'maplibre-writing-evals'), 'process');
     assert.equal(statusOf(dir, 'maplibre-cartography'), null);
+  });
+
+  it('flips the front matter status and no status line in the body', () => {
+    const dir = skillsDir({ 'maplibre-cartography': 'provisional' });
+    const file = join(dir, 'maplibre-cartography', 'SKILL.md');
+    const body = '\n  status: provisional\n';
+    writeFileSync(file, readFileSync(file, 'utf8') + body);
+    syncSkillStatus({
+      verdictsText: 'maplibre-cartography:pass\n',
+      skillsDir: dir
+    });
+    const content = readFileSync(file, 'utf8');
+    assert.equal(statusOf(dir, 'maplibre-cartography'), 'verified');
+    assert.ok(content.endsWith(body));
+  });
+
+  it('reads and flips the status under metadata, not one under another key', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'skill-status-'));
+    mkdirSync(join(dir, 'maplibre-cartography'));
+    const file = join(dir, 'maplibre-cartography', 'SKILL.md');
+    writeFileSync(
+      file,
+      '---\nname: maplibre-cartography\ndescription: A skill.\ncompatibility:\n  status: n/a\nmetadata:\n  internal: false\n  status: provisional\n---\n\n# Body\n'
+    );
+    const result = syncSkillStatus({
+      verdictsText: 'maplibre-cartography:pass\n',
+      skillsDir: dir
+    });
+    assert.deepEqual(result.changes, [
+      'maplibre-cartography: provisional -> verified'
+    ]);
+    const content = readFileSync(file, 'utf8');
+    assert.match(content, /compatibility:\n {2}status: n\/a\n/);
+    assert.match(
+      content,
+      /metadata:\n {2}internal: false\n {2}status: verified\n/
+    );
   });
 
   it('reports a verdict naming a skill that has no SKILL.md', () => {

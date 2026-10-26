@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * Flips a skill's `status:` frontmatter to match the drift check:
+ * Flips a skill's `metadata.status` frontmatter to match the drift check:
  * provisional -> verified on pass, verified -> provisional on fail.
  *
  * Reads one "skillName:pass", "skillName:fail", or "skillName:error" line per
  * skill from the file passed as argv[2] (written by scripts/run-evals.js).
- * Skills with no status field, or status: process, are left alone — this only
+ * Skills with no status field, or `status: process`, are left alone — this only
  * manages the provisional/verified pair, and only for skills that opted in.
  *
  * `error` means the run reached no verdict for that skill: a provider or judge
@@ -33,6 +33,7 @@ import {
   parseVerdicts,
   skillOf
 } from './lib/eval-verdicts.js';
+import { statusIn, withStatus } from './lib/frontmatter.js';
 import { setOutputs } from './lib/github-output.js';
 
 export function syncSkillStatus({
@@ -55,9 +56,8 @@ export function syncSkillStatus({
       continue;
     }
 
-    const statusMatch = content.match(/^status:\s*(\S+)/m);
-    if (!statusMatch) continue; // no status field — not opted into auto-sync
-    const status = statusMatch[1];
+    const status = statusIn(content);
+    if (!status) continue; // no status field — not opted into auto-sync
     if (status === 'process') continue; // eval-exempt, never auto-flipped
 
     if (verdict === 'error') {
@@ -74,10 +74,7 @@ export function syncSkillStatus({
     if (status === 'verified' && verdict === 'fail') next = 'provisional';
     if (!next) continue;
 
-    writeFileSync(
-      skillFile,
-      content.replace(/^status:\s*\S+/m, `status: ${next}`)
-    );
+    writeFileSync(skillFile, withStatus(content, next));
     changes.push(`${skill}: ${status} -> ${next}`);
   }
 
