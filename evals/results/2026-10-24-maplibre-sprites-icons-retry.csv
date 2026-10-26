@@ -1,0 +1,324 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+explicit — route shields missing badge on the open OpenMapTiles stack,skills/maplibre-sprites-icons/SKILL.md,"I'm using an open OpenMapTiles / OSM-based vector basemap with MapLibre GL JS (no Mapbox account). My interstate and US highway shields render as bare floating numbers with no shield badge behind them; the numbers are fine. My tiles do populate network, ref, and ref_length. Which exact sprite image names do the shield layers expect, and how do I get the badges to appear without editing the layers?","## TL;DR  
+
+*The shield layers that come with the “OSM Bright” / “OSM Liberty” OpenMapTiles styles look for the following sprite-image IDs*  
+
+| Style | Image-ID pattern | Example for a 2-digit ref (`ref_length = 2`) |
+|-------|------------------|--------------------------------------------|
+| **OSM Bright** (US only) | `us-interstate_{ref_length}` | `us-interstate_2` |
+|                       | `us-highway_{ref_length}`   | `us-highway_2` |
+|                       | `us-state_{ref_length}`     | `us-state_2` |
+| **OSM Bright** (non-US) | `road_{ref_length}`         | `road_2` |
+| **OSM Liberty** (all networks) | `default_{ref_length}` | `default_2` |
+
+`ref_length` is an integer **1 – 6** (the style only defines badges for those lengths).  
+If any of those IDs are missing from the sprite sheet you will see the “bare number” symptom you described.
+
+### How to make the badges appear **without touching the style layers**
+
+1. **Use a sprite sheet that already contains the needed IDs**  
+   * The official OpenMapTiles sprite for the OSM Bright style already ships all of them:  
+
+     ```
+     https://openmaptiles.github.io/osm-bright-gl-style/sprite
+     ```
+
+   * The same sprite (identical content) is also available at the demo host:  
+
+     ```
+     https://demotiles.maplibre.org/styles/osm-bright-gl-style/sprite
+     ```
+
+   Point your style’s `sprite` property at one of those URLs (or at a copy you host yourself).  
+   Example style root:
+
+   ```json
+   {
+     ""version"": 8,
+     ""sprite"": ""https://your.cdn.com/sprites/osm-bright"",
+     ...
+   }
+   ```
+
+   *Make sure the URL is **extension-less** – MapLibre will request `.json`, `.png`, and the `@2x` variants automatically.*
+
+2. **If you already have a custom sprite and just need the missing badge images**  
+   * **Option A – add a second sprite sheet** (MapLibre ≥ 3.0).  
+     ```json
+     {
+       ""sprite"": [
+         { ""id"": ""default"", ""url"": ""https://your.cdn.com/sprites/your-custom"" },
+         { ""id"": ""osm-badges"", ""url"": ""https://openmaptiles.github.io/osm-bright-gl-style/sprite"" }
+       ]
+     }
+     ```
+     Then reference the badge images with the `id:` prefix, e.g. `""icon-image"": ""osm-badges:us-interstate_2""`.  
+     *If you do **not** want to edit the layers*, keep the original `icon-image` values (`us-interstate_2`, …) and make the **default** sheet the one that contains the badges.  
+     To do that, simply replace your current `sprite` string with the badge sprite URL (or host a merged sprite that contains both your custom icons **and** the badge IDs).  
+
+   * **Option B – merge the missing IDs into your own sprite**  
+     1. Download the OpenMapTiles sprite (`sprite.json` + `sprite.png` + `sprite@2x.png`).  
+     2. Use a sprite-building tool (e.g. **spritezero**, **spreet**, or **Martin**) to add the badge PNGs (`us-interstate_1.png`, …, `road_6.png`) to your existing set.  
+     3. Host the new combined sprite and point `sprite` at its base URL.  
+
+3. **If you cannot host a new sprite sheet** (e.g. you are on a strict CDN that only serves your own assets) you can register the missing images at runtime:
+
+   ```js
+   map.on('styleimagemissing', async (e) => {
+     const id = e.id;               // e.g. ""us-interstate_2""
+     // Only handle the known badge IDs; ignore everything else.
+     const badgeUrl = `https://openmaptiles.github.io/osm-bright-gl-style/sprite${id}.png`;
+     try {
+       const { data } = await map.loadImage(badgeUrl);
+       if (!map.hasImage(id)) map.addImage(id, data);
+     } catch (err) {
+       console.warn('Could not load shield badge', id, err);
+     }
+   });
+   ```
+
+   This works because `styleimagemissing` is emitted **after** the style has been parsed but **before** the layer is rendered. The handler loads the missing PNG and registers it under the same ID, so the layer instantly gets its badge back. No style changes are required.
+
+### Quick checklist to verify you have the right badge images
+
+| Step | What to do | Expected result |
+|------|------------|-----------------|
+| 1️⃣ | Open the sprite JSON you are using (e.g. `https://openmaptiles.github.io/osm-bright-gl-style/sprite.json`) | It contains keys like `""us-interstate_1""`, `""us-highway_3""`, `""road_5""`, `""default_2""` etc. |
+| 2️⃣ | In the browser console run `map.hasImage('us-interstate_2')` (replace with any ID you expect) | `true` if the badge is present, `false` otherwise. |
+| 3️⃣ | If any `hasImage` call returns `false`, add the missing sheet or register the image as described above. | After fixing, the shields render with their badge background. |
+
+### Why the numbers still appear
+
+The shield **text** (`{ref}`) is rendered by the **glyphs** server, not by the sprite. As long as `glyphs` is reachable, the numbers will always show. The badge is the only part that depends on the sprite, which is why you see the numbers but no background.
+
+---
+
+## Recap of the exact sprite IDs you need
+
+| Network (value of `network` property) | Sprite ID pattern (used in `icon-image`) |
+|----------------------------------------|-------------------------------------------|
+| `us-interstate` | `us-interstate_1` … `us-interstate_6` (most styles only provide 1-3) |
+| `us-highway`   | `us-highway_1` … `us-highway_6` (usually 1-3) |
+| `us-state`     | `us-state_1` … `us-state_6` |
+| any other US network (e.g. `us-primary`) | `road_1` … `road_6` |
+| non-US networks (OSM Liberty) | `default_1` … `default_6` |
+
+> **Tip:** The `ref_length` property in the tiles is already the integer you need; the style builds the image name by concatenating the network string, an underscore, and that integer.
+
+---
+
+### Bottom line
+
+*Make sure the sprite sheet you point to contains the IDs listed above.* The easiest way is to point `sprite` at the official OpenMapTiles sprite (`…/osm-bright-gl-style/sprite`). If you must keep your own sprite, either merge those IDs into it or add a second sprite sheet (or load them on-the-fly with `styleimagemissing`). Once the IDs exist, the shield badges will appear automatically—no layer edits required.",FAIL,0.50,,"The output incorrectly states that the `us-highway` and `us-interstate` networks have sprite IDs up to `_6`. The `OSM Bright` style documentation explicitly states that for US networks, it supports `ref_length` up to 3 (e.g., `us-highway_3` and `us-interstate_3`). The official OpenMapTiles sprite for OSM Bright on `openmaptiles.github.io` only provides up to `us-interstate_5`, and `us-highway` and `us-state` go up to `_3`. The output incorrectly extends this range, which is not supported by the actual style or sprite.",
+explicit — route shields missing badge on the open OpenMapTiles stack,skills/maplibre-sprites-icons/SKILL.md,"I'm using an open OpenMapTiles / OSM-based vector basemap with MapLibre GL JS (no Mapbox account). My interstate and US highway shields render as bare floating numbers with no shield badge behind them; the numbers are fine. My tiles do populate network, ref, and ref_length. Which exact sprite image names do the shield layers expect, and how do I get the badges to appear without editing the layers?","## TL;DR  
+
+*The shield layers that come with the standard OpenMapTiles-based styles (OSM Bright, OSM Liberty, etc.) look for **exact sprite IDs** that are built from the OSM `network` value and the `ref_length` that the tile source supplies.*  
+
+| Network value (`network`) | Sprite ID pattern | Example for `ref_length = 2` |
+|---------------------------|-------------------|------------------------------|
+| `us-interstate`           | `us-interstate_<ref_length>` | `us-interstate_2` |
+| `us-highway`              | `us-highway_<ref_length>`    | `us-highway_2` |
+| `us-state`                | `us-state_<ref_length>`      | `us-state_2` |
+| *any other network* (or missing) | `road_<ref_length>` | `road_2` |
+| *OSM Liberty style* (uses a single generic sheet) | `default_<ref_length>` | `default_2` |
+
+The **`ref_length`** field is an integer that tells the style how many digits the route number has (1 – 6). The sprite therefore must contain an entry for every length you expect to see.
+
+If those IDs are missing from the style’s sprite sheet you will see the numbers (text) but no badge – exactly the symptom you described.
+
+---
+
+## 1. What the style actually asks for  
+
+### OSM Bright (the most common OpenMapTiles style)
+
+```json
+{
+  ""id"": ""highway-shield-us-interstate"",
+  ""type"": ""symbol"",
+  ""source"": ""openmaptiles"",
+  ""source-layer"": ""transportation_name"",
+  ""layout"": {
+    ""icon-image"": ""{network}_{ref_length}"",
+    ""text-field"": ""{ref}""
+  }
+}
+```
+
+* `icon-image` is an **expression** that expands to one of the four patterns above.  
+* When `network` = `""us-interstate""` and `ref_length` = `3` the resolved ID is **`us-interstate_3`**.  
+
+The same pattern is used for the other US networks (`us-highway`, `us-state`).  
+For everything else the style falls back to the generic pattern `road_<ref_length>`.
+
+### OSM Liberty (the “default” OpenMapTiles style)
+
+```json
+{
+  ""id"": ""shield"",
+  ""type"": ""symbol"",
+  ""source"": ""openmaptiles"",
+  ""source-layer"": ""transportation_name"",
+  ""layout"": {
+    ""icon-image"": ""default_{ref_length}"",
+    ""text-field"": ""{ref}""
+  }
+}
+```
+
+*All* shields use the `default_<ref_length>` IDs, regardless of `network`.
+
+---
+
+## 2. Which concrete sprite IDs you need  
+
+| `ref_length` | OSM Bright – US interstate | OSM Bright – US highway | OSM Bright – US state | OSM Bright – generic (`road`) | OSM Liberty (`default`) |
+|--------------|---------------------------|--------------------------|-----------------------|------------------------------|--------------------------|
+| 1            | `us-interstate_1`         | `us-highway_1`           | `us-state_1`          | `road_1`                     | `default_1` |
+| 2            | `us-interstate_2`         | `us-highway_2`           | `us-state_2`          | `road_2`                     | `default_2` |
+| 3            | `us-interstate_3`         | `us-highway_3`           | `us-state_3`          | `road_3`                     | `default_3` |
+| 4            | *(not shipped in the official sprite – you can add it if you need 4-digit interstates)* | `us-highway_4` (optional) | `us-state_4` | `road_4` | `default_4` |
+| 5            | *(same comment as above)*| `us-highway_5` (optional) | `us-state_5` | `road_5` | `default_5` |
+| 6            | *(same comment as above)*| `us-highway_6` (optional) | `us-state_6` | `road_6` | `default_6` |
+
+> **Note** – The *official* OSM Bright sprite that ships with the OpenMapTiles demo contains only the IDs that are actually used in the United States:  
+> * `us-interstate_1` – `us-interstate_3`  
+> * `us-highway_1` – `us-highway_3`  
+> * `us-state_1` – `us-state_6`  
+> * `road_1` – `road_6`  
+
+If you are rendering a region that needs a badge for a 4-, 5- or 6-digit US-interstate number you will have to add those images yourself (or use a custom sprite that already contains them).
+
+---
+
+## 3. Getting the badges to appear **without touching the style layers**
+
+You have three practical ways to supply the missing sprite IDs:
+
+### A. Point the style at a sprite sheet that already contains them  
+
+1. **Use the official OSM Bright sprite** (or the OSM Liberty sprite) as-is.  
+   ```json
+   {
+     ""sprite"": ""https://demotiles.maplibre.org/styles/osm-bright-gl-style/sprite""
+   }
+   ```
+   *Do not use this in production – it’s a public demo endpoint.*  
+
+2. **Self-host the same sprite** (recommended for production).  
+   * Download the sprite directory from the OpenMapTiles repo:  
+     `https://github.com/openmaptiles/osm-bright-gl-style/tree/master/sprite`  
+   * Host the two files (`sprite.png`, `sprite.json`) (and the `@2x` variants) on a domain you control.  
+   * Update the style’s `sprite` property to the base URL of your host, e.g.  
+     ```json
+     { ""sprite"": ""https://my.cdn.com/tiles/osm-bright/sprite"" }
+     ```
+
+3. **If you already have a custom sprite for your own icons**, you can **add a second sheet** (MapLibre ≥ 3.0) that contains the shield IDs, leaving your own sheet as `default` or vice-versa. Example:
+
+   ```json
+   {
+     ""sprite"": [
+       { ""id"": ""default"", ""url"": ""https://my.cdn.com/tiles/my-icons/sprite"" },
+       { ""id"": ""osm-shields"", ""url"": ""https://my.cdn.com/tiles/osm-bright/sprite"" }
+     ]
+   }
+   ```
+
+   Then reference the shield IDs with the prefix `osm-shields:` **only if you need to**.  
+   Because the `default` sheet is still the first entry, **all existing `icon-image` values in the style keep working unchanged** – you do **not** have to edit any layer.
+
+### B. Add the missing images at runtime with `addImage`  
+
+If you cannot change the `sprite` URL (e.g., you are consuming a third-party style that you cannot edit), you can register the missing badge images yourself after the map loads:
+
+```js
+map.on('load', async () => {
+  // Helper to load a PNG (or WebP) from a URL and add it under the exact ID the style expects
+  async function addBadge(id, url) {
+    if (map.hasImage(id)) return;               // already present
+    const { data } = await map.loadImage(url);  // returns an ImageBitmap / HTMLImageElement
+    map.addImage(id, data, { sdf: false });     // most shield badges are ordinary PNGs
+  }
+
+  // Example: add the three US-interstate badge sizes
+  await Promise.all([
+    addBadge('us-interstate_1', 'https://my.cdn.com/shields/us-interstate_1.png'),
+    addBadge('us-interstate_2', 'https://my.cdn.com/shields/us-interstate_2.png'),
+    addBadge('us-interstate_3', 'https://my.cdn.com/shields/us-interstate_3.png')
+  ]);
+
+  // Do the same for highway, state, and generic road badges as needed
+});
+```
+
+*Pros*: No need to rebuild a sprite; you can host each badge as a tiny PNG (or even an SVG rasterised to a bitmap).  
+*Cons*: Each `addImage` triggers a separate HTTP request, so for many badge sizes it is a bit less efficient than a single sprite PNG/JSON pair.
+
+### C. Use the v6 “missing-image resolver”  
+
+MapLibre v6+ provides a hook that is called **whenever the style asks for an image that does not exist**. You can supply the image on-the-fly:
+
+```js
+map.setMissingStyleImageResolver(async (id) => {
+  // `id` will be something like ""us-interstate_2""
+  const url = `https://my.cdn.com/shields/${id}.png`;
+  const { data } = await map.loadImage(url);
+  return { data, options: {} };   // same shape as Map.addImage() expects
+});
+```
+
+This approach is the cleanest if you want a single place to serve *any* missing badge without pre-checking `hasImage`.
+
+---
+
+## 4. Quick checklist – “Why are my shields missing?”  
+
+| ✅ Check | What to look for |
+|--------|-------------------|
+| **Sprite URL** | `style.sprite` points to a base URL **without** `.json` or `.png`. |
+| **Sprite files exist** | `…/sprite.json` returns 200, `…/sprite.png` returns 200, and CORS headers allow your domain. |
+| **Sprite JSON contains the IDs** | Open the JSON and search for `us-interstate_2`, `road_3`, etc. |
+| **`map.hasImage(id)`** | After `map.on('load')`, run `map.hasImage('us-interstate_2')`. If `false`, the sprite is missing that ID. |
+| **Console warnings** | Look for `Image ""us-interstate_2"" could not be loaded` (fired by `styleimagemissing`). |
+| **Network tab** | Verify the badge PNG request is actually happening (if you are using `addImage` or the resolver). |
+
+If any of the above fails, the badge will not appear.
+
+---
+
+## 5. Putting it all together – a minimal, production-ready solution  
+
+Below is a **complete example** that works with any OpenMapTiles style (Bright, Liberty, or a custom one) **without editing the style’s layers**. It adds a second sprite sheet that contains only the shield badges; the rest of the style continues to use its original sprite.
+
+```json
+/* style.json (only the root part that changes) */
+{
+  ""version"": 8,
+  ""sprite"": [
+    { ""id"": ""default"", ""url"": ""https://my.cdn.com/tiles/my-icons/sprite"" },
+    { ""id"": ""osm-shields"", ""url"": ""https://my.cdn.com/tiles/osm-shields/sprite"" }
+  ],
+  /* … the rest of the style stays exactly as you got it … */
+}
+```
+
+*Steps to create `osm-shields` sprite*  
+
+1. Clone the official OSM Bright sprite repo:  
+   ```bash
+   git clone https://github.com/openmaptiles/osm-bright-gl-style.git
+   cd osm-bright-gl-style/sprite
+   ```
+2. The directory already contains `sprite.png`, `sprite.json`, and `@2x` variants – they include **all US shield IDs** listed above.  
+3. Upload the whole directory to your CDN (preserve the filenames).  
+
+*Result*: The map now finds `us-interstate_2`, `road_3`, etc. automatically, and the shields render with their badges. No layer code changes are required.
+
+---
+
+## 6. Bonus – Stretchable badges (if you ever need them)
+
+If you want a **single badge image** that works for any `ref_length` (e.g., a generic “I-” badge that stretches to fit “I-5”, “I-405”, “I-1900”), you must",FAIL,0.50,,"Error: No candidates returned in API response.
+
+Got response: {""error"":{""code"":503,""message"":""This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later."",""status"":""UNAVAILABLE""}}",

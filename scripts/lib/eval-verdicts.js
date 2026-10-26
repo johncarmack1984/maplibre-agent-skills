@@ -1,5 +1,5 @@
 /**
- * The vocabulary the weekly eval run reports in: `pass`, `fail`, and `error`.
+ * The vocabulary the scheduled eval run reports in: `pass`, `fail`, and `error`.
  *
  * `pass` and `fail` are the author's original pair and keep their meaning — a
  * graded verdict on skill content. `error` is new and means "no verdict": the
@@ -35,7 +35,9 @@ const ASSERT = 1;
 const ERROR = 2;
 
 // Signatures a config's verdict can carry. The first four come from the failure
-// text in the run log of 2026-08-30; the last three are the runner's own.
+// text in the run log of 2026-08-30, `judge-unavailable` from the sidecars of
+// 2026-09-13 and 2026-09-27, and `request-too-large` from the one of
+// 2026-10-21; the last three are the runner's own.
 const CUT_OFF_SIGNATURES = new Set(['max-duration', 'not-run', 'killed']);
 
 /** Every skill's eval config, sorted, template excluded. */
@@ -117,6 +119,17 @@ export function runName(date, baseline) {
  * raises RateLimitExhaustedError for the generator and the judge alike, and the
  * row's message still names which one. Order matters: that message contains
  * the bare "Rate limit exceeded" phrase too, so it is matched first.
+ *
+ * `judge-unavailable` is the exception that names a side: its phrase comes from
+ * promptfoo's Google provider, and of the pinned pair only the judge is Google.
+ * An ASSERT row carries whatever name a flagged grader reason earns; see
+ * graderErrorOf.
+ *
+ * `request-too-large` is Groq refusing a request bigger than the organization's
+ * tokens per minute. Each request's answer cap is sized to fit, so this means a
+ * prompt that fills the minute on its own, which fails the same way every run
+ * and which `npm run lint:prompt-budget` names. Its body carries the code
+ * `rate_limit_exceeded`, so it is matched before `rate-limit`.
  */
 export function signatureOf(message) {
   const text = String(message ?? '');
@@ -125,10 +138,50 @@ export function signatureOf(message) {
   if (/timed out after \d+ms in queue/.test(text)) {
     return 'queue-timeout';
   }
+  if (
+    /No candidates returned in API response/.test(text) &&
+    (/\b503\b/.test(text) || /"UNAVAILABLE"/.test(text))
+  ) {
+    return 'judge-unavailable';
+  }
+  if (
+    /\b413 Payload Too Large\b/.test(text) ||
+    /Request too large/.test(text)
+  ) {
+    return 'request-too-large';
+  }
+  // A 5xx that outlasted promptfoo's retries, which PROMPTFOO_RETRY_5XX turns
+  // on for every child (scripts/run-evals.js, childEnv).
+  if (/Internal Server Error: 5\d\d\b/.test(text)) return 'unavailable';
   if (/\b429\b/.test(text) || /Rate limit exceeded/.test(text)) {
     return 'rate-limit';
   }
   return 'other';
+}
+
+/**
+ * The reason behind a failed grader call inside an ASSERT row, or null.
+ *
+ * promptfoo flags a grading result that holds no verdict with
+ * `metadata.graderError: true` (typed at
+ * node_modules/promptfoo/dist/src/index.d.ts:1493). Only `graderFail` sets it
+ * (node_modules/promptfoo/dist/src/graders-B_if87De.js:545), for unparseable
+ * judge output (:987), a call error or no output (:1010), a failed remote
+ * grading (:1962), and G-Eval (:2083), plus the moderation path
+ * (node_modules/promptfoo/dist/src/evaluator-SSlcaq_U.js:447); a parsed verdict
+ * never carries it. `handleLlmRubric` passes a flagged result through unchanged
+ * (same file, :2418, via `isGraderFailure`, graders-B_if87De.js:2077: "a grader
+ * error is not evidence that the criterion was or was not met"), so the row is
+ * ASSERT and the flagged result sits in `gradingResult.componentResults`
+ * (`AssertionsResult.addResult`, evaluator-SSlcaq_U.js:1162). Every component
+ * is read because the row's `error` repeats only the last failing reason (same
+ * file, :1183, copied at :6884).
+ */
+function graderErrorOf(row) {
+  const flagged = (row.gradingResult?.componentResults ?? []).find(
+    (result) => result?.metadata?.graderError === true
+  );
+  return flagged ? flagged.reason : null;
 }
 
 /**
@@ -137,7 +190,11 @@ export function signatureOf(message) {
  * Any ERROR row makes the whole config an `error`, even alongside a genuine
  * assertion failure: a run that was rate-limited has not graded the content, so
  * it gets no say over a skill's status. That is deliberately conservative — a
- * real regression in a rate-limited week waits a week to be seen.
+ * real regression in a rate-limited run waits for the config's next turn.
+ *
+ * An ASSERT row whose grader call failed counts as an ERROR row, for the same
+ * reason: promptfoo files the failed call as a failed assertion, but the judge
+ * never graded the answer.
  */
 export function classifyEval(sidecar) {
   const summary = sidecar?.results;
@@ -162,11 +219,12 @@ export function classifyEval(sidecar) {
         `Unexpected promptfoo output: failureReason ${JSON.stringify(reason)} on row ${index}`
       );
     }
+    const graderError = reason === ASSERT ? graderErrorOf(row) : null;
     if (reason === NONE) counts.pass++;
-    if (reason === ASSERT) counts.fail++;
-    if (reason === ERROR) {
+    if (reason === ASSERT && graderError === null) counts.fail++;
+    if (reason === ERROR || graderError !== null) {
       counts.error++;
-      const message = row.error ?? '';
+      const message = graderError ?? row.error ?? '';
       const signature = signatureOf(message);
       if (!signatures.includes(signature)) signatures.push(signature);
       errors.push({
@@ -227,7 +285,8 @@ export function headlineFor({ summary, evalResult }) {
   const configs = summary.configs ?? [];
   const planned = summary.planned ?? [];
   const failed = configs.some((c) => c.verdict === 'fail');
-  const errored = configs.some((c) => c.verdict === 'error');
+  // A config a provider's day ended is waiting, not broken.
+  const errored = configs.some((c) => c.verdict === 'error' && !c.dayCut);
   const cutOff = configs.some(isCutOff) || configs.length < planned.length;
 
   if (failed && errored) return 'mixed';
@@ -236,6 +295,13 @@ export function headlineFor({ summary, evalResult }) {
   // per-config bound did is beside the point.
   if (evalResult === 'cancelled') return 'cancelled before finishing';
   if (cutOff) return 'cut off by the time bound';
+  // Not transient like the rest of infrastructure: it fails again next run.
+  if (configs.some((c) => c.signatures?.includes('request-too-large'))) {
+    return 'request too large';
+  }
+  if (configs.length > 0 && configs.every((c) => c.dayCut)) {
+    return 'day spent before any verdict';
+  }
   // Everything recorded either passed or errored, and the job still did not
   // succeed: whatever went wrong was not a graded verdict on skill content.
   return evalResult === 'success' ? 'graded failure' : 'infrastructure';
@@ -243,6 +309,36 @@ export function headlineFor({ summary, evalResult }) {
 
 function thousands(value) {
   return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+function minutesSeconds(ms) {
+  const seconds = Math.round(ms / 1000);
+  return seconds < 60
+    ? `${seconds}s`
+    : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
+/** Rate-limit waits from several attempts, summed by host. */
+export function mergeWaits(...lists) {
+  const byHost = new Map();
+  for (const wait of lists.flat()) {
+    const total = byHost.get(wait.host) ?? { count: 0, ms: 0 };
+    byHost.set(wait.host, {
+      count: total.count + wait.count,
+      ms: total.ms + wait.ms
+    });
+  }
+  return [...byHost].map(([host, total]) => ({ host, ...total }));
+}
+
+/** Rate-limit waits by host, how many and how long, as one line. */
+export function waitsLine(waits) {
+  return waits
+    .map(
+      (wait) =>
+        `${wait.host} ${wait.count} time${wait.count === 1 ? '' : 's'}, ${minutesSeconds(wait.ms)}`
+    )
+    .join('; ');
 }
 
 function publishLines(publish = {}) {
@@ -296,9 +392,14 @@ export function classificationBlock({ summary, evalResult, publish }) {
       : configs.map((c) => c.skill)) {
       const config = bySkill.get(skill);
       const verdict = config?.verdict ?? 'not recorded';
-      const signals = config?.signatures?.length
-        ? config.signatures.join(', ')
-        : '—';
+      const rerun = config?.retry?.tests?.length ?? 0;
+      const waits = mergeWaits(config?.waits ?? [], config?.retry?.waits ?? []);
+      const signalList = [
+        ...(config?.signatures ?? []),
+        ...(rerun > 0 ? [`re-ran ${rerun} test${rerun === 1 ? '' : 's'}`] : []),
+        ...(waits.length > 0 ? [`rate-limit waits: ${waitsLine(waits)}`] : [])
+      ];
+      const signals = signalList.length ? signalList.join(', ') : '—';
       lines.push(`| ${skill} | ${verdict} | ${signals} |`);
     }
     const tokens = configs.reduce(
@@ -312,6 +413,36 @@ export function classificationBlock({ summary, evalResult, publish }) {
       }.`,
       ''
     );
+    const said = summary.day?.spentByGroq;
+    if (said) {
+      lines.push(
+        `Groq refused a request for the key's daily limit (${thousands(said.used)} of ${thousands(said.tokensPerDay)} tokens used), so the run stopped starting configs.`,
+        ''
+      );
+    }
+    const judge = summary.day?.judgeSpent;
+    if (judge) {
+      lines.push(
+        `Google refused the judge for its daily quota (${judge.limit ?? 'an unstated number of'} requests a day for ${judge.model ?? 'the judge'}, \`${judge.quotaId}\`), so the run stopped starting configs.`,
+        ''
+      );
+    }
+    const cut = configs.filter((c) => c.dayCut).map((c) => c.skill);
+    if (cut.length > 0) {
+      lines.push(
+        `No verdict, since the day ended before they were graded; they go first the next day: ${cut.join(', ')}.`,
+        ''
+      );
+    }
+    const waiting = summary.day?.waiting ?? [];
+    if (waiting.length > 0) {
+      lines.push(
+        said || judge
+          ? `Waiting for another day, which is spent: ${waiting.join(', ')}.`
+          : `Waiting for another day, since the day's generator tokens would not cover them: ${waiting.join(', ')}.`,
+        ''
+      );
+    }
   }
 
   lines.push(

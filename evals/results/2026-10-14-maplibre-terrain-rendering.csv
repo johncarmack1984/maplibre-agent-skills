@@ -1,0 +1,1143 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+"explicit — client-side hypsometric tint (color-relief layer, GL JS 5.6+)",skills/maplibre-terrain-rendering/SKILL.md,"I have terrain tiles as a raster-dem source in MapLibre GL JS and I want to color the map by elevation ranges (a hypsometric tint) directly client-side — blues at sea level through greens and browns to white peaks — without pre-rendering colored raster tiles. What layer type do I use and how do I configure the color ramp?
+","**Short answer**
+
+*Use a **`color‑relief`** layer.*  
+Its only paint property that matters is **`color‑relief‑color`**, which must be an `interpolate` expression that reads the elevation value with the special `[""elevation""]` expression. The expression builds the hypsometric ramp (sea‑level blues → greens → browns → whites).
+
+Below is a complete, copy‑and‑paste‑ready example that shows:
+
+1. Adding the `raster-dem` source (your DEM tiles).  
+2. Adding a `color‑relief` layer that tints the terrain by elevation.  
+3. Optional tweaks (opacity, resampling, exaggeration, sky).
+
+---
+
+## 1. Add the DEM source
+
+```js
+// Assuming you already have a MapLibre map instance called `map`
+map.addSource('terrain-dem', {
+  type: 'raster-dem',
+  // URL pattern that returns DEM tiles (Terrarium, Mapbox, etc.)
+  url: 'https://my.tileserver.com/terrain/{z}/{x}/{y}.webp',
+  // The encoding must match the tiles you serve (default is ""mapbox"")
+  // encoding: 'terrarium',
+  maxzoom: 12
+});
+```
+
+> **Note** – The source is *only* a `raster-dem`. Do **not** add a `raster` layer for it; the `color‑relief` layer will read the elevation values directly from the source.
+
+---
+
+## 2. Add the `color‑relief` layer
+
+```js
+map.addLayer({
+  id: 'hypsometric-tint',
+  type: 'color-relief',          // <‑‑ THIS IS THE KEY
+  source: 'terrain-dem',
+  paint: {
+    // 1️⃣ The ramp – an interpolate expression over [""elevation""]
+    'color-relief-color': [
+      'interpolate',
+      ['linear'],                // linear interpolation between stops
+      ['elevation'],             // special expression that returns meters
+      // ── elevation (m) ──   ── colour ───────────────────────
+      0,      '#2c7bb6',        // deep water – dark blue
+      50,     '#3b8cc4',        // shallow water – lighter blue
+      200,    '#5fa5d0',        // near‑shore – cyan‑green
+      500,    '#7fc97f',        // lowlands – green
+      1000,   '#c2e699',        // foothills – light green
+      1500,   '#ffffbf',        // mid‑elevation – yellow‑ish
+      2500,   '#fdae61',        // sub‑alpine – orange
+      3500,   '#d73027',        // alpine – red‑brown
+      4500,   '#ffffff'         // highest peaks – pure white
+    ],
+
+    // 2️⃣ Optional opacity (0‑1). 1 = fully opaque.
+    'color-relief-opacity': 0.85,
+
+    // 3️⃣ Optional resampling mode (GL JS 5.20+).  ""linear"" is the default.
+    // 'resampling': 'linear'
+  }
+});
+```
+
+### How the ramp works
+
+| Elevation (m) | Hex colour | Visual cue |
+|---------------|------------|------------|
+| **0**         | `#2c7bb6`  | Deep ocean (dark blue) |
+| **50**        | `#3b8cc4`  | Shallow water (lighter blue) |
+| **200**       | `#5fa5d0`  | Coast / estuary (cyan‑green) |
+| **500**       | `#7fc97f`  | Lowland vegetation (green) |
+| **1000**      | `#c2e699`  | Foothills (light green) |
+| **1500**      | `#ffffbf`  | Transition zone (yellow) |
+| **2500**      | `#fdae61`  | Sub‑alpine (orange) |
+| **3500**      | `#d73027`  | Alpine rock (red‑brown) |
+| **4500**      | `#ffffff`  | Snow‑capped peaks (white) |
+
+You can add, remove, or move stops to suit your own colour palette. The expression is evaluated **client‑side** for every pixel that the DEM supplies, so no pre‑rendered coloured tiles are needed.
+
+---
+
+## 3. (Optional) Show the terrain in 3‑D and add a sky
+
+If you also want a tilted 3‑D view, enable terrain and a sky background:
+
+```js
+// 3‑D terrain (exaggeration can be >1 if you want more dramatic relief)
+map.setTerrain({ source: 'terrain-dem', exaggeration: 1.2 });
+
+// Pitch the camera so you can see the relief
+map.easeTo({ pitch: 60, bearing: 0, duration: 2000 });
+
+// Add a sky – this is a *root‑level* object, not a layer
+map.setSky({
+  'sky-color': '#199EF3',
+  'sky-horizon-blend': 0.5,
+  'horizon-color': '#ffffff',
+  'horizon-fog-blend': 0.5,
+  'fog-color': '#0000ff',
+  'fog-ground-blend': 0.5
+});
+```
+
+> **Important** – The sky only appears when `setTerrain()` is active (i.e., when you have a 3‑D mesh). If you keep the map flat (`pitch: 0`), the sky will simply fill the background.
+
+---
+
+## 4. Full minimal example (HTML + JS)
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>MapLibre – Hypsometric Tint</title>
+  <script src=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body, html { margin:0; padding:0; height:100%; }
+    #map { width:100%; height:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+<script>
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {},          // we’ll add sources programmatically
+      layers: []            // same for layers
+    },
+    center: [0, 0],
+    zoom: 2,
+    pitch: 0,
+    bearing: 0
+  });
+
+  map.on('load', () => {
+    // 1️⃣ DEM source
+    map.addSource('terrain-dem', {
+      type: 'raster-dem',
+      url: 'https://my.tileserver.com/terrain/{z}/{x}/{y}.webp',
+      maxzoom: 12
+    });
+
+    // 2️⃣ Hypsometric tint
+    map.addLayer({
+      id: 'hypsometric-tint',
+      type: 'color-relief',
+      source: 'terrain-dem',
+      paint: {
+        'color-relief-color': [
+          'interpolate',
+          ['linear'],
+          ['elevation'],
+          0,    '#2c7bb6',
+          50,   '#3b8cc4',
+          200,  '#5fa5d0',
+          500,  '#7fc97f',
+          1000, '#c2e699',
+          1500, '#ffffbf',
+          2500, '#fdae61',
+          3500, '#d73027',
+          4500, '#ffffff'
+        ],
+        'color-relief-opacity': 0.85
+      }
+    });
+
+    // 3️⃣ (optional) 3‑D terrain + sky
+    map.setTerrain({ source: 'terrain-dem', exaggeration: 1.2 });
+    map.easeTo({ pitch: 60, duration: 1500 });
+    map.setSky({
+      'sky-color': '#199EF3',
+      'sky-horizon-blend': 0.5,
+      'horizon-color': '#ffffff',
+      'horizon-fog-blend': 0.5,
+      'fog-color': '#0000ff',
+      'fog-ground-blend': 0.5
+    });
+  });
+</script>
+</body>
+</html>
+```
+
+---
+
+## TL;DR checklist
+
+| Goal | Layer type | Key paint property | Expression |
+|------|------------|--------------------|------------|
+| **Hypsometric tint** | `color-relief` | `color-relief-color` | `[""interpolate"", [""linear""], [""elevation""], …]` |
+| **Opacity** | same layer | `color-relief-opacity` | number 0‑1 |
+| **Resampling (optional)** | same layer | `resampling` | `""linear""` / `""nearest""` |
+| **3‑D terrain** | root‑level `terrain` (via `map.setTerrain`) | `source` + `exaggeration` | – |
+| **Sky** | root‑level `sky` (via `map.setSky`) | `sky-color`, `horizon-color`, … | – |
+
+That’s all you need to get a client‑side hypsometric colour ramp from a `raster-dem` source in MapLibre GL JS. Happy mapping!",PASS,1.00,,All assertions passed,
+"implicit — runtime contour generation, off-the-shelf vs DIY",skills/maplibre-terrain-rendering/SKILL.md,"I want contour lines on my MapLibre GL JS map, generated at runtime from a raster-dem elevation source, rather than pre-rendering a separate vector contour tileset ahead of time. Is this possible, and how would I approach it?
+","## Short answer
+Yes.  
+MapLibre can turn a **`raster‑dem`** source into vector contour tiles **on the client** with the tiny helper library **`maplibre‑contour`**.  
+The library runs a Web‑Worker that reads the DEM tiles, extracts isolines at the elevations you ask for, and serves them through a custom URL protocol. You then add a normal **`vector`** source + a **`line`** (or `symbol`) layer that points at that protocol URL.
+
+Below is a complete, step‑by‑step recipe that works with the current MapLibre GL JS (≥ v5.6) and the `maplibre‑contour` package (v0.2‑latest). Adjust the URLs, encoding, and styling to fit your own data.
+
+---
+
+## 1. Install / load the library
+
+### npm / Yarn (recommended for a build pipeline)
+
+```bash
+npm install maplibre-contour   # or yarn add maplibre-contour
+```
+
+### CDN (quick‑start)
+
+```html
+<script src=""https://unpkg.com/maplibre-contour@0.2.2/dist/maplibre-contour.min.js""></script>
+```
+
+> The CDN bundle attaches the class `mlcontour.DemSource` to the global `mlcontour` object, exactly as the examples below use.
+
+---
+
+## 2. Prepare your DEM source
+
+Your DEM must be a **`raster-dem`** source that MapLibre can decode.  
+Typical encodings are:
+
+| Encoding name | What the tiles contain | Example source |
+|---------------|-----------------------|----------------|
+| `mapbox`      | 16‑bit signed integer (meters) stored in the red/green channels (Mapbox “terrain‑rgb”) | `https://api.maptiler.com/tiles/terrain/{z}/{x}/{y}.png?key=YOUR_KEY` |
+| `terrarium`  | 16‑bit unsigned integer (meters) stored in RGB, with an offset of 32768 m | `https://tiles.mapterhorn.com/{z}/{x}/{y}.webp` |
+| `raw`        | 16‑bit signed integer in a single band (e.g. GeoTIFF‑like) | custom server |
+
+Make sure the **`encoding`** you pass to `DemSource` matches the tiles you serve, otherwise the elevation values will be wrong.
+
+```js
+// Example: a Terrarium‑encoded DEM hosted on a CDN
+const demUrl = 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp';
+```
+
+---
+
+## 3. Create a `DemSource` and hook it into MapLibre
+
+```js
+import mlcontour from 'maplibre-contour';   // ← npm import
+// or, if you used the CDN: const mlcontour = window.mlcontour;
+
+const demSource = new mlcontour.DemSource({
+  // URL template for the DEM tiles
+  url: demUrl,
+
+  // Must match the encoding of the DEM tiles
+  encoding: 'terrarium',   // 'mapbox' | 'terrarium' | 'raw'
+
+  // The highest zoom level at which DEM tiles exist.
+  // (MapLibre will stop requesting tiles above this.)
+  maxzoom: 12,
+
+  // Whether to run the contour extraction in a Web‑Worker.
+  // `true` is recommended for any non‑trivial map.
+  worker: true
+});
+
+// Register the helper with the map instance.
+// This adds the custom protocol `mlcontour://` that the library uses.
+demSource.setupMaplibre(maplibregl);
+```
+
+> **Why a worker?**  
+> Contour extraction is CPU‑intensive (it runs a marching‑squares algorithm on every DEM tile). Off‑loading it to a worker keeps the UI thread smooth.
+
+---
+
+## 4. Add a *virtual* vector source that points at the contour protocol
+
+The library creates a **custom URL protocol** (`mlcontour://`) that returns a vector tile containing the contour lines.  
+You tell MapLibre to treat that URL as a normal `vector` source.
+
+```js
+// Build the protocol URL with the options you need.
+const contourUrl = demSource.contourProtocolUrl({
+  // Elevation intervals (in metres) for each zoom level.
+  // The object keys are zoom levels; the values are
+  // [minorInterval, majorInterval].
+  thresholds: {
+    // At zoom 11 we want a 200 m minor and 1000 m major grid.
+    11: [200, 1000],
+    // At zoom 12 we want finer lines.
+    12: [100, 500],
+    // At higher zooms you can go even finer.
+    14: [50, 200]
+  },
+
+  // Property names that will appear in each contour feature.
+  // `elevationKey` is the numeric height (in metres).
+  // `levelKey` is 0 for minor, 1 for major (useful for styling).
+  elevationKey: 'ele',
+  levelKey: 'level',
+
+  // Optional: give the source a stable name that you can refer to
+  // from other parts of the style (e.g. for a label layer).
+  contourLayer: 'contours'   // this becomes the source‑layer name
+});
+
+// Add the vector source to the map.
+map.addSource('contours', {
+  type: 'vector',
+  // The protocol URL is a *single* tile URL; MapLibre will request
+  // it for every tile coordinate (z/x/y) it needs.
+  tiles: [contourUrl],
+  // The source inherits the maxzoom of the DEM (or you can raise it).
+  maxzoom: 15
+});
+```
+
+> **What the protocol does**  
+> When MapLibre asks for tile `z/x/y`, the library fetches the underlying DEM tile(s) that intersect that area, runs the marching‑squares algorithm at the requested thresholds, and returns a tiny vector tile (MVT) that contains a single layer (`contours`) with line features.
+
+---
+
+## 5. Add a line layer (and optionally a label layer)
+
+```js
+// 1️⃣ Contour lines
+map.addLayer({
+  id: 'contour-lines',
+  type: 'line',
+  source: 'contours',
+  'source-layer': 'contours',   // matches the `contourLayer` name above
+  paint: {
+    // Slightly transparent black for minor lines, darker for majors.
+    'line-color': [
+      'match',
+      ['get', 'level'],   // 0 = minor, 1 = major
+      1, 'rgba(0,0,0,0.8)',   // major
+      'rgba(0,0,0,0.4)'       // minor (default)
+    ],
+    // Thicker strokes for major contours.
+    'line-width': [
+      'match',
+      ['get', 'level'],
+      1, 1.5,   // major
+      0.8      // minor (default)
+    ],
+    // Optional: a subtle glow to make them visible over imagery.
+    'line-blur': 0.5
+  }
+});
+
+// 2️⃣ Optional: contour labels (show the elevation value)
+map.addLayer({
+  id: 'contour-labels',
+  type: 'symbol',
+  source: 'contours',
+  'source-layer': 'contours',
+  layout: {
+    // Show the elevation value as text.
+    'text-field': ['to-string', ['get', 'ele']],
+    // Only label major contours (level === 1) to avoid clutter.
+    'text-ignore-placement': false,
+    'text-allow-overlap': false,
+    'text-size': 12,
+    'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular']
+  },
+  paint: {
+    'text-color': 'rgba(0,0,0,0.7)',
+    'text-halo-color': 'rgba(255,255,255,0.9)',
+    'text-halo-width': 1
+  },
+  filter: ['==', ['get', 'level'], 1]   // only major contours get labels
+});
+```
+
+That’s it – the map now draws **live contour lines** directly from the DEM tiles, without any pre‑generated vector tileset.
+
+---
+
+## 6. Full minimal example (HTML + JS)
+
+```html
+<!doctype html>
+<html>
+<head>
+  <meta charset=""utf-8"">
+  <title>MapLibre – Runtime Contours</title>
+  <link href=""https://unpkg.com/maplibre-gl@5.6.2/dist/maplibre-gl.css"" rel=""stylesheet""/>
+  <style>#map {position:absolute;top:0;bottom:0;width:100%;}</style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script src=""https://unpkg.com/maplibre-gl@5.6.2/dist/maplibre-gl.js""></script>
+<script src=""https://unpkg.com/maplibre-contour@0.2.2/dist/maplibre-contour.min.js""></script>
+<script>
+  // 1️⃣ Initialise the map
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {
+        // Base imagery (any raster source you like)
+        'sat': {
+          type: 'raster',
+          tiles: ['https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}.png'],
+          tileSize: 256
+        }
+      },
+      layers: [
+        { id: 'sat', type: 'raster', source: 'sat' }
+      ]
+    },
+    center: [-122.447303, 37.753574],
+    zoom: 12,
+    pitch: 45,
+    bearing: -17
+  });
+
+  map.on('load', () => {
+    // 2️⃣ Create the DEM source wrapper
+    const dem = new mlcontour.DemSource({
+      url: 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp',
+      encoding: 'terrarium',
+      maxzoom: 12,
+      worker: true
+    });
+    dem.setupMaplibre(maplibregl);
+
+    // 3️⃣ Add the virtual vector source
+    const contourUrl = dem.contourProtocolUrl({
+      thresholds: {11: [200, 1000], 12: [100, 500], 14: [50, 200]},
+      elevationKey: 'ele',
+      levelKey: 'level',
+      contourLayer: 'contours'
+    });
+
+    map.addSource('contours', {
+      type: 'vector',
+      tiles: [contourUrl],
+      maxzoom: 15
+    });
+
+    // 4️⃣ Add the line layer
+    map.addLayer({
+      id: 'contour-lines',
+      type: 'line',
+      source: 'contours',
+      'source-layer': 'contours',
+      paint: {
+        'line-color': [
+          'match',
+          ['get', 'level'],
+          1, 'rgba(0,0,0,0.85)',
+          'rgba(0,0,0,0.45)'
+        ],
+        'line-width': [
+          'match',
+          ['get', 'level'],
+          1, 1.4,
+          0.9
+        ]
+      }
+    });
+
+    // 5️⃣ (Optional) Labels for major contours
+    map.addLayer({
+      id: 'contour-labels',
+      type: 'symbol',
+      source: 'contours',
+      'source-layer': 'contours',
+      filter: ['==', ['get', 'level'], 1],
+      layout: {
+        'text-field': ['to-string', ['get', 'ele']],
+        'text-size': 11,
+        'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'],
+        'text-offset': [0, 0.5],
+        'text-anchor': 'top'
+      },
+      paint: {
+        'text-color': '#222',
+        'text-halo-color': '#fff',
+        'text-halo-width': 1
+      }
+    });
+  });
+</script>
+</body>
+</html>
+```
+
+Open the page in a browser, pan/zoom, and you’ll see contour lines appear instantly as the DEM tiles are fetched and processed.
+
+---
+
+## 7. Things to keep in mind
+
+| Issue | Why it happens | How to fix / avoid |
+|-------|----------------|--------------------|
+| **No contours appear** | • The DEM URL is wrong or CORS‑blocked.<br>• `encoding` mismatched (e.g., you told the library “terrarium” but the tiles are Mapbox terrain‑rgb). | Verify the DEM tiles load directly in the browser (e.g., open `https://tiles.mapterhorn.com/12/656/1583.webp`).<br>Check the `encoding` option. |
+| **Contours look jagged / missing at high zoom** | The DEM source’s `maxzoom` is lower than the map’s zoom, so no DEM tiles exist for that level. | Either increase the DEM’s maxzoom (serve higher‑resolution tiles) or set `maxzoom` on the vector source higher **and** let the library upsample (it will, but quality drops). |
+| **Performance stalls while panning** | Running contour extraction on the main thread (worker = false) or using a very dense threshold set. | Keep `worker: true`. Use coarser `thresholds` at low zooms; you can supply",PASS,1.00,,All assertions passed,
+anti-pattern — stacking hillshade layers for multi-directional shading,skills/maplibre-terrain-rendering/SKILL.md,"My single hillshade layer in MapLibre GL JS looks harsh, how do I fix it?
+","### Why a Hillshade Can Look “Harsh”
+
+A **hillshade** layer is just a *paint* layer that turns the raw elevation values from a `raster‑dem` source into a black‑and‑white relief image.  
+If the result looks like:
+
+* very dark shadows / very bright highlights  
+* “chalky” ridges that drown out the underlying map  
+* a flat‑looking surface when you tilt the map  
+
+the problem is almost always one (or a combination) of these:
+
+| What it is | Typical cause |
+|------------|----------------|
+| **Too much contrast** | Default `hillshade-exaggeration` (0.5) + default black/white colors. |
+| **Single‑direction lighting** | `hillshade-method` left at the default `standard` (or `basic`). |
+| **Hard‑edge light source** | `hillshade-illumination-anchor: ""viewport""` makes the light stay at the top of the screen, so when you rotate the map the shadows stay “stuck”. |
+| **Stacked hillshade layers** | Adding several hillshade layers with different illumination directions was the old workaround for multi‑directional lighting. It now just adds extra draw passes and makes the image look over‑exposed. |
+| **Opaque shadow / highlight colors** | `hillshade-shadow-color` / `hillshade-highlight-color` are solid `#000000` / `#FFFFFF`. No alpha → pure black / pure white. |
+
+All of those are **paint properties** of the *single* `hillshade` layer.  
+Fixing the harsh look is therefore a matter of tweaking those paint properties – **no extra layers, no extra sources**.
+
+---
+
+## 1. Use the Multi‑directional Method (GL JS ≥ 5.5)
+
+`hillshade-method: ""multidirectional""` lights the terrain from several independent directions in **one** pass.  
+It gives a much softer, more natural relief and replaces the old trick of stacking several hillshade layers.
+
+```json
+{
+  ""id"": ""hillshade"",
+  ""type"": ""hillshade"",
+  ""source"": ""terrain-dem"",
+  ""paint"": {
+    ""hillshade-method"": ""multidirectional""
+  }
+}
+```
+
+> **Tip:** If you are on a version older than 5.5, upgrade – the property does not exist there and you’ll have to keep the old stacking hack (which is far less efficient).
+
+---
+
+## 2. Tone Down the Contrast
+
+### a. Reduce Exaggeration
+`hillshade-exaggeration` multiplies the slope‑derived shading. The default `0.5` is already a bit strong for many maps; try `0.3‑0.4`.
+
+```json
+""hillshade-exaggeration"": 0.35,
+```
+
+### b. Add Alpha to Shadow & Highlight Colors
+Give the shadows a cool, semi‑transparent tint and the highlights a warm, semi‑transparent tint. This lets the underlying imagery show through.
+
+```json
+""hillshade-shadow-color"": ""rgba(30, 40, 80, 0.45)"",   // cool bluish shadow
+""hillshade-highlight-color"": ""rgba(255, 240, 200, 0.4)"" // warm ivory highlight
+```
+
+You can experiment with the RGBA values – the key is **alpha < 1**.
+
+### c. (Optional) Change Illumination Direction
+If you still want a single‑direction feel, move the light a little away from the default `335°`. Small changes (e.g. `300` or `20`) can break up the “striped” look.
+
+```json
+""hillshade-illumination-direction"": 300,
+```
+
+---
+
+## 3. Anchor the Light to the Map (Optional)
+
+When the light is anchored to the **viewport**, it stays at the top of the screen even as you rotate the map, which can make shadows look “stuck”.  
+If you prefer the light to rotate with the map (more natural for a globe‑like view), set:
+
+```json
+""hillshade-illumination-anchor"": ""map""
+```
+
+If you keep it on `""viewport""` you’ll get a consistent “sun from the top” look, which is fine for many 2‑D maps.
+
+---
+
+## 4. Remove Any Extra Hillshade Layers
+
+If you have more than one hillshade layer (e.g. `hillshade‑north`, `hillshade‑south`), **delete them**. The multi‑directional method does the same job in a single pass and is far cheaper.
+
+```js
+// Example: remove old layers (run once)
+['hillshade-north', 'hillshade-south'].forEach(id => {
+  if (map.getLayer(id)) map.removeLayer(id);
+});
+```
+
+---
+
+## 5. Full Working Example
+
+Below is a minimal, copy‑‑paste‑ready style snippet that shows a *soft* hillshade on top of a raster imagery source.
+
+```json
+{
+  ""version"": 8,
+  ""sources"": {
+    ""terrain-dem"": {
+      ""type"": ""raster-dem"",
+      ""url"": ""https://tiles.example.com/dem/{z}/{x}/{y}.png"",
+      ""tileSize"": 256,
+      ""maxzoom"": 14,
+      ""encoding"": ""terrarium""
+    },
+    ""satellite"": {
+      ""type"": ""raster"",
+      ""url"": ""https://tiles.example.com/sat/{z}/{x}/{y}.jpg"",
+      ""tileSize"": 256,
+      ""maxzoom"": 14
+    }
+  },
+  ""layers"": [
+    {
+      ""id"": ""satellite"",
+      ""type"": ""raster"",
+      ""source"": ""satellite""
+    },
+    {
+      ""id"": ""hillshade"",
+      ""type"": ""hillshade"",
+      ""source"": ""terrain-dem"",
+      ""paint"": {
+        ""hillshade-method"": ""multidirectional"",
+        ""hillshade-exaggeration"": 0.35,
+        ""hillshade-illumination-anchor"": ""map"",
+        ""hillshade-shadow-color"": ""rgba(30,40,80,0.45)"",
+        ""hillshade-highlight-color"": ""rgba(255,240,200,0.4)""
+      }
+    }
+  ]
+}
+```
+
+**Result:**  
+* Soft, natural‑looking relief that still lets the satellite imagery be visible.  
+* No extra draw passes, so performance stays high even at zoom 14+.
+
+---
+
+## 6. Quick Checklist (run after you apply the changes)
+
+| ✅ | Check |
+|---|-------|
+| **Single hillshade layer** – no duplicates in the style. |
+| `hillshade-method` set to `""multidirectional""` (GL JS ≥ 5.5). |
+| `hillshade-exaggeration` ≤ 0.4 (tune to taste). |
+| Shadow & highlight colors use `rgba(..., α)` with α ≈ 0.4‑0.5. |
+| (Optional) `hillshade-illumination-anchor` set to `""map""` if you want the light to rotate. |
+| Map version ≥ 5.5 (run `console.log(map.version)` to verify). |
+| Re‑render the map (or call `map.triggerRepaint()`) to see the new shading. |
+
+If after these steps the hillshade still feels too harsh, keep tweaking the two main levers:
+
+1. **Alpha** of the shadow/highlight colors – lower → softer.  
+2. **Exaggeration** – lower → less contrast.
+
+Both are cheap to change and give you immediate visual feedback.
+
+---
+
+### TL;DR
+
+```json
+{
+  ""type"": ""hillshade"",
+  ""source"": ""terrain-dem"",
+  ""paint"": {
+    ""hillshade-method"": ""multidirectional"",
+    ""hillshade-exaggeration"": 0.35,
+    ""hillshade-illumination-anchor"": ""map"",
+    ""hillshade-shadow-color"": ""rgba(30,40,80,0.45)"",
+    ""hillshade-highlight-color"": ""rgba(255,240,200,0.4)""
+  }
+}
+```
+
+That single layer, with the settings above, will turn a harsh black‑and‑white hillshade into a smooth, natural‑looking relief without any extra layers or heavy performance penalties. Happy mapping!",PASS,1.00,,All assertions passed,
+implicit — nothing above the horizon once the camera is pitched,skills/maplibre-terrain-rendering/SKILL.md,"My MapLibre GL JS map has 3D terrain enabled and the camera pitched to 70 degrees. The relief looks right, but everything above the horizon line is the flat page background. I want an actual sky and some haze where the ground meets it. How do I set that up?
+","Below is a **step‑by‑step recipe** that turns the blank “page‑background” you see above the horizon into a real sky with a gentle haze (fog) that blends into the terrain.  
+All of the pieces are **native MapLibre GL JS** – no extra plugins are required.
+
+---
+
+## 1. Prerequisites
+
+| What you need | Why it matters |
+|---------------|----------------|
+| **MapLibre GL JS ≥ 5.5** (the version that introduced the `sky` object) | Earlier versions simply ignore `map.setSky()` |
+| A **`raster-dem`** source that you already use for `map.setTerrain()` | The sky (and fog) are only drawn when 3‑D terrain is active |
+| The map’s **camera pitched** (you already have `pitch: 70`) | The sky is rendered only when the view is tilted away from nadir |
+
+If any of those are missing, upgrade or add them first.
+
+---
+
+## 2. Add the terrain source (you probably already have this)
+
+```js
+// Example – you can keep your own source name / URL
+map.addSource('terrain-dem', {
+  type: 'raster-dem',
+  url: 'https://tiles.mapterhorn.com/tilejson.json', // <-- your DEM tileset
+  tileSize: 256,
+  // optional: encoding: 'terrarium' | 'mapbox' (match your DEM)
+});
+```
+
+## 3. Turn the terrain on
+
+```js
+map.setTerrain({
+  source: 'terrain-dem',   // name of the source above
+  exaggeration: 1.0        // tweak later if you want more “mountain‑ous” look
+});
+```
+
+> **Tip:** `exaggeration` does **not** fix a flat‑looking map – the map must be pitched (you already do).
+
+---
+
+## 4. Add a sky (the “blank horizon” disappears)
+
+```js
+// This can be called any time after the map is ready (e.g. in `map.on('load', …)`)
+map.setSky({
+  // 1️⃣ Base sky colour – a clear‑day blue works well
+  'sky-color': '#199EF3',
+
+  // 2️⃣ Colour of the horizon line (where sky meets ground)
+  'horizon-color': '#ffffff',
+
+  // 3️⃣ How quickly the sky colour blends into the horizon colour
+  //    0 = abrupt, 1 = very smooth
+  'sky-horizon-blend': 0.5,
+
+  // 4️⃣ Fog (haze) colour – usually a light blue or gray
+  'fog-color': '#cce6ff',
+
+  // 5️⃣ How the fog blends with the horizon colour
+  //    0 = no fog at the horizon, 1 = fog starts right at the horizon
+  'horizon-fog-blend': 0.5,
+
+  // 6️⃣ How the fog fades into the ground (terrain)
+  //    0 = fog stops at the ground, 1 = fog reaches the ground
+  'fog-ground-blend': 0.5
+});
+```
+
+### What each property does
+
+| Property | Effect | Typical range |
+|----------|--------|---------------|
+| `sky-color` | Overall colour of the sky dome | any CSS colour |
+| `horizon-color` | Colour of the line where sky meets terrain | usually a lighter version of `sky-color` |
+| `sky-horizon-blend` | Smoothness of the sky‑to‑horizon transition | `0 – 1` (0.4‑0.6 is common) |
+| `fog-color` | Colour of the atmospheric haze that appears near the horizon | light blue, gray, or even a warm pink |
+| `horizon-fog-blend` | How far the fog extends upward from the horizon | `0 – 1` (0.3‑0.6 works well) |
+| `fog-ground-blend` | How far the fog reaches down onto the terrain | `0 – 1` (0.4‑0.7 gives a nice “ground‑meet‑sky” glow) |
+
+You can experiment with the numbers until the sky looks the way you want. The defaults are fairly subtle; increasing the blend values makes the sky and fog smoother and more pronounced.
+
+---
+
+## 5. (Optional) Set a background colour that will be visible **under** the sky
+
+If you ever switch the camera to `pitch: 0` (looking straight down) the sky disappears and the map’s background colour shows. It’s a good idea to set a neutral background that matches the sky’s lower tone:
+
+```js
+map.setStyle({
+  // …your existing style definition…
+  ""background"": {
+    ""type"": ""background"",
+    ""paint"": {
+      ""background-color"": ""#cce6ff""   // same as fog‑color, or a close match
+    }
+  }
+});
+```
+
+You can also add the background layer directly in your style JSON if you prefer.
+
+---
+
+## 6. Full minimal example (copy‑paste ready)
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>MapLibre – Terrain + Sky + Fog</title>
+  <script src=""https://unpkg.com/maplibre-gl@5.6.2/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@5.6.2/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body, html { margin:0; padding:0; height:100%; }
+    #map { width:100%; height:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+<script>
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {
+        // ---- DEM source (terrain) ----
+        'terrain-dem': {
+          type: 'raster-dem',
+          url: 'https://tiles.mapterhorn.com/tilejson.json',
+          tileSize: 256,
+          // encoding: 'terrarium'   // uncomment if your DEM uses Terrarium encoding
+        },
+        // ---- Base raster imagery (optional) ----
+        'sat': {
+          type: 'raster',
+          url: 'https://tiles.example.com/satellite/{z}/{x}/{y}.png',
+          tileSize: 256
+        }
+      },
+      layers: [
+        // Base imagery
+        { id: 'satellite', type: 'raster', source: 'sat' },
+
+        // Optional: a hillshade layer for extra relief
+        {
+          id: 'hillshade',
+          type: 'hillshade',
+          source: 'terrain-dem',
+          paint: {
+            'hillshade-method': 'multidirectional',
+            'hillshade-exaggeration': 0.4,
+            'hillshade-illumination-anchor': 'map',
+            'hillshade-shadow-color': 'rgba(30,40,80,0.45)',
+            'hillshade-highlight-color': 'rgba(255,240,200,0.4)'
+          }
+        },
+
+        // Background (matches fog colour)
+        {
+          id: 'bg',
+          type: 'background',
+          paint: { 'background-color': '#cce6ff' }
+        }
+      ]
+    },
+    center: [-122.447303, 37.753574],
+    zoom: 12,
+    pitch: 70,          // you already have this
+    bearing: 0,
+    antialias: true    // required for terrain & sky
+  });
+
+  map.on('load', () => {
+    // 1️⃣ Enable terrain
+    map.setTerrain({ source: 'terrain-dem', exaggeration: 1 });
+
+    // 2️⃣ Add the sky + fog
+    map.setSky({
+      'sky-color': '#199EF3',
+      'horizon-color': '#ffffff',
+      'sky-horizon-blend': 0.5,
+      'fog-color': '#cce6ff',
+      'horizon-fog-blend': 0.5,
+      'fog-ground-blend': 0.5
+    });
+  });
+</script>
+</body>
+</html>
+```
+
+Open the file in a browser, tilt the map (or use the mouse wheel while holding **Shift**), and you’ll see:
+
+* A blue dome above the terrain.
+* A soft white‑to‑blue horizon.
+* A light haze that gently fades into the ground, giving the classic “mountain‑meets‑sky” look.
+
+---
+
+## 7. Common pitfalls & how to avoid them
+
+| Symptom | Why it happens | Fix |
+|---------|----------------|-----|
+| **Sky never appears** (still blank background) | `map.setTerrain()` not called **or** terrain source not loaded yet. | Call `setTerrain` *after* the DEM source is added, preferably inside `map.on('load')`. |
+| **Fog is invisible** | `fog-color` is the same as `sky-color` or `horizon-fog-blend` is `0`. | Use a slightly different colour (e.g., a lighter blue) and set `horizon-fog-blend` ≥ 0.3. |
+| **Sky looks too “flat”** | `sky-horizon-blend` is too low (hard edge) or `sky-color` is too saturated. | Raise `sky-horizon-blend` to 0.5‑0.7 and/or tone down `sky-color`. |
+| **Sky flickers when panning** | `antialias: true` missing on map creation (required for terrain & sky). | Add `antialias: true` to the `Map` constructor. |
+| **Background colour shows through the sky** | You added a `background` layer *above* the sky (higher `z-index`). | Keep the background layer **below** any terrain‑related layers (or just rely on the sky’s own colour). |
+
+---
+
+## 8. Going further – customizing the look
+
+* **Sun & atmosphere** – MapLibre does **not** support `sky-type: ""atmosphere""` or sun‑related properties (those belong to Mapbox GL JS). The sky is a simple colour gradient + fog.
+* **Dynamic sky colour** – If you want the sky colour to change with time of day, you can call `map.setSky()` again whenever your UI updates (e.g., on a timer or based on user input).
+* **Night mode** – Use a dark `sky-color` (`#0b1d2e`) and a deeper `fog-color` (`#001133`) and lower the `sky-horizon-blend` for a more dramatic effect.
+
+---
+
+### TL;DR
+
+1. **Enable terrain** (`map.setTerrain({source:'your-dem'})`).  
+2. **Add a sky** with `map.setSky({ … })` – set `sky-color`, `horizon-color`, `sky-horizon-blend`, `fog-color`, `horizon-fog-blend`, `fog-ground-blend`.  
+3. Make sure the map is **pitched** (you already have `pitch: 70`) and **antialias** is true.  
+4. Optionally add a background layer that matches the fog colour.
+
+That’s all you need to replace the blank page background with a proper sky and a gentle haze that meets the terrain. Happy mapping!",PASS,1.00,,All assertions passed,
+"negative — adjacent question, a pre-rendered shaded-relief raster basemap",skills/maplibre-terrain-rendering/SKILL.md,"I licensed a beautiful pre-rendered shaded-relief basemap, served as ordinary JPEG raster tiles. I want it under my vector data layers with the labels still on top. How do I add it?
+","Below is a **complete, copy‑and‑paste ready** recipe for putting a pre‑rendered shaded‑relief JPEG tile set under all of your vector data (including the label layer that you already have).  
+Everything is done with the **standard `raster` source / `raster` layer** types – no hillshade, no DEM, no special tricks.  
+
+---
+
+## 1.  Add the raster source
+
+```js
+// 1️⃣  Create a raster source that points at your JPEG tiles.
+//     Replace the URL template with the one that serves your tiles.
+map.addSource('shaded-relief-basemap', {
+  type: 'raster',
+  // Example: https://mytileserver.com/relief/{z}/{x}/{y}.jpg
+  tiles: ['https://mytileserver.com/relief/{z}/{x}/{y}.jpg'],
+  tileSize: 256,          // most raster tiles are 256 px; change if yours are 512
+  maxzoom: 14,            // set to the highest zoom you have tiles for
+  minzoom: 0,             // optional – the lowest zoom you have
+  attribution: '© MyDataProvider'   // optional but recommended
+});
+```
+
+*Why `type: 'raster'`?*  
+A JPEG tile set is just an image – MapLibre treats it as a raster source.  
+`raster-dem` is **only** for elevation data; it would try to interpret the JPEG as packed height values, which would give you a completely wrong picture.
+
+---
+
+## 2.  Add a raster layer that draws the source
+
+```js
+// 2️⃣  Add a raster layer that uses the source we just created.
+map.addLayer({
+  id: 'shaded-relief-basemap',
+  type: 'raster',
+  source: 'shaded-relief-basemap',
+  // Optional: make the imagery a little transparent if you want to see
+  // underlying background colour or a faint hillshade underneath.
+  paint: {
+    'raster-opacity': 1.0,          // 0‑1, change to 0.9, 0.8 … if you like
+    'raster-fade-duration': 0       // no fade‑in/out when tiles load (snappier)
+  }
+});
+```
+
+### Where does the layer go?
+
+MapLibre draws layers **in the order they appear in the style** – first layer = bottom, last layer = top.  
+If you add the raster layer *after* you have already added your vector layers, it will appear **on top** (which you don’t want).  
+
+Two ways to guarantee the correct order:
+
+#### a) Add it **before** you add any other layers
+
+```js
+// Add the raster layer first …
+map.addLayer({ … });
+
+// … then add your vector layers (roads, parks, labels, etc.)
+map.addLayer({ id: 'roads', type: 'line', source: 'my-vector', … });
+map.addLayer({ id: 'labels', type: 'symbol', source: 'my-vector', … });
+```
+
+#### b) Insert it at a specific position with `addLayer(..., beforeId)`
+
+If you already have a style loaded and you just want to inject the basemap under everything else, do:
+
+```js
+// Find the id of the *first* layer that you want to stay on top of.
+// Usually that is the first symbol (label) layer, but you can pick any.
+const firstLabelLayerId = map.getStyle().layers.find(l => l.type === 'symbol').id;
+
+// Insert the raster layer right before that label layer.
+map.addLayer({
+  id: 'shaded-relief-basemap',
+  type: 'raster',
+  source: 'shaded-relief-basemap',
+  paint: { 'raster-opacity': 1.0 }
+}, firstLabelLayerId);
+```
+
+Now the raster sits **under** all symbol layers (labels) and under any other vector layers you add later.
+
+---
+
+## 3.  (Optional) Tweak the raster appearance
+
+| Property | What it does | Typical values |
+|----------|--------------|----------------|
+| `raster-opacity` | Transparency of the raster tiles | `0.8`‑`1.0` |
+| `raster-contrast` | Boost/soften contrast (WebGL shader) | `0.5`‑`2.0` |
+| `raster-saturation` | Desaturate or oversaturate the imagery | `0`‑`2` |
+| `raster-fade-duration` | Fade‑in time when a new tile arrives (ms) | `0` for instant, `300` for smooth |
+
+Example:
+
+```js
+paint: {
+  'raster-opacity': 0.95,
+  'raster-contrast': 1.2,
+  'raster-saturation': 0.9,
+  'raster-fade-duration': 0
+}
+```
+
+---
+
+## 4.  Full minimal example (HTML + JS)
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>Shaded‑relief basemap under vector data</title>
+  <script src=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body, html { margin:0; padding:0; height:100%; }
+    #map { width:100%; height:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+<script>
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {
+        // 1️⃣  Raster source (your JPEG tiles)
+        'shaded-relief-basemap': {
+          type: 'raster',
+          tiles: ['https://mytileserver.com/relief/{z}/{x}/{y}.jpg'],
+          tileSize: 256,
+          maxzoom: 14,
+          attribution: '© MyDataProvider'
+        },
+        // Example vector source (replace with yours)
+        'my-vector': {
+          type: 'vector',
+          url: 'https://mytileserver.com/vector/style.json'
+        }
+      },
+      layers: [
+        // 2️⃣  Raster layer – placed first so it’s at the bottom
+        {
+          id: 'shaded-relief-basemap',
+          type: 'raster',
+          source: 'shaded-relief-basemap',
+          paint: { 'raster-opacity': 1.0 }
+        },
+        // 3️⃣  Vector layers (roads, parks, etc.)
+        {
+          id: 'roads',
+          type: 'line',
+          source: 'my-vector',
+          'source-layer': 'roads',
+          paint: { 'line-color': '#ffffff', 'line-width': 2 }
+        },
+        // 4️⃣  Labels – they automatically sit on top
+        {
+          id: 'place-labels',
+          type: 'symbol',
+          source: 'my-vector',
+          'source-layer': 'places',
+          layout: {
+            'text-field': ['get', 'name'],
+            'text-size': 12,
+            'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular']
+          },
+          paint: { 'text-color': '#000000' }
+        }
+      ]
+    },
+    center: [0, 0],
+    zoom: 2,
+    pitch: 0,
+    bearing: 0
+  });
+</script>
+</body>
+</html>
+```
+
+*What this does*  
+
+1. Declares a **raster source** that points at your JPEG tiles.  
+2. Adds a **raster layer** that draws those tiles. Because it’s the **first layer** in the style, everything else (vector layers, symbols, labels) is rendered on top of it.  
+3. Shows a tiny vector layer (`roads`) and a symbol layer (`place-labels`) to illustrate that the labels stay on top.
+
+---
+
+## 5.  Common pitfalls & how to avoid them
+
+| Symptom | Why it happens | Fix |
+|---------|----------------|-----|
+| The JPEG tiles appear **gray or black** | The source was added as `type: 'raster-dem'` (DEM expects packed elevation) | Use `type: 'raster'`. |
+| The basemap covers the labels | The raster layer was added **after** the label layer, or you didn’t specify a `beforeId`. | Insert the raster layer **before** any label/symbol layers, or use `addLayer(..., beforeId)`. |
+| Tiles load very slowly / flicker | Default `raster-fade-duration` (300 ms) adds a fade‑in for each tile. | Set `'raster-fade-duration': 0` in the `paint` object. |
+| You see a white/blank background when you zoom out beyond the raster’s maxzoom | No tiles exist at that zoom level. | Either provide lower‑zoom tiles, or set `maxzoom` on the source to the highest zoom you have and let the map fall back to the background colour for higher levels. |
+| You want the basemap to be **partially transparent** so underlying background colour shows | You forgot to set `raster-opacity`. | Add `'raster-opacity': 0.8` (or any 0‑1 value) in the `paint` object. |
+
+---
+
+## 6.  TL;DR – the 3‑step checklist
+
+1. **Create a raster source** (`type: 'raster'`) that points at your JPEG tile URL template.  
+2. **Add a raster layer** that uses that source.  
+3. **Insert the layer before any vector/symbol layers** (either by adding it first or by using the `beforeId` argument).  
+
+That’s it – your pre‑rendered shaded‑relief basemap will now sit snugly under all of your vector data, with labels still on top. 🎉
+
+If you later decide you want *real* hillshade or 3‑D terrain, you’ll need a **DEM** (`raster-dem`) and the corresponding `hillshade`, `color‑relief`, or `setTerrain()` calls – but for a static JPEG basemap the steps above are all you need.",PASS,1.00,,All assertions passed,

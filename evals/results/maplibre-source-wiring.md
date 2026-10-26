@@ -17,10 +17,7 @@ order, so match rows by description, never by position.
 | 7   | Raster `tileSize` defaults to 512, OSM tiles are 256    | Implicit | **FAIL**                                                                              | **PASS** — requires `tileSize: 256`, explains the wrong zoom effect |
 | 12  | `setFeatureState` is silent without a feature `id`      | Implicit | **FAIL** — gives `generateId`, never names `promoteId`                                | **PASS** — names `promoteId` and why `generateId` is wrong here     |
 
-**Result: the launch bar is cleared. `status: verified`.** Four gaps demonstrated closed, none
-open. Seven further tests (2, 3, 6, 8–11) pass at baseline and have no with-skill run; they are
-not gap evidence, and a sweep to confirm the skill does not regress them is worth doing but is
-not part of the bar.
+**Result: the launch bar is cleared. `status: verified`.** Four gaps demonstrated closed, none open. Seven further tests (2, 3, 6, 8–11) pass at baseline and are not gap evidence. Test 6 regressed with the skill, 3 failures in 6 runs, until the skill named the `{z}`, `{x}` and `{y}` tokens; it then passed 5 of 5 ([CSV](latest/maplibre-source-wiring-with-skill-test6_2026-10-15.csv)).
 
 ## Candidates rejected at baseline
 

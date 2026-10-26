@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { accrueEntry } from './accrue-changelog.js';
+import { accrueAll, accrueEntry } from './accrue-changelog.js';
 
 const BASE = `# Changelog
 
@@ -153,5 +153,58 @@ describe('accrueEntry', () => {
     const result = accrueEntry(withPrev, OPTS);
     assert.ok(result.changelog.includes('## [0.1.0] - 2026-01-01'));
     assert.ok(result.changelog.includes('- initial'));
+  });
+});
+
+describe('accrueAll', () => {
+  const pr = (number, body, trigger = false) => ({
+    number,
+    url: `https://github.com/maplibre/maplibre-agent-skills/pull/${number}`,
+    body,
+    trigger
+  });
+  const field = (category, entry, bump = 'patch') =>
+    `## Changelog\n\nBump: ${bump}\nCategory: ${category}\nEntry: ${entry}\n`;
+
+  it('records each PR in turn, the newest landing on top', () => {
+    const { changelog, recorded } = accrueAll(
+      BASE,
+      [
+        pr(110, field('Internal', 'first')),
+        pr(119, field('Internal', 'second'))
+      ],
+      () => {}
+    );
+    assert.deepEqual(recorded, [110, 119]);
+    assert.ok(changelog.indexOf('second') < changelog.indexOf('first'));
+  });
+
+  it('skips Bump: none and a missing field, and warns only for the trigger', () => {
+    const logs = [];
+    const { changelog, recorded } = accrueAll(
+      BASE,
+      [
+        pr(1, field('Fixed', 'nothing', 'none')),
+        pr(2, 'no field here'),
+        pr(3, 'no field here', true)
+      ],
+      (line) => logs.push(line)
+    );
+    assert.deepEqual(recorded, []);
+    assert.equal(changelog, BASE);
+    const warnings = logs.filter((line) => line.startsWith('::warning::'));
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /PR #3 /);
+  });
+
+  it('records nothing twice', () => {
+    const once = accrueAll(BASE, [pr(42, field('Fixed', 'fixed'))], () => {});
+    const twice = accrueAll(
+      once.changelog,
+      [pr(42, field('Fixed', 'fixed'))],
+      () => {}
+    );
+    assert.deepEqual(twice.recorded, []);
+    assert.equal(twice.changelog, once.changelog);
   });
 });

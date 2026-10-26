@@ -1,0 +1,756 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+explicit — route shields missing badge on the open OpenMapTiles stack,skills/maplibre-sprites-icons/SKILL.md,"I'm using an open OpenMapTiles / OSM-based vector basemap with MapLibre GL JS (no Mapbox account). My interstate and US highway shields render as bare floating numbers with no shield badge behind them; the numbers are fine. My tiles do populate network, ref, and ref_length. Which exact sprite image names do the shield layers expect, and how do I get the badges to appear without editing the layers?","## TL;DR  
+
+*The shield layers that come with the OpenMapTiles-based “OSM Bright” (and the very similar “OSM Liberty”) style look for the following **sprite-image IDs**:*
+
+| Sprite sheet (default) | Image IDs that are queried |
+|------------------------|----------------------------|
+| **US Interstate**      | `us-interstate_1` , `us-interstate_2` , `us-interstate_3` |
+| **US Highway** (U.S. highways, e.g. US-20) | `us-highway_1` , `us-highway_2` , `us-highway_3` |
+| **US State** (state routes, e.g. CA-99) | `us-state_1` , `us-state_2` , `us-state_3` , `us-state_4` , `us-state_5` , `us-state_6` |
+| **All other networks** (e.g. European E-roads, provincial roads, etc.) | `road_1` , `road_2` , `road_3` , `road_4` , `road_5` , `road_6` |
+
+*If any of those IDs are missing from the sprite that your style loads, the shield’s badge disappears and you only see the numeric `text-field` (the “bare floating number”).*  
+
+The fix is **not** to edit the style layers – you only need to make sure the sprite sheet you point to actually contains those IDs (or add them yourself at runtime).
+
+Below is a step-by-step guide that shows:
+
+1. **Where to find a ready-made sprite that already contains the needed IDs** (the official OSM Bright / OSM Liberty sprite).  
+2. **How to self-host that sprite** (or any custom sprite you build).  
+3. **How to add the missing badge images on the fly with `addImage` / `addSprite`** if you cannot change the `sprite` URL.  
+4. **How to use the new “multiple-sprite-sheet” array form** to keep the original basemap sprite and just add a second sheet that supplies the missing badge images.
+
+---
+
+## 1. What the style actually asks for
+
+### OSM Bright (the style shipped with the OpenMapTiles demo)
+
+The three shield layers are defined (simplified) as:
+
+```json
+{
+  ""id"": ""highway-shield-us-interstate"",
+  ""type"": ""symbol"",
+  ""source"": ""openmaptiles"",
+  ""source-layer"": ""transportation_name"",
+  ""layout"": {
+    ""icon-image"": ""{network}_{ref_length}"",
+    ""text-field"": ""{ref}""
+  }
+},
+{
+  ""id"": ""highway-shield-us-highway"",
+  ""type"": ""symbol"",
+  ""source"": ""openmaptiles"",
+  ""source-layer"": ""transportation_name"",
+  ""layout"": {
+    ""icon-image"": ""{network}_{ref_length}"",
+    ""text-field"": ""{ref}""
+  }
+},
+{
+  ""id"": ""highway-shield-us-state"",
+  ""type"": ""symbol"",
+  ""source"": ""openmaptiles"",
+  ""source-layer"": ""transportation_name"",
+  ""layout"": {
+    ""icon-image"": ""{network}_{ref_length}"",
+    ""text-field"": ""{ref}""
+  }
+},
+{
+  ""id"": ""highway-shield-generic"",
+  ""type"": ""symbol"",
+  ""source"": ""openmaptiles"",
+  ""source-layer"": ""transportation_name"",
+  ""layout"": {
+    ""icon-image"": ""road_{ref_length}"",
+    ""text-field"": ""{ref}""
+  }
+}
+```
+
+* `network` is a string such as `us-interstate`, `us-highway`, `us-state`, or any other network name.  
+* `ref_length` is an integer (1-6) that tells the style how many digits the road number has.  
+* The **concatenated string** becomes the sprite-image ID that the layer tries to draw.
+
+Hence the exact IDs you must have in the sprite are exactly the table above.
+
+### OSM Liberty (the “liberty” style that ships with the same tileset)
+
+It uses a single generic badge:
+
+```json
+""icon-image"": ""default_{ref_length}""
+```
+
+So the required IDs are:
+
+```
+default_1 … default_6
+```
+
+If you are using the Liberty style, replace the “road_*” list with the “default_*” list.
+
+---
+
+## 2. Use a sprite that already contains those IDs
+
+The **official OSM Bright sprite** (and the matching Liberty sprite) are published together with the style:
+
+| Style | Sprite base URL (no extension) |
+|-------|--------------------------------|
+| OSM Bright | `https://openmaptiles.github.io/osm-bright-gl-style/sprite` |
+| OSM Liberty| `https://openmaptiles.github.io/osm-liberty-gl-style/sprite` |
+
+Both URLs resolve to:
+
+* `…/sprite.json` – the index that lists every image ID (including all the `us-*` and `road_*` entries).  
+* `…/sprite.png` – the PNG atlas that actually contains the badge graphics.
+
+**If you point your style’s `sprite` property at one of those URLs, the shields appear automatically.**  
+
+```json
+{
+  ""version"": 8,
+  ""sprite"": ""https://openmaptiles.github.io/osm-bright-gl-style/sprite"",
+  ...
+}
+```
+
+> **Important:** Do **not** use the raw-GitHub URL (`raw.githubusercontent.com/.../sprite.json`) in production – it is rate-limited and has a 5-minute cache. The `github.io` domain is a proper static-file host with CDN caching and CORS headers.
+
+### Self-hosting the official sprite
+
+If you want to avoid any third-party host, just copy the two files (`sprite.json` and `sprite.png`) plus the `@2x` variants (`sprite@2x.json`, `sprite@2x.png`) to your own static file server and point `sprite` at that location.
+
+```text
+https://my.cdn.example.com/osm-bright/sprite   ← base URL
+```
+
+Make sure:
+
+* The URL **has no file extension** (MapLibre will add `.json`, `.png`, `@2x.json`, `@2x.png` automatically).  
+* The server sends **CORS headers** (`Access-Control-Allow-Origin: *` or your domain).  
+* The files are served with a **200** status and correct MIME types (`application/json` and `image/png`).
+
+---
+
+## 3. Adding the missing badge images without touching the style
+
+If you cannot change the `sprite` URL (e.g. you are using a hosted style that you cannot edit) you have two options:
+
+### 3.1. Load the missing images at runtime with `addImage`
+
+```js
+map.on('styleimagemissing', async (e) => {
+  // e.id is the missing image name, e.sourceId is undefined for sprites
+  const missingId = e.id;               // e.g. ""us-interstate_2""
+  const base = 'https://openmaptiles.github.io/osm-bright-gl-style/sprite';
+
+  // Build the URL for the PNG atlas that contains the image.
+  // The easiest way is to request the whole sprite PNG and then crop,
+  // but MapLibre already knows how to extract a single image from the atlas.
+  // The API `map.loadImage` can fetch a *single* image if you give it the
+  // full sprite URL plus the image name as a query param (MapLibre 6+):
+  //   `${base}.png?name=${missingId}`
+  // However, most browsers don’t support that, so we fetch the whole PNG
+  // and let MapLibre slice it for us via `addImage`.
+
+  // Simpler: just fetch the PNG of the whole sheet and let MapLibre
+  // locate the sub-image using the sprite JSON we also fetch.
+  const jsonUrl = `${base}.json`;
+  const pngUrl  = `${base}.png`;
+
+  // Load the sprite JSON once (cache it)
+  if (!window._osmBrightSprite) {
+    const resp = await fetch(jsonUrl);
+    window._osmBrightSprite = await resp.json();
+  }
+  const spriteIndex = window._osmBrightSprite;
+
+  // If the missing ID exists in the index, we can extract it.
+  if (spriteIndex[missingId]) {
+    const { data } = await map.loadImage(pngUrl); // whole PNG
+    // `addImage` can take a sub-image definition via the `options` argument:
+    const { x, y, width, height, pixelRatio } = spriteIndex[missingId];
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(
+      data,
+      x, y, width, height,   // source rect
+      0, 0, width, height    // destination rect
+    );
+    const img = new Image();
+    img.src = canvas.toDataURL();
+    img.onload = () => {
+      if (!map.hasImage(missingId)) {
+        map.addImage(missingId, img, { pixelRatio });
+      }
+    };
+  } else {
+    console.warn('Sprite does not contain', missingId);
+  }
+});
+```
+
+**What this does**
+
+* The map fires `styleimagemissing` for each badge it cannot find.  
+* The handler fetches the *official* OSM Bright sprite JSON/PNG (once) and extracts the missing sub-image.  
+* `addImage` registers the image under the exact same ID (`us-interstate_2`, `road_4`, …).  
+* The layer that originally failed now finds the image and re-renders automatically.
+
+> **Tip:** If you have many missing images you can pre-load the whole sprite once and call `addImage` for every ID you need, instead of waiting for the `styleimagemissing` event for each one.
+
+### 3.2. Add a second sprite sheet with the missing IDs (MapLibre 3.0+)
+
+Since MapLibre 3.0 the `sprite` property can be an **array of sprite sheets**. You can keep the original basemap sprite (which may contain all the POI icons you like) and *add* a second sheet that only contains the shield badges.
+
+```json
+{
+  ""sprite"": [
+    { ""id"": ""default"", ""url"": ""https://tiles.openfreemap.org/sprites/ofm_f384/ofm"" },
+    { ""id"": ""shields"", ""url"": ""https://openmaptiles.github.io/osm-bright-gl-style/sprite"" }
+  ],
+  ...
+}
+```
+
+* All shield IDs are now addressed as `shields:us-interstate_2`, `shields:road_3`, etc.  
+* **BUT** the existing style layers use the un-prefixed names (`us-interstate_2`). To keep them working you must make the *second* sheet the **default** one, or add a *prefix* to the layer definitions. The easiest way is to **swap the order** and give the shield sheet the `id: ""default""`:
+
+```json
+{
+  ""sprite"": [
+    { ""id"": ""default"", ""url"": ""https://openmaptiles.github.io/osm-bright-gl-style/sprite"" },
+    { ""id"": ""extra"",   ""url"": ""https://tiles.openfreemap.org/sprites/ofm_f384/ofm"" }
+  ]
+}
+```
+
+Now the shield layers resolve against the default sheet (which contains the badge images) and the rest of the style still finds its own icons in the `extra` sheet via the `extra:` prefix (if any). If you don’t need the extra sheet you can drop it entirely.
+
+**Adding the sheet from code (after the style has loaded):**
+
+```js
+map.on('load', () => {
+  // Add the shield sprite as a second sheet
+  map.addSprite('shields', 'https://openmaptiles.github.io/osm-bright-gl-style/sprite');
+  // If you want it to be the default (no prefix) you can replace the existing one:
+  // map.setStyle({ ...style, sprite: [{id:'default',url:'...'}] });
+});
+```
+
+> **Note:** `addSprite` is a **runtime** API that works only after the style’s `load` event. It does **not** replace the original `sprite` property in the style JSON; it merely loads the extra sheet into",PASS,1.00,,All assertions passed,
+"implicit — own icon sheet alongside the basemap provider's, icons never appear",skills/maplibre-sprites-icons/SKILL.md,"My MapLibre GL JS style's sprite points at my basemap provider's URL. I host my own sheet of POI icons on my own domain, and I set icon-image on my symbol layer to one of my icon names. The basemap's own icons all render fine, but mine never appear and nothing logs an error. I'd rather not merge the two sheets or rebuild them. How do I get my symbol layers to reference the icons in my sheet?",,ERROR,0.00,,,
+implicit — SVG category icons for a GeoJSON venue layer,skills/maplibre-sprites-icons/SKILL.md,"MapLibre GL JS 6. I have about 40 category icons as SVG files served from my own site, and a GeoJSON source of roughly 5,000 venues, each with a `category` property. Every venue should show its category's icon, and zoomed out the icons shouldn't pile up on top of each other. Show me the code that loads the icons and draws the venues.","Below is a **complete, copy-and-paste HTML page** that works with **MapLibre GL JS v6** and shows how to
+
+1. **Load 40 + SVG icons** that live on your own domain.  
+2. **Register each SVG with `map.addImage()`** (runtime images).  
+3. **Add a GeoJSON source** that contains ~5 000 venue points, each with a `category` property.  
+4. **Draw the venues as a symbol layer** whose `icon-image` is taken from the `category` field.  
+5. **Let the style’s collision detection hide overlapping icons** when you are zoomed out (the default behaviour).
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"">
+  <title>MapLibre – 5 000 venues with SVG icons</title>
+  <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
+
+  <!-- MapLibre GL JS v6 (you can also use a CDN version you prefer) -->
+  <link href=""https://unpkg.com/maplibre-gl@6.11.2/dist/maplibre-gl.css"" rel=""stylesheet""/>
+  <script src=""https://unpkg.com/maplibre-gl@6.11.2/dist/maplibre-gl.js""></script>
+
+  <style>
+    body, html { margin:0; padding:0; height:100%; }
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+  </style>
+</head>
+
+<body>
+<div id=""map""></div>
+
+<script>
+/* --------------------------------------------------------------
+   1️⃣  Initialise the map
+   -------------------------------------------------------------- */
+const map = new maplibregl.Map({
+  container: 'map',
+  style: {
+    // a minimal style – you can replace this with any style you like
+    version: 8,
+    sources: {},
+    layers: [],
+    // IMPORTANT: we do **not** set a sprite here because we are using
+    // only runtime images (addImage).  If you also want a basemap,
+    // add a raster/vector source + layer or point the style at a sprite.
+  },
+  center: [-122.44, 37.76],   // San Francisco (change to your area)
+  zoom: 12,
+  hash: true
+});
+
+/* --------------------------------------------------------------
+   2️⃣  List of category → SVG URL
+   -------------------------------------------------------------- */
+const categories = {
+  // key = value of the `category` property in your GeoJSON
+  // value = absolute URL to the SVG file (must be CORS-enabled)
+  // Example (add all 40+ you need):
+  ""cafe"":      ""https://mydomain.com/icons/cafe.svg"",
+  ""park"":      ""https://mydomain.com/icons/park.svg"",
+  ""museum"":    ""https://mydomain.com/icons/museum.svg"",
+  ""restaurant"":""https://mydomain.com/icons/restaurant.svg"",
+  ""library"":   ""https://mydomain.com/icons/library.svg"",
+  // … continue for every category you have …
+};
+
+/* --------------------------------------------------------------
+   3️⃣  Helper: load a single SVG as an Image element
+   -------------------------------------------------------------- */
+function loadSvg(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    // The SVG must be served with CORS headers (Access-Control-Allow-Origin)
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = (e) => reject(new Error(`Failed to load SVG ${url}`));
+    img.src = url;
+  });
+}
+
+/* --------------------------------------------------------------
+   4️⃣  Load *all* SVGs, register them with the map, then add data
+   -------------------------------------------------------------- */
+map.once('load', async () => {
+  try {
+    // ---- 4a. Load every SVG in parallel ---------------------------------
+    const loadPromises = Object.entries(categories).map(
+      async ([id, url]) => {
+        const img = await loadSvg(url);
+        // `addImage` will reject if the id already exists – guard with hasImage()
+        if (!map.hasImage(id)) {
+          // No SDF (distance-field) – we keep the original colours.
+          // If you want the icons to be recolourable with `icon-color`,
+          // rasterise them as SDF (see the spec) and set `sdf: true`.
+          map.addImage(id, img);
+        }
+      }
+    );
+
+    await Promise.all(loadPromises);
+    console.log('✅ All SVG icons added to the style');
+
+    // ---- 4b. Add the GeoJSON source ------------------------------------
+    // Replace the URL with your own endpoint or inline GeoJSON.
+    map.addSource('venues', {
+      type: 'geojson',
+      data: 'https://mydomain.com/data/venues.geojson'   // 5 000 features
+    });
+
+    // ---- 4c. Add the symbol layer ---------------------------------------
+    map.addLayer({
+      id: 'venue-icons',
+      type: 'symbol',
+      source: 'venues',
+      // The `icon-image` expression pulls the icon name from the feature's
+      // `category` property.  It must match the keys we used above.
+      layout: {
+        // Use the property directly – MapLibre will look up the image by that name.
+        'icon-image': ['get', 'category'],
+
+        // OPTIONAL: give the icons a little padding so they don’t touch the edge
+        // of the map when they’re near the viewport border.
+        'icon-allow-overlap': false,   // default, kept for clarity
+        // If you want the icons to stay visible even when they collide,
+        // set this to true.  The requirement in the question is the opposite.
+        // 'icon-allow-overlap': true,
+
+        // A small size works well for many points; adjust to taste.
+        'icon-size': 0.8,
+
+        // Keep the icons upright (no rotation with the map)
+        'icon-rotate': 0,
+
+        // If you have a lot of points, you can improve performance a bit
+        // by disabling the text halo (we have no text here) and setting a
+        // modest `symbol-sort-key` so that higher-zoom features win.
+        'symbol-sort-key': ['zoom']   // simple: larger zoom = higher priority
+      },
+      // No `paint` needed unless you want a halo or opacity.
+    });
+
+    console.log('✅ Venue layer added');
+  } catch (err) {
+    console.error('❌ Something went wrong while loading icons or data:', err);
+  }
+});
+
+/* --------------------------------------------------------------
+   5️⃣  Optional: show a loading spinner while the map is busy
+   -------------------------------------------------------------- */
+map.on('data', (e) => {
+  if (e.sourceId === 'venues' && e.isSourceLoaded) {
+    // hide spinner if you added one
+  }
+});
+</script>
+</body>
+</html>
+```
+
+### What the code does, step-by-step
+
+| Step | What happens | Why it matters |
+|------|--------------|----------------|
+| **1️⃣ Initialise the map** | Creates a `maplibregl.Map` instance. No sprite is defined because we only use runtime images. | Keeps the style minimal; you can replace the empty style with any vector/raster basemap you like. |
+| **2️⃣ Category → SVG map** | A plain JavaScript object where the **key** matches the `category` property in your GeoJSON and the **value** is the absolute URL of the SVG. | `icon-image` will later read the `category` property and look up the image by that exact key. |
+| **3️⃣ `loadSvg()`** | Returns a `Promise` that resolves to an `HTMLImageElement` once the SVG has loaded (CORS-enabled). | `map.addImage()` expects an `Image` (or `ImageBitmap`) – the helper abstracts the async loading. |
+| **4a. Load & register all SVGs** | `Promise.all()` loads every SVG in parallel, then registers each with `map.addImage(id, img)`. | One PNG sprite would have required a build step; `addImage` lets you keep the SVGs separate and host them yourself. |
+| **4b. Add the GeoJSON source** | Points are added via a `geojson` source (`venues`). | The source can be a remote URL or an inline object; MapLibre will fetch it once. |
+| **4c. Symbol layer** | `icon-image` is set to `['get', 'category']`. The layer inherits the default collision-detection (`icon-allow-overlap: false`). | When you zoom out, overlapping icons are automatically hidden, satisfying “icons shouldn’t pile up”. |
+| **5️⃣ Optional spinner** | Shows how you could react to the source-loaded event. | Improves UX for large datasets. |
+
+### Tweaking the behaviour
+
+| Need | Change |
+|------|--------|
+| **Make icons larger/smaller** | Adjust `'icon-size': 0.8` (0 = invisible, 1 = original SVG size). |
+| **Force all icons to be drawn (no collision culling)** | Set `'icon-allow-overlap': true` (or `'icon-overlap': 'always'`). |
+| **Prioritise certain categories** | Use a more sophisticated `symbol-sort-key` expression, e.g. `['case', ['==', ['get', 'category'], 'cafe'], 2, 1]`. |
+| **Re-colour SVGs with `icon-color`** | Convert the SVGs to **SDF** (distance-field) format and register them with `{sdf: true}`; then you can set `paint: { 'icon-color': '#ff6600' }`. |
+| **Add a halo around the icons** | Only works on SDF icons: `paint: { 'icon-halo-color': '#fff', 'icon-halo-width': 1 }`. |
+| **Use a basemap style** | Replace the empty `style` object with a URL, e.g. `style: 'https://demotiles.maplibre.org/style.json'`. The runtime images will still be available because they are added **after** the style loads. |
+
+---
+
+#### Gotchas & Debugging
+
+* **CORS** – The SVG files must be served with `Access-Control-Allow-Origin: *` (or your domain). Otherwise `map.addImage()` will throw a security error.
+* **Missing image warning** – If you see `Image ""<id>"" could not be loaded` in the console, double-check that the `category` value exactly matches a key in `categories` and that the SVG URL is reachable.
+* **Performance** – 5 000 points is fine for a symbol layer. If you ever go to > 50 000, consider clustering or using a vector tile source instead of raw GeoJSON.
+
+That’s it! Drop the snippet into a file, replace the placeholder URLs with your own SVG and GeoJSON locations, and you’ll have a map where each venue shows its category icon and overlapping icons are automatically hidden when you zoom out. Happy mapping!",PASS,1.00,,All assertions passed,
+anti-pattern — shield detection that compares symbol-placement as a string,skills/maplibre-sprites-icons/SKILL.md,"Reviewing my style-audit script. It flags a MapLibre symbol layer as a route shield when layer.layout['text-anchor'] === undefined and layer.layout['symbol-placement'] === 'point'. It is tagging plain place-name layers as shields and skipping real shield layers. Is the heuristic sound, and what should it key off instead?","## TL;DR  
+
+*The current heuristic (`text-anchor` missing **and** `symbol-placement === ""point""`) is **not reliable** for detecting route-shield layers.*  
+*Shield layers are identified by a **combination of layout properties that are unique to shields**, not by the absence of `text-anchor`.*
+
+Below is a quick-read why the heuristic fails, followed by a **robust decision-tree** you can embed in your audit script, plus a **minimal code example** that works with both the old “string-sprite” style and the newer “multiple-sprite-sheet” style.
+
+---
+
+## 1. Why the current rule is unsound
+
+| Property | What the rule checks | What you actually see in real-world styles |
+|----------|----------------------|--------------------------------------------|
+| `text-anchor` | “undefined → shield” | **Almost every symbol layer** (place-names, POIs, traffic signs, etc.) **does not set `text-anchor`** because the default (`""center""`) is used. The property is omitted in the JSON, so `layer.layout['text-anchor']` is `undefined` for *all* of them. |
+| `symbol-placement` | Must be the literal string `""point""` | Shield layers **often use a *zoom-function* or an *expression* that switches between `""point""` and `""line""`** (e.g. OSM Bright’s interstate shield). In the style JSON this appears as an object with `stops` or as an expression array, **not** as the plain string `""point""`. Consequently the rule will **miss** those shields. |
+| Result | Plain place-name layers (which also omit `text-anchor` and have `symbol-placement: ""point""`) are flagged as shields, while many genuine shield layers are ignored. | ✅  |
+
+In short: **absence of `text-anchor` is not a shield signal**, and **exact string equality on `symbol-placement` is too strict**.
+
+---
+
+## 2. What *does* make a shield layer unique?
+
+A route-shield layer in the OpenMapTiles / OSM-Bright / OSM-Liberty families shares **four** hallmarks:
+
+| Hallmark | Typical value / pattern | Why it matters |
+|----------|------------------------|----------------|
+| **`icon-image`** | An expression that resolves to a *sprite name* containing a **placeholder for `ref_length`** (e.g. `""{network}_{ref_length}""`, `""road_{ref_length}""`, `""default_{ref_length}""`). | The badge image is chosen based on the length of the road reference. |
+| **`text-field`** | References the route number: `""{ref}""` (or an expression that resolves to `{ref}`) | The number that sits on top of the badge. |
+| **`icon-text-fit`** (optional but common) | `""both""` or `""width""` (sometimes `""height""`). When present, the badge is *stretchable* and the text is forced to fit inside it. | Only shields (or other “badge-style” symbols) need this; ordinary POI icons never set it. |
+| **`icon-image`** **and** **`text-field`** both **use data-driven placeholders** (`{…}`) – i.e. they are **expressions**, not static strings. | Place-name layers usually have a static `icon-image` (e.g. `""city""`), and their `text-field` is a property like `[""get"",""name""]` (no `{ref}` placeholder). |
+| **`icon-allow-overlap` / `icon-overlap`** | Often set to `true` or `""always""` for shields (so the badge isn’t hidden by other symbols). | Not required, but a useful secondary clue. |
+| **`symbol-placement`** | Either `""point""` **or** a **zoom-function** that yields `""point""` at low zooms and `""line""` at higher zooms. | The presence of a *function* (object with `stops` or an expression array) is a strong indicator that the layer is a line-shield rather than a simple point label. |
+| **Layer ID / source-layer name** | Frequently contains the word *shield* (`""highway-shield-us-interstate""`, `""road-shield""`). | Helpful for a quick “human-readable” filter, but not mandatory. |
+
+If **any** of the first three hallmarks are present, you can safely treat the layer as a shield. The combination of **`icon-image` containing `{ref_length}`** **and** **`text-field` containing `{ref}`** is the *minimal* reliable signature.
+
+---
+
+## 3. A robust heuristic (decision-tree)
+
+```text
+Is layer.type === ""symbol""? ──► NO → not a shield
+│
+├─► Does layer.layout have an ""icon-image""?
+│    └─► Is the value an expression (array) OR a string that contains ""{ref_length}"" ?
+│          ──► NO → not a shield
+│          │
+│          └─► YES → continue
+│
+├─► Does layer.layout have a ""text-field""?
+│    └─► Is the value an expression (array) OR a string that contains ""{ref}"" ?
+│          ──► NO → not a shield
+│          │
+│          └─► YES → continue
+│
+├─► (Optional) Does layer.layout[""icon-text-fit""] exist and ≠ ""none"" ?
+│    ──► YES → definitely a shield (stretchable badge)
+│    ──► NO  → still a shield if the two previous checks passed
+│
+└─► (Optional) Does layer.layout[""symbol-placement""] contain a function/object?
+     ──► YES → likely a *line* shield (good to know for labeling logic)
+```
+
+**Key points**
+
+* **Never rely on `text-anchor`** – it is omitted for the default value on *all* symbol layers.
+* **Accept both plain strings and expressions** for `icon-image` / `text-field`.  
+  *A plain string may already be the fully-resolved sprite name (e.g. `""us-interstate_2""`). In that case the string **contains** `_2` but not the placeholder; you can still treat it as a shield if the name matches the pattern `*_{1-6}` and the layer also has a `text-field` that pulls `{ref}`.*  
+* **Check for the placeholder `{ref_length}`** (or the concrete pattern `_<digit>`). This is the only thing that distinguishes a shield badge from a generic POI icon.
+* **If you need to differentiate point-vs-line shields**, inspect `symbol-placement`. A *function* (object with `stops` or an expression array) means the layer will render as a line-shield at higher zooms.
+
+---
+
+## 4. Concrete JavaScript implementation
+
+Below is a **drop-in replacement** for the heuristic you currently use. It works with MapLibre GL JS ≥ 3.0 (multiple sprite sheets) and with older single-sprite styles.
+
+```js
+/**
+ * Returns true if a symbol layer looks like a route-shield layer.
+ *
+ * @param {Object} layer – a layer object from a style JSON (already parsed)
+ * @returns {boolean}
+ */
+function isShieldLayer(layer) {
+  if (layer.type !== 'symbol') return false;
+
+  const layout = layer.layout || {};
+
+  // 1️⃣ icon-image must exist and reference a shield badge
+  const iconImg = layout['icon-image'];
+  if (!iconImg) return false;
+
+  // Helper: is the value an expression (array) or a plain string?
+  const isExpr = Array.isArray(iconImg);
+  const iconStr = isExpr ? (iconImg[1] || '') : iconImg; // crude extraction of the template part
+
+  // Shield badge pattern: contains {ref_length} placeholder OR ends with _{1-6}
+  const badgePattern = /\{ref_length\}|_[1-6]$/;
+  if (!badgePattern.test(iconStr)) return false;
+
+  // 2️⃣ text-field must exist and reference the route number
+  const txt = layout['text-field'];
+  if (!txt) return false;
+
+  const txtIsExpr = Array.isArray(txt);
+  const txtStr = txtIsExpr ? (txt[1] || '') : txt;
+  if (!/\{ref\}/.test(txtStr)) return false; // missing {ref} placeholder
+
+  // 3️⃣ (optional) icon-text-fit indicates a stretchable badge – strengthens confidence
+  const textFit = layout['icon-text-fit'];
+  if (textFit && textFit !== 'none') return true; // definitely a shield
+
+  // 4️⃣ (optional) symbol-placement function → line-shield
+  // (not required for detection, just for extra info)
+  // const placement = layout['symbol-placement'];
+  // if (placement && typeof placement === 'object' && !Array.isArray(placement)) {
+  //   // it's a zoom function (object with stops) → line shield
+  // }
+
+  // If we got here, we have both a badge reference and a ref placeholder → shield
+  return true;
+}
+
+/* --------------------------------------------------------------
+   Example usage on a whole style:
+-------------------------------------------------------------- */
+function auditStyleForShields(style) {
+  const shieldLayers = style.layers.filter(isShieldLayer);
+  console.log(`Found ${shieldLayers.length} shield layer(s):`);
+  shieldLayers.forEach(l => console.log(' •', l.id));
+}
+
+/* --------------------------------------------------------------
+   Test with a real style (you can paste the JSON or fetch it):
+-------------------------------------------------------------- */
+fetch('https://demotiles.maplibre.org/styles/osm-bright-gl-style/style.json')
+  .then(r => r.json())
+  .then(style => auditStyleForShields(style));
+```
+
+### Why this works
+
+| Check | What it catches | What it discards |
+|-------|----------------|------------------|
+| `icon-image` contains `{ref_length}` **or** ends with `_<digit>` | All OSM-Bright / OSM-Liberty shield badges (`us-interstate_2`, `road_3`, etc.) and any custom shield that follows the same naming convention. | POI icons (`cafe`, `park`, `city`) never contain that pattern. |
+| `text-field` contains `{ref}` | Guarantees the layer is trying to render a route number on top of the badge. | Place-name layers use `{name}` or `[""get"",""name""]`. |
+| `icon-text-fit` ≠ `none` (optional) | Detects *stretchable* shields (`icon-text-fit: ""both""`). | Still returns true for non-stretchable shields because the two required checks already passed. |
+| `symbol-placement` function (optional) | Lets you separate *point* shields (e.g. highway-exit icons) from *line* shields (the classic road-shield that follows the line). | Not required for detection, but useful for downstream processing. |
+
+---
+
+## 5. Edge Cases & How to Handle Them
+
+| Situation | Why it can slip through the net | Suggested tweak |
+|-----------|--------------------------------|-----------------|
+| **Custom shields that don’t use `{ref_length}`** (e.g. a single badge image named `""shield""` and `icon-text-fit` used to stretch it) | The badge name lacks the placeholder, so the first regex fails. | Add a fallback: if `icon-text-fit` is set **and** `text-field` contains `{ref}`, treat it as a shield even when the badge name lacks `{ref_length}`. |
+| **Legacy styles that embed the badge name directly (`""us-interstate_2""`), not an expression** | The placeholder isn’t present, but the concrete name ends with `_<digit>`. The regex `_[1-6]$` already catches this. |
+| **Shield layers that use a different placeholder name** (e.g. `{network}` + `{ref_len}`) | Unlikely in the official OSM-Bright/Liberty styles, but possible in a custom style. | Make the badge-pattern configurable: `new RegExp('\\{ref_length\\}|_\\d+$')` → allow the user to pass a custom pattern. |
+| **Non-shield layers that happen to have a badge-like name** (e.g. a POI called `""road_2""`) | Very rare, but could happen if a data-driven icon name coincidentally matches the pattern. | Combine the check with `text-field` containing `{ref}` – POI layers usually reference `{name}` or a property that isn’t `ref`. |
+| **Multiple-sprite-sheet styles** – the badge lives in a non-default sheet (`my-icons:us-interstate_2`) | The `icon-image` string will contain a colon (`:`). | The regex still works because it looks *after* the colon: `my-icons:us-interstate_2` matches `_[1-6]$`. No extra handling needed. |
+
+---
+
+## 6. Quick checklist for your audit script
+
+| ✅ Should be true for a shield | ❌ Should be false for a plain",PASS,1.00,,All assertions passed,
+negative — a draggable pin with a popup stays a Marker,skills/maplibre-sprites-icons/SKILL.md,How do I place a draggable pin at a coordinate in MapLibre GL JS and show a popup when the user clicks it?,"Below is a **complete, copy-and-paste ready** example that shows how to
+
+1. **Create a draggable pin (Marker) at a known longitude/latitude**  
+2. **Open a Popup when the user clicks the pin**  
+3. **Keep the Popup anchored to the pin after it is dragged**  
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""utf-8"" />
+  <title>MapLibre – draggable pin with popup</title>
+  <meta name=""viewport"" content=""initial-scale=1,maximum-scale=1,user-scalable=no"" />
+  <link
+    href=""https://unpkg.com/maplibre-gl@4.2.0/dist/maplibre-gl.css""
+    rel=""stylesheet""
+  />
+  <style>
+    body { margin:0; padding:0; }
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script src=""https://unpkg.com/maplibre-gl@4.2.0/dist/maplibre-gl.js""></script>
+<script>
+  // -------------------------------------------------
+  // 1️⃣ Initialise the map
+  // -------------------------------------------------
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://demotiles.maplibre.org/style.json', // replace with your own style
+    center: [-122.42, 37.77], // lon, lat – San Francisco for demo
+    zoom: 12
+  });
+
+  // -------------------------------------------------
+  // 2️⃣ When the style is ready, add the draggable marker
+  // -------------------------------------------------
+  map.on('load', () => {
+    // The coordinate where the pin should start
+    const startLngLat = [-122.42, 37.77];
+
+    // -------------------------------------------------
+    // 2a️⃣ Create a Popup (but don’t add it yet)
+    // -------------------------------------------------
+    const popup = new maplibregl.Popup({
+      offset: 25,               // distance from the marker tip
+      closeButton: true,
+      closeOnClick: false      // keep it open when the map is clicked
+    }).setHTML(`
+      <h4>My draggable pin</h4>
+      <p>Click the map to move me, or drag the pin.</p>
+    `);
+
+    // -------------------------------------------------
+    // 2b️⃣ Create the Marker – draggable = true
+    // -------------------------------------------------
+    const marker = new maplibregl.Marker({
+      draggable: true,          // <-- makes the pin draggable
+      // You can also pass a custom HTML element here:
+      // element: document.createElement('div')
+    })
+      .setLngLat(startLngLat)   // place it at the start coordinate
+      .setPopup(popup)          // associate the popup with the marker
+      .addTo(map);              // finally add it to the map
+
+    // -------------------------------------------------
+    // 3️⃣ Open the popup when the user clicks the pin
+    // -------------------------------------------------
+    // The Marker class already toggles the popup on click when you call
+    // .setPopup().  If you want to force-open it immediately:
+    // marker.togglePopup();
+
+    // -------------------------------------------------
+    // 4️⃣ Keep the popup anchored after a drag
+    // -------------------------------------------------
+    // When the marker is dragged we update the popup’s position.
+    // (MapLibre does this automatically, but we can also listen for the
+    //  dragend event if we need the new coordinates for something else.)
+    marker.on('dragend', () => {
+      const lngLat = marker.getLngLat();
+      console.log('Marker dropped at', lngLat);
+      // If you need to store the new location, do it here.
+      // The popup stays attached, no extra code required.
+    });
+
+    // -------------------------------------------------
+    // 5️⃣ (Optional) – click-anywhere on the map to move the pin
+    // -------------------------------------------------
+    map.on('click', (e) => {
+      marker.setLngLat(e.lngLat);
+      // If you want the popup to open automatically after a map click:
+      marker.togglePopup();
+    });
+  });
+</script>
+</body>
+</html>
+```
+
+---
+
+## Why this works (the concepts)
+
+| Step | What it does | MapLibre API used |
+|------|--------------|-------------------|
+| **Create a `Popup`** | Holds the HTML you want to show. | `new maplibregl.Popup()` |
+| **Create a `Marker` with `draggable:true`** | Makes the pin draggable with the mouse / touch. | `new maplibregl.Marker({draggable:true})` |
+| **`setLngLat()`** | Positions the marker at a specific `[lon, lat]`. | `marker.setLngLat([lon, lat])` |
+| **`setPopup(popup)`** | Binds the popup to the marker. Clicking the marker automatically opens / closes the popup. | `marker.setPopup(popup)` |
+| **`addTo(map)`** | Adds the marker (and its popup) to the map canvas. | `marker.addTo(map)` |
+| **`marker.on('dragend', …)`** | Fires after the user finishes dragging; you can read the new coordinates with `marker.getLngLat()`. | `marker.on('dragend', fn)` |
+| **`map.on('click', …)`** (optional) | Demonstrates how to move the marker programmatically when the user clicks elsewhere on the map. | `map.on('click', fn)` |
+
+### A few gotchas & best-practice notes
+
+| Issue | What to watch for | Fix / tip |
+|-------|-------------------|-----------|
+| **Marker vs. Symbol layer** | A `Marker` lives **outside** the style (HTML overlay). Use it for a *few* interactive points. For thousands of points, use a **symbol layer** with a sprite or `addImage`. | Keep the number of markers low (< ~200) for good performance. |
+| **Cross-origin images** | If you replace the default pin with a custom PNG/SVG hosted on another domain, the image must be CORS-enabled (`Access-Control-Allow-Origin:*`). | Host the image on the same origin or enable CORS on the remote server. |
+| **SVG icons** | `Marker` can use any HTML element, so you can embed an `<svg>` directly. For a sprite-based symbol layer you must rasterise the SVG first (`addImage`). | Example: `marker.getElement().innerHTML = '<svg …></svg>';` |
+| **Popup staying open after drag** | The popup is automatically re-anchored to the marker after a drag, but if you close it manually you may want to reopen it on `dragend`. | `marker.togglePopup();` inside the `dragend` handler if you need that behaviour. |
+| **MapLibre version** | The example uses v4.x (the current stable at time of writing). The API is stable back to v2, but `map.loadImage` callback form was removed in v4. | If you are on an older version, adjust accordingly (e.g., use the callback form). |
+
+---
+
+## TL;DR – Minimal code snippet
+
+If you already have a `map` instance and just need the core lines:
+
+```js
+// 1️⃣ Popup (HTML can be anything)
+const popup = new maplibregl.Popup({ offset: 25 })
+  .setHTML('<strong>Draggable pin</strong>');
+
+// 2️⃣ Draggable marker at a known coordinate
+const marker = new maplibregl.Marker({ draggable: true })
+  .setLngLat([lon, lat])   // ← replace with your lon/lat
+  .setPopup(popup)         // ← click the pin → popup opens
+  .addTo(map);
+
+// 3️⃣ Optional: log new position after each drag
+marker.on('dragend', () => console.log('new position:', marker.getLngLat()));
+```
+
+That’s all you need to have a **draggable pin** that **shows a popup on click** in MapLibre GL JS. Happy mapping!",PASS,1.00,,All assertions passed,

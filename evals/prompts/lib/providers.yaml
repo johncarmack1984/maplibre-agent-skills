@@ -1,15 +1,19 @@
 # The pinned generator (model-under-test), referenced from every eval config and TEMPLATE.yaml.
 #
-# Do not raise max_tokens unless/until warranted by a pinned model change. Groq reserves
-# prompt + max_tokens against an 8000 TPM window, so a larger ceiling makes skill-injected
-# calls fail under load (13 of 21 baseline calls rejected at 8192) and buys no output: 
-# completions cap at ~11.9K characters at either value. Groq truncates mid-sentence at that
-# cap, so read the raw completion behind any FAIL — see evals/README.md.
+# `max_completion_tokens` is the answer budget, and lib/skill-prompt.mjs lowers it for any request
+# whose prompt leaves less than this under the generator's tokens per minute. 3,072 is where Groq
+# cut answers off when promptfoo sent no cap. (promptfoo drops `max_tokens` for gpt-oss.)
+# Groq truncates mid-sentence at any hard stop, so read the raw completion behind any
+# FAIL — see evals/README.md.
 id: groq:openai/gpt-oss-120b
 label: groq-gpt-oss
 config:
   temperature: 0
-  max_tokens: 4096
+  max_completion_tokens: 3072
   # The reasoning trace is not part of the answer, so it is excluded from the graded output:
   # assertions and the judge grade the answer only. The model still reasons; budget unchanged.
   showThinking: false
+# The generator often writes a hyphenated name in prose with U+2011 (non-breaking hyphen), which
+# an `icontains` value typed with "-" never matches. This turns each one into "-" before any
+# assertion or the judge reads the answer.
+transform: output.replace(/\u2011/g, '-')

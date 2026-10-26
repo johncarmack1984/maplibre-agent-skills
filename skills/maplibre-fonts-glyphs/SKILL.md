@@ -16,6 +16,8 @@ MapLibre doesn't render text with fonts installed on the machine by default. It 
 - Rendering non-Latin scripts (CJK, Arabic, Hebrew, Devanagari, and others)
 - Rendering fonts locally/offline without a glyphs server, on GL JS or Native
 
+**Don't use this skill to pad an unrelated answer.** Fonts and glyphs only affect symbol layers that set `text-field`. A question about terrain, hillshade, or any other layer that draws no text gets a normal, focused answer that leaves fonts, glyphs, and label scripts out entirely, caveats and troubleshooting rows included.
+
 ## MapLibre renders text using SDF glyphs
 
 MapLibre renders text using **SDF (signed-distance field) glyphs** — precomputed font files that scale cleanly at any zoom or screen density, served from a URL matching the style's `glyphs` field. **In GL JS ≥ 5.11.0** ([PR #4564](https://github.com/maplibre/maplibre-gl-js/pull/4564)), an unresolvable `glyphs` situation is no longer fatal: MapLibre renders text locally via TinySDF instead, treating `text-font` as a cascading list of local/web font names. This covers two cases:
@@ -76,7 +78,8 @@ Call this before initializing the map.
 
 ## Related Skills
 
-- [**maplibre-cartography**](../maplibre-cartography/SKILL.md) — Font size, weight, and letter-spacing for visual hierarchy; sprites and icons.
+- [**maplibre-cartography**](../maplibre-cartography/SKILL.md) — Font size, weight, and letter-spacing for visual hierarchy.
+- [**maplibre-sprites-icons**](../maplibre-sprites-icons/SKILL.md) — Sprites and icon images; the badge behind a route shield's text.
 - [**maplibre-source-wiring**](../maplibre-source-wiring/SKILL.md) — Where `glyphs` and `sprite` fit into a style's other components; CORS for self-hosted assets.
 
 ## References
