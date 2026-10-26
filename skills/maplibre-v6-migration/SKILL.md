@@ -17,7 +17,7 @@ MapLibre GL JS v6 (released 2026-07-22) removed several things v5 code relied on
 - Writing one of the seven patterns below: a CDN `<script>` tag, an import statement, a `require()` call, a `styleimagemissing` handler, code that reads `map.transform`, a typed `data`/`dataloading`/`dataabort` handler, or a bundler setup (Vite, webpack, esbuild, Rspack, Rollup)
 - Debugging errors like `ERR_PACKAGE_PATH_NOT_EXPORTED`, a blank map after a CDN update, a sprite icon that never appears, a TypeScript error naming `MapDataEvent`, or a worker-loading error that blocks render
 
-**Don't use this skill to pad an unrelated answer.** It covers seven narrow breaking changes, not general v6 best practice. A question about sources, layers, styling, or terrain gets a normal, focused answer with no migration reminders attached.
+**Don't use this skill to pad an unrelated answer.** It covers seven narrow breaking changes, not general v6 best practice. A question about sources, layers, styling, or terrain gets a normal, focused answer whose code uses v6 imports, with no section, list, or note about the other breaking changes.
 
 ## 1. CDN script tag: ESM-only now
 
