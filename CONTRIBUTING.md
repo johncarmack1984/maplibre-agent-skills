@@ -340,7 +340,7 @@ Reference these sources in skill content wherever possible:
 
 Due to similarities and shared history, though it shouldn't strictly be necessary, we acknowledge that this project may adapt structure or content from [mapbox-agent-skills](https://github.com/mapbox/mapbox-agent-skills) (MIT © Mapbox). Please, if you find yourself adding or changing content that is adapted from that repository:
 
-- **Preserve Mapbox's copyright.** The [NOTICE](NOTICE) file and [LICENSE.md](LICENSE.md) already state that portions are adapted from mapbox-agent-skills and remain Copyright (c) Mapbox, Inc.
+- **Preserve Mapbox's copyright.** The [NOTICE](NOTICE) file already states that portions are adapted from mapbox-agent-skills and remain Copyright (c) Mapbox, Inc.
 - For a skill or file that is substantially adapted from a Mapbox skill, you may add a short line at the top of the file, e.g.:
   `Adapted from mapbox-agent-skills. Copyright (c) Mapbox, Inc. Modifications (c) MapLibre and contributors.`
 - New, original content only needs the project's usual license (see [LICENSE.md](LICENSE.md)).
