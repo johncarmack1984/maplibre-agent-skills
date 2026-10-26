@@ -1015,7 +1015,7 @@ describe('runEvals', () => {
       resultsDir,
       workDir,
       budgetMinutes: 240,
-      judge: 'google:gemini-2.5-flash-lite',
+      judge: 'the-judge',
       inputs,
       commit: 'abc123',
       spawn,
@@ -1029,7 +1029,7 @@ describe('runEvals', () => {
         configs: {
           'maplibre-cartography': {
             inputs: { skill: 's1', config: 'c1', harness: 'h' },
-            judge: 'google:gemini-2.5-flash-lite'
+            judge: 'the-judge'
           }
         }
       }
