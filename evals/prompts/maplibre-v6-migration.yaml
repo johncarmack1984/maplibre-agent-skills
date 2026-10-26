@@ -73,8 +73,11 @@ tests:
         value: 'setMissingStyleImageResolver'
       - type: llm-rubric
         value: >
-          Recommends `map.setMissingStyleImageResolver()` as the mechanism.
-          Does not present listening for `styleimagemissing` and calling
+          Recommends `map.setMissingStyleImageResolver()` as the mechanism,
+          with a resolver that calls `map.addImage()` itself (directly or
+          after awaiting a load). Must NOT present returning the image from
+          the resolver as what supplies it: MapLibre ignores the resolver's
+          return value. Does not present listening for `styleimagemissing` and calling
           `map.addImage()` synchronously from inside the handler as sufficient
           on its own — in v6 that event is notify-only and no longer resolves
           the pending request.
