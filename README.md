@@ -20,7 +20,7 @@ If you find any inconsistency with this quality bar, please file an issue or PR.
 
 ## What Status Means
 
-Each skill is tested with [Promptfoo](https://promptfoo.dev/) evals to verify it improves AI responses on real developer questions. A skill's front-matter `status` records where it stands (e.g. whether an eval has proven it fixes a real failure). See [`evals/README.md`](evals/README.md) for how evals work.
+Each skill is tested with [Promptfoo](https://promptfoo.dev/) evals to verify it improves AI responses on real developer questions. The `metadata.status` field in a skill's front matter records where it stands (e.g. whether an eval has proven it fixes a real failure). See [`evals/README.md`](evals/README.md) for how evals work.
 
 | Status           | Means                                                                                                          |
 | ---------------- | -------------------------------------------------------------------------------------------------------------- |
@@ -53,7 +53,7 @@ Each skill's front matter is the source of truth for its current status — see 
 
 ## Development
 
-Each skill lives under `skills/<skill-name>/` as a single **SKILL.md**: YAML front-matter (`name`, `description`, `status`) plus markdown content.
+Each skill lives under `skills/<skill-name>/` as a single **SKILL.md**: YAML front matter (`name`, `description`, and `metadata.status`) plus markdown content.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) to add or improve a skill. All experience levels welcome, well-behaved and supervised AI agents are welcome to contribute too.
 
@@ -86,7 +86,7 @@ This project follows [semver](https://semver.org/). Version numbers signal what 
 - **Minor** (0.1.0 → 0.2.0) — a new skill was added, a skill was removed, or how skills are consumed changed. Review the [CHANGELOG](CHANGELOG.md) to see what's new.
 - **Major** (0.x → 1.0) — a change that would break installed skills (renamed directories, restructured front matter, etc.).
 
-Each skill's front matter carries a `status` field — see [What Status Means](#what-status-means). The [CHANGELOG](CHANGELOG.md) records notable changes; entries are written by contributors via a structured PR field and accrued automatically on merge. See [CONTRIBUTING.md](CONTRIBUTING.md#how-to-fill-in-the-changelog-field) for how that works.
+Each skill's front matter carries a `metadata.status` field — see [What Status Means](#what-status-means). The [CHANGELOG](CHANGELOG.md) records notable changes; entries are written by contributors via a structured PR field and accrued automatically on merge. See [CONTRIBUTING.md](CONTRIBUTING.md#how-to-fill-in-the-changelog-field) for how that works.
 
 ## Install
 

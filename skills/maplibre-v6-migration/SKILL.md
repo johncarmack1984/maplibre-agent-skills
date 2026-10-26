@@ -1,7 +1,8 @@
 ---
 name: maplibre-v6-migration
 description: Upgrading a MapLibre GL JS app from v5 to v6 — the ESM-only build, the removed default export, CommonJS require() breakage, the styleimagemissing/setMissingStyleImageResolver change, the removal of the internal map.transform, the MapDataEvent → MapSourceDataEvent/MapStyleDataEvent split, and the bundler-only setWorkerUrl() requirement. Use when a v5 app breaks after upgrading to v6, or before pinning a v6 install.
-status: verified
+metadata:
+  status: verified
 ---
 
 # MapLibre GL JS v5 → v6 Migration
@@ -164,3 +165,7 @@ In Vite, use `?worker&url`, not plain `?url`. The worker file imports a sibling 
 
 - [MapLibre GL JS v5→v6 migration guide](https://maplibre.org/maplibre-gl-js/docs/guides/v5-to-v6-migration-guide/) and its [CHANGELOG](https://github.com/maplibre/maplibre-gl-js/blob/main/CHANGELOG.md) (v6.0.0 section)
 - [CustomLayerInterface API docs](https://maplibre.org/maplibre-gl-js/docs/API/interfaces/CustomLayerInterface/) and [install guide](https://maplibre.org/maplibre-gl-js/docs/) (per-bundler `setWorkerUrl()` snippets)
+
+---
+
+**This skill is a snapshot.** Where a primary source contradicts it — the References above, MapLibre's current documentation, or what MapLibre does when you run it — that source wins. Follow it, then [report the disagreement](https://github.com/maplibre/maplibre-agent-skills/issues/new?template=ai-failure-report.md), citing the source and your MapLibre version: editing your installed copy helps no one else and is overwritten on the next update.
