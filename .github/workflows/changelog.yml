@@ -59,14 +59,10 @@ jobs:
           git pull --rebase
 
       # check.yml never sees this push (GITHUB_TOKEN pushes start no workflows),
-      # so its checks run here, after the rebase, on the tree that gets pushed.
+      # so the same gate runs here, after the rebase, on the tree that gets pushed.
       - name: Check before pushing
         if: steps.pr.outputs.found == 'true'
-        run: |
-          npm run format:check
-          npm run spellcheck
-          npm run lint:markdown
-          npm run validate:skills
+        run: npm run check
 
       - name: Push
         if: steps.pr.outputs.found == 'true'
