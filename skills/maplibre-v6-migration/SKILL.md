@@ -7,7 +7,9 @@ metadata:
 
 # MapLibre GL JS v5 → v6 Migration
 
-MapLibre GL JS v6 (released 2026-07-22) removed several things v5 code relied on: the UMD/CSP browser bundles, the default export, CommonJS support, the internal `map.transform`, and the `MapDataEvent` type. Most models' training data predates v6. So the natural-sounding answer to "how do I do X" is usually the v5 answer, and it breaks on v6.
+**Use this only when the question, or the code in it, involves one of the seven changes below.** For any other MapLibre question, such as sources, layers, styling or terrain, write the answer with v6 imports and add no section, table, list or note about v6 changes or migrating from v5.
+
+MapLibre GL JS v6 (released 2026-07-22) removed several things v5 code relied on: the UMD/CSP browser bundles, the default export, CommonJS support, the internal `map.transform`, and the `MapDataEvent` type. Most models' training data predates v6. So for code that touches one of these seven, the natural-sounding answer is usually the v5 one, and it breaks on v6.
 
 **Primary reference:** the [MapLibre GL JS v5→v6 migration guide](https://maplibre.org/maplibre-gl-js/docs/guides/v5-to-v6-migration-guide/). This skill adds the gaps a model tends to fill with v5-era defaults. If the guide and this skill disagree, follow the guide and [report it](https://github.com/maplibre/maplibre-agent-skills/issues/new?template=ai-failure-report.md).
 
@@ -16,8 +18,6 @@ MapLibre GL JS v6 (released 2026-07-22) removed several things v5 code relied on
 - Upgrading an existing MapLibre GL JS v5 app to v6, or debugging a map that "used to work" after a dependency update
 - Writing one of the seven patterns below: a CDN `<script>` tag, an import statement, a `require()` call, a `styleimagemissing` handler, code that reads `map.transform`, a typed `data`/`dataloading`/`dataabort` handler, or a bundler setup (Vite, webpack, esbuild, Rspack, Rollup)
 - Debugging errors like `ERR_PACKAGE_PATH_NOT_EXPORTED`, a blank map after a CDN update, a sprite icon that never appears, a TypeScript error naming `MapDataEvent`, or a worker-loading error that blocks render
-
-**Don't use this skill to pad an unrelated answer.** It covers seven narrow breaking changes, not general v6 best practice. A question about sources, layers, styling, or terrain gets a normal, focused answer with no migration reminders attached.
 
 ## 1. CDN script tag: ESM-only now
 

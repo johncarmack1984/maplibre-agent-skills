@@ -142,9 +142,17 @@ tests:
         How do I add a vector tile source from a PMTiles file to a MapLibre GL
         JS map and style a line layer from it?
     assert:
+      - type: not-icontains
+        value: 'setMissingStyleImageResolver'
+      - type: not-icontains
+        value: 'map.transform'
+      - type: not-icontains
+        value: 'MapDataEvent'
       - type: llm-rubric
         value: >
-          Answers the PMTiles vector source question directly (protocol
-          registration, source/layer JSON) without pivoting to v6 migration
-          topics like ESM imports, setMissingStyleImageResolver, or
-          map.transform, none of which are relevant to this question.
+          Answers the PMTiles vector source question directly: registers the
+          pmtiles protocol, adds a vector source from the file, and adds a
+          line layer from it. Its code may use v6 imports, a v6 CDN URL, and
+          `setWorkerUrl()` in a bundler setup. Must NOT add a section, table,
+          list or note about migrating from v5, or about v6 changes its code
+          does not use.

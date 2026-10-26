@@ -1,0 +1,458 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+"negative — vector tile source setup, unrelated to v6 breaking changes",skills/maplibre-v6-migration/SKILL.md,"How do I add a vector tile source from a PMTiles file to a MapLibre GL JS map and style a line layer from it?
+","Below is a **complete, minimal example** that shows how to
+
+1. **Load a PMTiles file** (a single-file container for vector tiles) with the official `@protomaps/pmtiles` library.  
+2. **Add it to a MapLibre GL JS v6 map** as a vector source.  
+3. **Create a line layer** that draws a line-type feature from that source.
+
+The code uses **ESM-only imports** (the only build that exists in v6) and works both from a CDN and from a bundler-based project – just swap the import URLs if you’re using a bundler.
+
+---
+
+## 1️⃣  HTML + ESM entry point
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"">
+  <title>PMTiles → MapLibre line layer</title>
+  <link href=""https://unpkg.com/maplibre-gl@^6.0.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body, html { margin:0; height:100%; }
+    #map { width:100%; height:100%; }
+  </style>
+</head>
+
+<body>
+<div id=""map""></div>
+
+<script type=""module"">
+  // ------------------------------------------------------------
+  // 1️⃣  Imports (CDN version – replace with local paths for a bundler)
+  // ------------------------------------------------------------
+  import * as maplibregl from 'https://unpkg.com/maplibre-gl@^6.0.0/dist/maplibre-gl.mjs';
+  import { PMTiles, registerProtocol } from 'https://cdn.jsdelivr.net/npm/@protomaps/pmtiles@latest/dist/index.min.mjs';
+
+  // ------------------------------------------------------------
+  // 2️⃣  Create the MapLibre map
+  // ------------------------------------------------------------
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {},          // we’ll add our PMTiles source later
+      layers: []            // we’ll add the line layer later
+    },
+    center: [0, 0],         // lon, lat
+    zoom: 2
+  });
+
+  // ------------------------------------------------------------
+  // 3️⃣  Register the `pmtiles://` protocol handler
+  // ------------------------------------------------------------
+  // The PMTiles library works by intercepting fetches that start with
+  // the custom protocol `pmtiles://`.  We give the handler a name
+  // (here “mytiles”) that we’ll later use in the source URL.
+  const pmtilesUrl = 'https://YOUR_DOMAIN/path/to/your-file.pmtiles'; // <-- change this
+  const pm = new PMTiles(pmtilesUrl);
+  registerProtocol(pm);   // registers under the name derived from the URL
+
+  // ------------------------------------------------------------
+  // 4️⃣  Add the vector source that points at the PMTiles file
+  // ------------------------------------------------------------
+  // The source URL must use the `pmtiles://` protocol followed by the
+  // *exact* name that the PMTiles instance registered.  The name is the
+  // part after the last slash of the URL (without the .pmtiles suffix).
+  // Example:  https://example.com/roads.pmtiles  →  protocol name = ""roads""
+  const sourceName = pmtilesUrl.split('/').pop().replace(/\.pmtiles$/, '');
+  map.addSource(sourceName, {
+    type: 'vector',
+    // The protocol handler makes the URL look like a normal tile URL.
+    // MapLibre will request tiles like: pmtiles://roads/{z}/{x}/{y}.pbf
+    url: `pmtiles://${sourceName}`
+  });
+
+  // ------------------------------------------------------------
+  // 5️⃣  Add a line layer that draws from the source
+  // ------------------------------------------------------------
+  // You need to know the *source-layer* name that lives inside the
+  // vector tiles.  You can discover it with tools like `pmtiles info`,
+  // `tile-join --list`, or by inspecting the tiles in QGIS/Mapbox Studio.
+  const sourceLayerName = 'roads';   // <-- change to the actual layer name
+
+  map.addLayer({
+    id: 'my-line-layer',
+    type: 'line',
+    source: sourceName,
+    'source-layer': sourceLayerName,
+    layout: {
+      'line-cap': 'round',
+      'line-join': 'round'
+    },
+    paint: {
+      // Example styling – feel free to tweak
+      'line-color': '#ff6600',
+      'line-width': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        5, 0.5,
+        12, 2,
+        18, 8
+      ],
+      'line-opacity': 0.9
+    }
+  });
+
+  // ------------------------------------------------------------
+  // 6️⃣  Optional: fit the map to the data bounds once the source loads
+  // ------------------------------------------------------------
+  map.on('data', (e) => {
+    if (e.sourceId === sourceName && e.dataType === 'source' && e.isSourceLoaded) {
+      const bounds = map.getSource(sourceName).bounds; // works if the source has a `bounds` property
+      if (bounds) map.fitBounds(bounds, { padding: 20 });
+    }
+  });
+</script>
+</body>
+</html>
+```
+
+### What each part does
+
+| Step | Explanation |
+|------|-------------|
+| **Imports** | `maplibre-gl` v6 is imported as an ES module (`*.mjs`). The PMTiles helper (`@protomaps/pmtiles`) is also an ES module. |
+| **Map creation** | A bare-bones style object is passed; we’ll inject the source & layer later. |
+| **Protocol registration** | `registerProtocol(pm)` tells the browser’s fetch system to intercept any request that starts with `pmtiles://…` and serve the appropriate tile from the PMTiles file. |
+| **Source definition** | `type: 'vector'` + `url: 'pmtiles://<name>'` makes MapLibre request tiles from the PMTiles container. |
+| **Line layer** | `type: 'line'` + `source-layer` (the name inside the vector tiles) draws the geometry. The `paint` block shows a simple colour/width rule that scales with zoom. |
+| **Fit to data (optional)** | When the source finishes loading we can zoom the map to its extent. This works if the PMTiles file includes a `bounds` field (most do). |
+
+---
+
+## 2️⃣  Using a bundler (Vite / webpack / Rollup, etc.)
+
+If you’re building with a bundler, the **only extra step** you need compared to the CDN example is to tell MapLibre where its WebWorker lives:
+
+```ts
+// src/main.ts (or .js)
+import { Map, setWorkerUrl } from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
+
+// Must be called **once**, before any Map instance is created
+setWorkerUrl(workerUrl);
+```
+
+Everything else (PMTiles registration, source & layer creation) stays exactly the same as in the CDN snippet.
+
+---
+
+## 3️⃣  Quick checklist
+
+| ✅ | Item |
+|---|------|
+| ✅ | Import MapLibre GL JS v6 as an ES module (`import * as maplibregl from 'maplibre-gl'` or `import { Map } from 'maplibre-gl'`). |
+| ✅ | Install `@protomaps/pmtiles` (`npm i @protomaps/pmtiles`) if you’re using a bundler. |
+| ✅ | Register the PMTiles protocol (`registerProtocol(new PMTiles(url))`). |
+| ✅ | Add a vector source with `url: 'pmtiles://<name>'`. |
+| ✅ | Add a `line` layer that references the correct `source-layer`. |
+| ✅ | (Bundler only) Call `setWorkerUrl()` once before creating the map. |
+| ✅ | Pin your CDN versions (`@^6.0.0`) or lock your `package.json` to a specific v6.x release. |
+
+That’s it! Your PMTiles vector tiles will now be rendered as a styled line layer on a MapLibre GL JS v6 map. 🎉",PASS,1.00,,All assertions passed,
+"negative — vector tile source setup, unrelated to v6 breaking changes",skills/maplibre-v6-migration/SKILL.md,"How do I add a vector tile source from a PMTiles file to a MapLibre GL JS map and style a line layer from it?
+","Below is a **complete, minimal example** that
+
+1. loads **MapLibre GL JS v6** (ESM-only) from a CDN,  
+2. registers the **PMTiles** protocol,  
+3. adds a vector-tile source that reads from a *.pmtiles* file, and  
+4. draws a simple line layer from one of the source’s layers.
+
+You can copy-paste the whole thing into an `index.html` file and open it in a browser (or serve it locally with any static-file server).
+
+---
+
+## 1️⃣ HTML + ESM imports
+
+```html
+<!doctype html>
+<html lang=""en"">
+<head>
+  <meta charset=""utf-8"">
+  <title>MapLibre GL + PMTiles demo</title>
+  <style>
+    body, html { margin:0; padding:0; height:100%; }
+    #map { width:100%; height:100%; }
+  </style>
+
+  <!-- MapLibre GL JS v6 (ESM build) -->
+  <script type=""module"">
+    // -------------------------------------------------
+    // 1️⃣ Import the libraries
+    // -------------------------------------------------
+    import * as maplibregl from 'https://unpkg.com/maplibre-gl@^6.0.0/dist/maplibre-gl.mjs';
+    import { PMTiles } from 'https://cdn.jsdelivr.net/npm/pmtiles@3.0.0/dist/index.js'; // adjust version if needed
+
+    // -------------------------------------------------
+    // 2️⃣ Register the PMTiles protocol
+    // -------------------------------------------------
+    // The PMTiles library creates a custom fetch handler that understands URLs
+    // that start with ""pmtiles://"".  Calling `addProtocol()` registers that handler
+    // globally (once per page).
+    const pmtiles = new PMTiles('https://YOUR_DOMAIN/path/to/your-data.pmtiles');
+    pmtiles.addProtocol();   // now ""pmtiles://your-data.pmtiles"" works
+
+    // -------------------------------------------------
+    // 3️⃣ Create the map
+    // -------------------------------------------------
+    const map = new maplibregl.Map({
+      container: 'map',
+      style: {
+        version: 8,
+        sources: {},          // we’ll add our source later
+        layers: []            // we’ll add our layer later
+      },
+      center: [0, 0],        // lon, lat
+      zoom: 2
+    });
+
+    // -------------------------------------------------
+    // 4️⃣ When the map is ready, add the PMTiles source & line layer
+    // -------------------------------------------------
+    map.on('load', () => {
+      // ---- 4a. Add the vector source ----
+      map.addSource('my-pmtiles-source', {
+        type: 'vector',
+        // The URL uses the custom protocol we just registered.
+        // The part after the double slash is the filename you passed to PMTiles.
+        url: 'pmtiles://your-data.pmtiles'
+        // If your PMTiles file contains multiple layers you can also
+        // specify `maxzoom`, `minzoom`, `attribution`, etc. here.
+      });
+
+      // ---- 4b. Add a line layer that draws from a source-layer inside the PMTiles file ----
+      // Replace ""my_line_layer"" with the exact name of the layer you want to render.
+      // You can discover the layer names by opening the .pmtiles file in a viewer
+      // (e.g. https://github.com/protomaps/PMTilesViewer) or by inspecting the
+      // `metadata` property of the PMTiles object.
+      map.addLayer({
+        id: 'my-line-layer',
+        type: 'line',
+        source: 'my-pmtiles-source',
+        'source-layer': 'my_line_layer',   // <-- name of the vector-tile layer
+        layout: {
+          'line-cap': 'round',
+          'line-join': 'round'
+        },
+        paint: {
+          'line-color': '#ff6600',
+          'line-width': 3,
+          'line-opacity': 0.8
+        }
+      });
+    });
+  </script>
+</head>
+
+<body>
+  <div id=""map""></div>
+</body>
+</html>
+```
+
+### What you need to change
+
+| Placeholder | What to replace | Why |
+|-------------|----------------|-----|
+| `https://YOUR_DOMAIN/path/to/your-data.pmtiles` | URL of **your** PMTiles file (must be reachable from the browser) | The PMTiles constructor needs the actual file location. |
+| `'my_line_layer'` | The exact **source-layer** name inside the PMTiles file that contains the line geometry | Each vector-tile source can contain many layers; you must pick the one you want to style. |
+| `center`, `zoom` | Desired initial view | Adjust to focus on the area covered by your tiles. |
+| `line-color`, `line-width`, etc. | Styling you prefer | Any valid MapLibre GL line-paint / line-layout properties work. |
+
+---
+
+## 2️⃣ How it works under the hood
+
+1. **PMTiles library** – When you call `pmtiles.addProtocol()`, the library registers a custom `fetch` handler for URLs that start with `pmtiles://`.  
+   Internally it reads the `.pmtiles` archive (which is just a single file containing many vector-tile blobs) and serves the requested tile data as if it were coming from a normal HTTP tile server.
+
+2. **MapLibre source definition** – The source is declared as `type: 'vector'` with a `url` that uses the custom protocol. MapLibre will request tiles like `pmtiles://your-data.pmtiles/14/4823/6160.mvt` and the PMTiles handler will return the appropriate MVT blob.
+
+3. **Line layer** – The `source-layer` property tells MapLibre which layer inside each tile to draw. The rest of the layer definition (`paint`, `layout`) is the same as any other MapLibre line layer.
+
+---
+
+## 3️⃣ Bundler note (optional)
+
+If you are **not** loading the libraries from a CDN but instead bundling them with Vite, Webpack, esbuild, etc., you still need to call `setWorkerUrl()` **once** before creating the `Map`. The CDN example above does **not** need that call because the ESM build can resolve the worker automatically.
+
+```js
+import { Map, setWorkerUrl } from 'maplibre-gl';
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
+
+setWorkerUrl(workerUrl);
+```
+
+Add the snippet above **before** `new Map(...)` if you move the code into a bundler-based project.
+
+---
+
+## 4️⃣ Quick sanity-check checklist
+
+- ✅ The PMTiles file is publicly reachable (CORS headers allow `GET` from your page).  
+- ✅ The `pmtiles.addProtocol()` call runs **before** you add the source.  
+- ✅ The `source-layer` name matches exactly what’s inside the PMTiles archive.  
+- ✅ If you’re using a bundler, you have called `setWorkerUrl()` once.  
+
+When all of the above are satisfied, the map will render the line features from your PMTiles vector tiles just like any other vector source. Happy mapping!",PASS,1.00,,All assertions passed,
+"negative — vector tile source setup, unrelated to v6 breaking changes",skills/maplibre-v6-migration/SKILL.md,"How do I add a vector tile source from a PMTiles file to a MapLibre GL JS map and style a line layer from it?
+","Below is a **complete, minimal example** that
+
+1. loads **MapLibre GL JS v6** (ESM-only) from a CDN,  
+2. registers the **PMTiles** protocol,  
+3. adds a vector-tile source that reads from a *.pmtiles* file, and  
+4. draws a simple line layer from one of the source’s layers.
+
+You can copy-paste the whole thing into an `index.html` file and open it in a browser (or serve it locally with any static-file server).
+
+---
+
+## 1️⃣ HTML + ESM imports
+
+```html
+<!doctype html>
+<html lang=""en"">
+<head>
+  <meta charset=""utf-8"">
+  <title>MapLibre GL + PMTiles demo</title>
+  <style>
+    body, html { margin:0; padding:0; height:100%; }
+    #map { width:100%; height:100%; }
+  </style>
+
+  <!-- MapLibre GL JS v6 (ESM build) -->
+  <script type=""module"">
+    // -------------------------------------------------
+    // 1️⃣ Import the libraries
+    // -------------------------------------------------
+    import * as maplibregl from 'https://unpkg.com/maplibre-gl@^6.0.0/dist/maplibre-gl.mjs';
+    import { PMTiles } from 'https://cdn.jsdelivr.net/npm/pmtiles@3.0.0/dist/index.js'; // adjust version if needed
+
+    // -------------------------------------------------
+    // 2️⃣ Register the PMTiles protocol
+    // -------------------------------------------------
+    // The PMTiles library creates a custom fetch handler that understands URLs
+    // that start with ""pmtiles://"".  Calling `addProtocol()` registers that handler
+    // globally (once per page).
+    const pmtiles = new PMTiles('https://YOUR_DOMAIN/path/to/your-data.pmtiles');
+    pmtiles.addProtocol();   // now ""pmtiles://your-data.pmtiles"" works
+
+    // -------------------------------------------------
+    // 3️⃣ Create the map
+    // -------------------------------------------------
+    const map = new maplibregl.Map({
+      container: 'map',
+      style: {
+        version: 8,
+        sources: {},          // we’ll add our source later
+        layers: []            // we’ll add our layer later
+      },
+      center: [0, 0],        // lon, lat
+      zoom: 2
+    });
+
+    // -------------------------------------------------
+    // 4️⃣ When the map is ready, add the PMTiles source & line layer
+    // -------------------------------------------------
+    map.on('load', () => {
+      // ---- 4a. Add the vector source ----
+      map.addSource('my-pmtiles-source', {
+        type: 'vector',
+        // The URL uses the custom protocol we just registered.
+        // The part after the double slash is the filename you passed to PMTiles.
+        url: 'pmtiles://your-data.pmtiles'
+        // If your PMTiles file contains multiple layers you can also
+        // specify `maxzoom`, `minzoom`, `attribution`, etc. here.
+      });
+
+      // ---- 4b. Add a line layer that draws from a source-layer inside the PMTiles file ----
+      // Replace ""my_line_layer"" with the exact name of the layer you want to render.
+      // You can discover the layer names by opening the .pmtiles file in a viewer
+      // (e.g. https://github.com/protomaps/PMTilesViewer) or by inspecting the
+      // `metadata` property of the PMTiles object.
+      map.addLayer({
+        id: 'my-line-layer',
+        type: 'line',
+        source: 'my-pmtiles-source',
+        'source-layer': 'my_line_layer',   // <-- name of the vector-tile layer
+        layout: {
+          'line-cap': 'round',
+          'line-join': 'round'
+        },
+        paint: {
+          'line-color': '#ff6600',
+          'line-width': 3,
+          'line-opacity': 0.8
+        }
+      });
+    });
+  </script>
+</head>
+
+<body>
+  <div id=""map""></div>
+</body>
+</html>
+```
+
+### What you need to change
+
+| Placeholder | What to replace | Why |
+|-------------|----------------|-----|
+| `https://YOUR_DOMAIN/path/to/your-data.pmtiles` | URL of **your** PMTiles file (must be reachable from the browser) | The PMTiles constructor needs the actual file location. |
+| `'my_line_layer'` | The exact **source-layer** name inside the PMTiles file that contains the line geometry | Each vector-tile source can contain many layers; you must pick the one you want to style. |
+| `center`, `zoom` | Desired initial view | Adjust to focus on the area covered by your tiles. |
+| `line-color`, `line-width`, etc. | Styling you prefer | Any valid MapLibre GL line-paint / line-layout properties work. |
+
+---
+
+## 2️⃣ How it works under the hood
+
+1. **PMTiles library** – When you call `pmtiles.addProtocol()`, the library registers a custom `fetch` handler for URLs that start with `pmtiles://`.  
+   Internally it reads the `.pmtiles` archive (which is just a single file containing many vector-tile blobs) and serves the requested tile data as if it were coming from a normal HTTP tile server.
+
+2. **MapLibre source definition** – The source is declared as `type: 'vector'` with a `url` that uses the custom protocol. MapLibre will request tiles like `pmtiles://your-data.pmtiles/14/4823/6160.mvt` and the PMTiles handler will return the appropriate MVT blob.
+
+3. **Line layer** – The `source-layer` property tells MapLibre which layer inside each tile to draw. The rest of the layer definition (`paint`, `layout`) is the same as any other MapLibre line layer.
+
+---
+
+## 3️⃣ Bundler note (optional)
+
+If you are **not** loading the libraries from a CDN but instead bundling them with Vite, Webpack, esbuild, etc., you still need to call `setWorkerUrl()` **once** before creating the `Map`. The CDN example above does **not** need that call because the ESM build can resolve the worker automatically.
+
+```js
+import { Map, setWorkerUrl } from 'maplibre-gl';
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
+
+setWorkerUrl(workerUrl);
+```
+
+Add the snippet above **before** `new Map(...)` if you move the code into a bundler-based project.
+
+---
+
+## 4️⃣ Quick sanity-check checklist
+
+- ✅ The PMTiles file is publicly reachable (CORS headers allow `GET` from your page).  
+- ✅ The `pmtiles.addProtocol()` call runs **before** you add the source.  
+- ✅ The `source-layer` name matches exactly what’s inside the PMTiles archive.  
+- ✅ If you’re using a bundler, you have called `setWorkerUrl()` once.  
+
+When all of the above are satisfied, the map will render the line features from your PMTiles vector tiles just like any other vector source. Happy mapping!",PASS,1.00,,All assertions passed,
+"negative — vector tile source setup, unrelated to v6 breaking changes",skills/maplibre-v6-migration/SKILL.md,"How do I add a vector tile source from a PMTiles file to a MapLibre GL JS map and style a line layer from it?
+",,ERROR,0.00,,,
