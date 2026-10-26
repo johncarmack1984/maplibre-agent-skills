@@ -99,7 +99,7 @@ An install copies skill directories only. If an installed skill turns out to be 
 Skills are plain markdown.
 
 - **Paste into chat**: Open any `SKILL.md` above and paste it directly into your AI assistant's context window.
-- **Copy to your project**: Drop a `SKILL.md` into `.claude/skills/`, `.cursor/rules/`, or append it to `.github/copilot-instructions.md`.
+- **Copy to your project**: Copy `skills/<name>/` to `.agents/skills/<name>/`, which Cursor, GitHub Copilot and Codex read, or to `.claude/skills/<name>/` for Claude Code.
 - **Symlink for local development**:
 
 ```bash
@@ -109,7 +109,7 @@ ln -s /path/to/maplibre-agent-skills/skills .claude/skills
 
 ### Via the skills CLI
 
-The [skills CLI](https://github.com/vercel-labs/skills) is a package manager for AI agent skills. It places skill files in the right location for your tool automatically, and supports 40+ agents.
+The [skills CLI](https://github.com/vercel-labs/skills) is a package manager for AI agent skills. It installs each skill where your agent looks for it.
 
 ```bash
 # List available skills
@@ -133,7 +133,7 @@ To install for a specific agent:
 ```bash
 npx skills add maplibre/maplibre-agent-skills -a claude-code
 npx skills add maplibre/maplibre-agent-skills -a cursor
-npx skills add maplibre/maplibre-agent-skills -a vscode
+npx skills add maplibre/maplibre-agent-skills -a github-copilot
 ```
 
 See [Supported Agents](https://github.com/vercel-labs/skills?tab=readme-ov-file#supported-agents) for the full list.
