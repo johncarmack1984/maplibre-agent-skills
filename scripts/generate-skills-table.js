@@ -2,6 +2,7 @@
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isInternal, parseFrontmatter, statusOf } from './lib/frontmatter.js';
 
 const START_MARKER = '<!-- skills-table:start -->';
 const END_MARKER = '<!-- skills-table:end -->';
@@ -60,17 +61,13 @@ export function readSkills(skillsDir = 'skills') {
       continue;
     }
 
-    if (!content.startsWith('---\n')) continue;
-    const fmEnd = content.indexOf('\n---\n', 4);
-    if (fmEnd === -1) continue;
+    const data = parseFrontmatter(content)?.data;
+    // An internal skill is for this repo's maintainers, not installs.
+    if (!data || isInternal(data)) continue;
 
-    const fm = content.substring(4, fmEnd);
-    const name = fm.match(/^name:\s*(.+)$/m)?.[1]?.trim();
-    const description = fm.match(/^description:\s*(.+)$/m)?.[1]?.trim();
-    const status = fm.match(/^status:\s*(\S+)$/m)?.[1]?.trim();
-
-    if (name && description) {
-      skills.push({ name, description, status: status || '' });
+    const { name, description } = data;
+    if (typeof name === 'string' && typeof description === 'string') {
+      skills.push({ name, description, status: statusOf(data) ?? '' });
     }
   }
 

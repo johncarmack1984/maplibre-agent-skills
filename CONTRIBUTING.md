@@ -103,7 +103,8 @@ skills/maplibre-your-skill-name/
 ---
 name: maplibre-example-skill
 description: Expert guidance on [domain] for MapLibre applications
-status: provisional
+metadata:
+  status: provisional
 ---
 
 # MapLibre [Domain] Skill
@@ -129,7 +130,8 @@ Use this skill when:
 
 - `name` must match the directory name exactly (e.g. `maplibre-tile-sources`).
 - `description` should be concise (1–2 sentences).
-- `status` is `verified`, `provisional`, or `process` — see [What a skill's status means](README.md#what-a-skills-status-means).
+- `metadata.status` is `verified`, `provisional`, or `process` — see [What Status Means](README.md#what-status-means).
+- Any other key of our own goes under `metadata` too. The [Agent Skills spec](https://agentskills.io/specification) allows six top-level keys, and claude.ai uploads and the Skills API reject a file with any other.
 - The closing footer is required and identical in every skill. A skill directory is all an install copies, so this is the only route back to us that an installed user has.
 - Content must include actionable guidance, not just reference text.
 
@@ -162,6 +164,8 @@ The exemption is narrow. The test is whether the skill's correctness depends on 
 
 Anything asserting how MapLibre behaves fails that test, whatever the front matter says — "it's a process skill" does not carry untested MapLibre content past the bar. Where a process skill needs a MapLibre example, it should point at a shipped skill that already carries the claim rather than restating it.
 
+A process skill only maintainers need sets `metadata.internal: true`, so `npx skills add` does not install it.
+
 Process skills are reviewed by reading them against the files they describe, and they go stale when this repo's process changes rather than when MapLibre ships.
 
 ## Development setup
@@ -191,7 +195,7 @@ Run `npm run check` frequently while developing, not just before pushing — it 
 5. **Model pins** — provider ids must match the pinned generator/judge
 6. **Eval request sizes** — every eval answer keeps at least half its token budget, and every config fits in a day's generator tokens ([details](evals/README.md#request-size))
 7. **Eval tripwires** — no `not-icontains` check matches the skill its test injects ([details](evals/README.md#writing-eval-prompts))
-8. **Skills validation** — YAML frontmatter and structure
+8. **Skills validation** — front matter against the Agent Skills spec, `metadata.status`, and the closing footer
 
 All checks pass when the output ends with:
 
