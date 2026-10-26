@@ -6,8 +6,13 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 <!-- bump: patch -->
 
+### Fixed
+
+- `maplibre-terrain-rendering`: says MapLibre GL JS has no `setFog` method or root `fog` object, so haze goes in `sky`, and the sky test fails a `setFog` call ([#151](https://github.com/maplibre/maplibre-agent-skills/pull/151))
+
 ### Internal
 
+- `eval:graded`: the judge is `gemini-3.1-flash-lite`, which held recorded answers to their rubrics where `gemini-2.5-flash-lite` passed misses ([#150](https://github.com/maplibre/maplibre-agent-skills/pull/150))
 - `eval.yml`: the scheduled run grades a config when its SKILL.md, eval config or harness changes, and re-grades the rest weekly; each run commits `evals/results/<date>.json` with what it graded on ([#149](https://github.com/maplibre/maplibre-agent-skills/pull/149))
 - `eval.yml`: the publish job's status sync imports no package again, and a unit test keeps every script that job runs free of packages ([#148](https://github.com/maplibre/maplibre-agent-skills/pull/148))
 
