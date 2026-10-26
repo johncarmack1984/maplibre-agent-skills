@@ -356,9 +356,9 @@ describe('rateLimitWaits', () => {
     const log = [
       '2026-10-22T17:53:33.438Z [DEBUG] [logger-B9f-j62Q.js:1215]: Rate limited on URL https://api.groq.com/openai/v1/chat/completions: HTTP 429 Too Many Requests, attempt 1/5, waiting before retry...',
       '2026-10-22T17:53:33.438Z [DEBUG] [logger-B9f-j62Q.js:1215]: Rate limited, waiting 518720ms (base 518400ms + 320ms jitter) before retry',
-      'Rate limited on URL https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=***: HTTP 429 Too Many Requests, attempt 1/5, waiting before retry...',
+      'Rate limited on URL https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=***: HTTP 429 Too Many Requests, attempt 1/5, waiting before retry...',
       'Rate limited, waiting 60000ms (base 60000ms + 0ms jitter) before retry',
-      'Rate limited on URL https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=***: HTTP 429 Too Many Requests, attempt 2/5, waiting before retry...',
+      'Rate limited on URL https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=***: HTTP 429 Too Many Requests, attempt 2/5, waiting before retry...',
       'Rate limited, waiting 61000ms (base 60000ms + 1000ms jitter) before retry'
     ].join('\n');
     assert.deepEqual(rateLimitWaits(log), [
@@ -735,7 +735,7 @@ describe('measureLimits', () => {
       { pin, apiKey: 'k', fetch: headerless },
       { pin, apiKey: 'k', fetch: offline },
       { pin, apiKey: undefined, fetch: groq() },
-      { pin: 'google:gemini-2.5-flash-lite', apiKey: 'k', fetch: groq() }
+      { pin: 'google:gemini-3.1-flash-lite', apiKey: 'k', fetch: groq() }
     ]) {
       assert.equal(await measureLimits(options), null);
     }
@@ -794,10 +794,10 @@ describe('judgePin', () => {
     const packageJson = {
       scripts: {
         'eval:graded':
-          'promptfoo eval --grader google:gemini-2.5-flash-lite --delay 8000 --no-cache -j 1'
+          'promptfoo eval --grader google:gemini-3.1-flash-lite --delay 8000 --no-cache -j 1'
       }
     };
-    assert.equal(judgePin(packageJson), 'google:gemini-2.5-flash-lite');
+    assert.equal(judgePin(packageJson), 'google:gemini-3.1-flash-lite');
     assert.equal(judgePin({ scripts: {} }), null);
   });
 });
@@ -821,7 +821,7 @@ function googleRefusal(quotaId, quotaValue = '20') {
               quotaId,
               quotaDimensions: {
                 location: 'global',
-                model: 'gemini-2.5-flash-lite'
+                model: 'gemini-3.1-flash-lite'
               },
               ...(quotaValue === null ? {} : { quotaValue })
             }
@@ -844,7 +844,7 @@ describe('judgeRefusal', () => {
     assert.deepEqual(judgeRefusal(googleRefusal(PER_DAY)), {
       quotaId: PER_DAY,
       limit: 20,
-      model: 'gemini-2.5-flash-lite'
+      model: 'gemini-3.1-flash-lite'
     });
   });
 
@@ -852,7 +852,7 @@ describe('judgeRefusal', () => {
     assert.deepEqual(judgeRefusal(googleRefusal(PER_DAY, null)), {
       quotaId: PER_DAY,
       limit: null,
-      model: 'gemini-2.5-flash-lite'
+      model: 'gemini-3.1-flash-lite'
     });
   });
 
@@ -870,7 +870,7 @@ describe('judgeRefusal', () => {
 });
 
 describe('judgeDaySpent', () => {
-  const pin = 'google:gemini-2.5-flash-lite';
+  const pin = 'google:gemini-3.1-flash-lite';
   const respond =
     (status, text, seen = []) =>
     async (url, request) => {
@@ -888,7 +888,7 @@ describe('judgeDaySpent', () => {
     assert.equal(seen.length, 1);
     assert.equal(
       seen[0].url,
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent'
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent'
     );
     assert.equal(seen[0].request.headers['x-goog-api-key'], 'k');
     assert.equal(
@@ -904,7 +904,7 @@ describe('judgeDaySpent', () => {
         apiKey: 'k',
         fetch: respond(429, googleRefusal(PER_DAY))
       }),
-      { quotaId: PER_DAY, limit: 20, model: 'gemini-2.5-flash-lite' }
+      { quotaId: PER_DAY, limit: 20, model: 'gemini-3.1-flash-lite' }
     );
   });
 
@@ -1121,13 +1121,13 @@ describe('runEvals', () => {
   // What promptfoo leaves when Google refuses the judge: ERROR rows naming the
   // judge, and in its debug log the waits, but never Google's body.
   const JUDGE_REFUSED =
-    'RateLimitExhaustedError: Rate limit exceeded for google:gemini-2.5-flash-lite after 4 attempts';
+    'RateLimitExhaustedError: Rate limit exceeded for google:gemini-3.1-flash-lite after 4 attempts';
   const judgeWaits = (dir) => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(
       join(dir, 'promptfoo-debug-2026-10-24_10-50-02-597Z.log'),
       [
-        'Rate limited on URL https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent: HTTP 429 Too Many Requests, attempt 1/5, waiting before retry...',
+        'Rate limited on URL https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent: HTTP 429 Too Many Requests, attempt 1/5, waiting before retry...',
         'Rate limited, waiting 60516ms (base 60000ms + 516ms jitter) before retry'
       ].join('\n')
     );
@@ -1149,7 +1149,7 @@ describe('runEvals', () => {
       };
     };
   const judged = {
-    judge: 'google:gemini-2.5-flash-lite',
+    judge: 'google:gemini-3.1-flash-lite',
     env: { GOOGLE_API_KEY: 'k' }
   };
 
@@ -1191,7 +1191,7 @@ describe('runEvals', () => {
     assert.deepEqual(summary.day.judgeSpent, {
       quotaId: PER_DAY,
       limit: 20,
-      model: 'gemini-2.5-flash-lite'
+      model: 'gemini-3.1-flash-lite'
     });
     assert.deepEqual(summary.day.waiting, ['maplibre-mapbox-migration']);
     const cut = summary.configs[1];
@@ -1205,7 +1205,7 @@ describe('runEvals', () => {
     );
     assert.ok(
       lines.includes(
-        `Google refused the judge for its daily quota (20 requests a day for gemini-2.5-flash-lite, ${PER_DAY}); the rest wait for another day.`
+        `Google refused the judge for its daily quota (20 requests a day for gemini-3.1-flash-lite, ${PER_DAY}); the rest wait for another day.`
       )
     );
     // Its CSV is set aside, so the rotation keeps it first in line.

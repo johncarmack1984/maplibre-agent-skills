@@ -43,7 +43,7 @@ Current models:
 | Role      | When                          | Provider                                      | Model ID                       |
 | --------- | ----------------------------- | --------------------------------------------- | ------------------------------ |
 | Generator | All runs                      | [Groq](https://console.groq.com/)             | `groq:openai/gpt-oss-120b`     |
-| Judge     | All graded runs, local and CI | [Google Gemini](https://aistudio.google.com/) | `google:gemini-2.5-flash-lite` |
+| Judge     | All graded runs, local and CI | [Google Gemini](https://aistudio.google.com/) | `google:gemini-3.1-flash-lite` |
 
 Update `providers.yaml` and this table together when the model changes; see [CI](#ci) for how the pin is enforced.
 
