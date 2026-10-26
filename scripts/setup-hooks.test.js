@@ -71,4 +71,11 @@ describe('setup-hooks', () => {
       assert.ok(existsSync(hook), `no pre-push hook after running from ${dir}`);
     }
   });
+
+  it('succeeds without installing anything outside a git checkout', (t) => {
+    const dir = mkdtempSync(join(tmpdir(), 'setup-hooks-'));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    setupHooks(dir);
+    assert.ok(!existsSync(join(dir, '.git')));
+  });
 });
