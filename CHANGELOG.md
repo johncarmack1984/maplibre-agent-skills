@@ -13,11 +13,16 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Changed
 
+- skills: `status` moves under `metadata`, as the Agent Skills spec requires, so claude.ai uploads accept them; `maplibre-running-evals` no longer installs with `npx skills add`; `validate:skills` checks front matter against the spec and requires the footer ([#138](https://github.com/maplibre/maplibre-agent-skills/pull/138))
 - `maplibre-terrain-patterns` replaced by `maplibre-terrain-rendering` (hillshade, color-relief, contours, 3D terrain and sky, `verified`), with its eval config split along the same seam and cross-references updated; the companion DEM-source content was withdrawn after a probe showed no gap to close ([#84](https://github.com/maplibre/maplibre-agent-skills/pull/84))
 - evals: rubrics for `maplibre-mapbox-migration` and `maplibre-pmtiles-patterns` now fail invented APIs; `maplibre-mapbox-migration` gains the Mapbox v2 → MapLibre API mapping, and both skills move to `verified` ([#85](https://github.com/maplibre/maplibre-agent-skills/pull/85))
 
 ### Fixed
 
+- `maplibre-mapbox-migration`, `maplibre-pmtiles-patterns`, `maplibre-cartography`, `maplibre-tile-sources`: correct a package name that is not on npm, version boundaries, dead links and citations, and how MapLibre GL Leaflet works ([#143](https://github.com/maplibre/maplibre-agent-skills/pull/143))
+- `maplibre-v6-migration`: the CDN example uses a namespace import, the `setMissingStyleImageResolver` example calls `map.addImage()` because GL JS ignores the resolver's return value, and the worker note covers 6.13.0's self-contained worker ([#142](https://github.com/maplibre/maplibre-agent-skills/pull/142))
+- README: the install section gives the skill folders Cursor, GitHub Copilot, Codex and Claude Code read, and `-a github-copilot` in place of `-a vscode`, which the skills CLI rejects ([#139](https://github.com/maplibre/maplibre-agent-skills/pull/139))
+- `maplibre-source-wiring` and `maplibre-tile-sources`: replace "silently omitted" with the console warning GL JS logs for a missing sprite or icon, and `map.hasImage()` ([#104](https://github.com/maplibre/maplibre-agent-skills/pull/104))
 - `maplibre-sprites-icons`: gives each OSM Bright sheet's shield badges per network, and its shield test checks those ranges without the judge ([#135](https://github.com/maplibre/maplibre-agent-skills/pull/135))
 - `maplibre-source-wiring`: says a `{z}/{x}/{y}` template is not a URL to test by hand, which its TileJSON advice had crowded out ([#120](https://github.com/maplibre/maplibre-agent-skills/pull/120))
 - `maplibre-fonts-glyphs`: no longer adds font and glyph advice to answers about layers that draw no text ([#121](https://github.com/maplibre/maplibre-agent-skills/pull/121))
@@ -26,6 +31,9 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Internal
 
+- dependencies: `promptfoo` 0.125, `markdownlint-cli` 0.50 and `js-yaml` 5.5, with overrides for four transitive packages, so `npm audit` reports nothing ([#144](https://github.com/maplibre/maplibre-agent-skills/pull/144))
+- `scripts/setup-hooks.js`: `npm install` outside a git checkout skips the pre-push hook instead of failing ([#140](https://github.com/maplibre/maplibre-agent-skills/pull/140))
+- `changelog.yml`: the changelog bot runs `npm run check` before pushing, so an entry that fails it fails the run instead of reaching `main` unchecked ([#109](https://github.com/maplibre/maplibre-agent-skills/pull/109))
 - workflows: every job runs the Node version in `.nvmrc`, now 26, with each action on its Node 24 release, and `check.yml` runs the unit tests ([#137](https://github.com/maplibre/maplibre-agent-skills/pull/137))
 - `eval.yml`: a config the judge's or the generator's daily limit cuts off waits for the next day instead of failing the run, and a 5xx from either provider is retried ([#134](https://github.com/maplibre/maplibre-agent-skills/pull/134))
 - evals: `maplibre-terrain-rendering` test 4 fails an answer that sets a Mapbox-only sky key, which the judge had passed ([#130](https://github.com/maplibre/maplibre-agent-skills/pull/130))

@@ -1,9 +1,13 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   extractUseWhen,
   generateTable,
   parseExistingRows,
+  readSkills,
   tableIsCurrent
 } from './generate-skills-table.js';
 
@@ -148,5 +152,35 @@ describe('tableIsCurrent', () => {
       '| [`beta-skill`](skills/beta-skill/SKILL.md) | Y |\n| [`alpha-skill`](skills/alpha-skill/SKILL.md) | X |'
     );
     assert.equal(tableIsCurrent(unsorted, two), false);
+  });
+});
+
+describe('readSkills', () => {
+  function skillsDir(files) {
+    const dir = mkdtempSync(join(tmpdir(), 'skills-table-'));
+    for (const [name, frontmatter] of Object.entries(files)) {
+      mkdirSync(join(dir, name));
+      writeFileSync(
+        join(dir, name, 'SKILL.md'),
+        `---\n${frontmatter}\n---\n\n# Body\n`
+      );
+    }
+    return dir;
+  }
+
+  it('reads the status from metadata and leaves internal skills out', () => {
+    const dir = skillsDir({
+      'alpha-skill':
+        'name: alpha-skill\ndescription: Alpha. Use when doing A.\nmetadata:\n  status: verified',
+      'beta-skill':
+        'name: beta-skill\ndescription: Beta. Use when doing B.\nmetadata:\n  status: process\n  internal: true'
+    });
+    assert.deepEqual(readSkills(dir), [
+      {
+        name: 'alpha-skill',
+        description: 'Alpha. Use when doing A.',
+        status: 'verified'
+      }
+    ]);
   });
 });

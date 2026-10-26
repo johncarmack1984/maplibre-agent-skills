@@ -1,0 +1,423 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+explicit — validate style JSON with CLI tool after migration,skills/maplibre-mapbox-migration/SKILL.md,"I'm migrating from Mapbox to MapLibre and want to check whether my exported style JSON is compatible before deploying. Is there a CLI tool I can run on the file?
+","### Yes – MapLibre ships a **CLI validator** for style JSON.
+
+The package that powers the validator is **`@maplibre/maplibre-gl-style-spec`**.  
+It provides a small command-line tool called **`gl-style-validate`** that checks a style file against the current MapLibre Style Specification and reports any incompatibilities (missing required fields, unknown properties, wrong value types, etc.).
+
+---
+
+## 1. Install the validator (once)
+
+You can add it as a dev-dependency to your project, or just run it with `npx` (no permanent install needed).
+
+```bash
+# Option A – add to your repo (good for CI pipelines)
+npm install --save-dev @maplibre/maplibre-gl-style-spec
+
+# Option B – one-off run without installing
+# (npx will download the package temporarily)
+```
+
+> **Tip:** The validator works with any recent version of MapLibre GL JS (v5 +). If you’re on a newer major version (v6), the same package still validates against the latest spec.
+
+---
+
+## 2. Run the CLI
+
+### Basic usage
+
+```bash
+# If you installed it locally
+npx gl-style-validate path/to/your/style.json
+```
+
+or, after installing globally (optional):
+
+```bash
+npm install -g @maplibre/maplibre-gl-style-spec
+gl-style-validate path/to/your/style.json
+```
+
+### What you’ll see
+
+- **✅ Valid** – the file conforms to the spec; you can safely load it in MapLibre.
+- **❌ Errors** – each line shows the JSON-pointer to the offending property, the expected type/value, and a short description.
+- **⚠️ Warnings** – non-fatal issues (e.g., deprecated properties, unknown extensions) that may still work but could be removed or need attention.
+
+Example output:
+
+```
+❌  /sources/openstreetmap/type must be one of [""vector"",""raster"",""geojson"",""image""]
+⚠️  /layers/0/paint/line-color: unknown property (MapLibre ignores it)
+✅  Style is valid
+```
+
+---
+
+## 3. Integrate into a CI / build step (optional)
+
+Add a script to your `package.json`:
+
+```json
+{
+  ""scripts"": {
+    ""style:check"": ""gl-style-validate src/styles/map.json""
+  }
+}
+```
+
+Then run it as part of CI:
+
+```bash
+npm run style:check   # fails the build if any ❌ errors are found
+```
+
+You can also combine it with `--quiet` to only output errors, or pipe the output to a file for later review.
+
+---
+
+## 4. Common pitfalls you’ll catch with the validator
+
+| Issue you might see | Why it matters for MapLibre |
+|---------------------|-----------------------------|
+| `source.type: ""vector""` but `url` is a `mapbox://` URL | MapLibre cannot resolve `mapbox://` sources; you need a public URL (e.g., `https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.pbf`) or a self-hosted tile endpoint. |
+| `glyphs: ""mapbox://fonts/...` | Same problem – replace with a glyph URL that serves PBF fonts (e.g., `https://fonts.openmaptiles.org/{fontstack}/{range}.pbf`). |
+| `sprite: ""mapbox://sprites/...` | Replace with a sprite PNG/JSON pair you host yourself or use a public sprite set. |
+| `layout[""text-field""]: [""get"", ""name""]` on a raster source | Raster sources don’t have feature properties; the validator will flag it. |
+| `sky` vs. `fog` | MapLibre uses `sky`; the validator will warn if you still have a `fog` object. |
+| `metadata.mapbox: {...}` | MapLibre ignores Mapbox-specific metadata; the validator will warn you. |
+
+Fixing these issues before you ship the style saves you from a blank map or console errors at runtime.
+
+---
+
+## 5. Visual debugging (complementary tool)
+
+Even after the CLI passes, you might want to **preview** the style and tweak it interactively:
+
+- **Maputnik** – an open-source style editor that works with MapLibre styles.  
+  ```bash
+  npx maputnik --style path/to/your/style.json
+  ```
+- **MapLibre GL JS “debug” mode** – add `map.showTileBoundaries = true;` or `map.showCollisionBoxes = true;` to see rendering problems.
+
+These tools are great for catching things the validator can’t (e.g., missing sprite images, font rendering quirks).
+
+---
+
+## 6. Quick cheat-sheet
+
+| Command | What it does |
+|---------|--------------|
+| `npm install --save-dev @maplibre/maplibre-gl-style-spec` | Adds the validator to your project. |
+| `npx gl-style-validate style.json` | Runs a one-off validation. |
+| `npm run style:check` (with script) | CI-friendly validation that fails on errors. |
+| `npx maputnik --style style.json` | Opens an interactive editor for visual checks. |
+
+---
+
+### TL;DR
+
+**Yes – run `gl-style-validate`** (provided by `@maplibre/maplibre-gl-style-spec`) on your exported style JSON. It will tell you exactly which Mapbox-specific URLs or properties need to be replaced before the style can be consumed by MapLibre. Add it to your build or CI pipeline to catch incompatibilities early, and use Maputnik for visual fine-tuning.",PASS,1.00,,All assertions passed,
+explicit — validate style JSON with CLI tool after migration,skills/maplibre-mapbox-migration/SKILL.md,"I'm migrating from Mapbox to MapLibre and want to check whether my exported style JSON is compatible before deploying. Is there a CLI tool I can run on the file?
+","### Yes – MapLibre ships a **CLI validator** for style JSON.
+
+The package that powers the validator is **`@maplibre/maplibre-gl-style-spec`**.  
+It provides a small command-line tool called **`gl-style-validate`** that checks a style file against the current MapLibre Style Specification and reports any incompatibilities (missing required fields, unknown properties, wrong value types, etc.).
+
+---
+
+## 1. Install the validator (once)
+
+You can add it as a dev-dependency to your project, or just run it with `npx` (no permanent install needed).
+
+```bash
+# Option A – add to your repo (good for CI pipelines)
+npm install --save-dev @maplibre/maplibre-gl-style-spec
+
+# Option B – one-off run without installing
+# (npx will download the package temporarily)
+```
+
+> **Tip:** The validator works with any recent version of MapLibre GL JS (v5 +). If you’re on a newer major version (v6), the same package still validates against the latest spec.
+
+---
+
+## 2. Run the CLI
+
+### Basic usage
+
+```bash
+# If you installed it locally
+npx gl-style-validate path/to/your/style.json
+```
+
+or, after installing globally (optional):
+
+```bash
+npm install -g @maplibre/maplibre-gl-style-spec
+gl-style-validate path/to/your/style.json
+```
+
+### What you’ll see
+
+- **✅ Valid** – the file conforms to the spec; you can safely load it in MapLibre.
+- **❌ Errors** – each line shows the JSON-pointer to the offending property, the expected type/value, and a short description.
+- **⚠️ Warnings** – non-fatal issues (e.g., deprecated properties, unknown extensions) that may still work but could be removed or need attention.
+
+Example output:
+
+```
+❌  /sources/openstreetmap/type must be one of [""vector"",""raster"",""geojson"",""image""]
+⚠️  /layers/0/paint/line-color: unknown property (MapLibre ignores it)
+✅  Style is valid
+```
+
+---
+
+## 3. Integrate into a CI / build step (optional)
+
+Add a script to your `package.json`:
+
+```json
+{
+  ""scripts"": {
+    ""style:check"": ""gl-style-validate src/styles/map.json""
+  }
+}
+```
+
+Then run it as part of CI:
+
+```bash
+npm run style:check   # fails the build if any ❌ errors are found
+```
+
+You can also combine it with `--quiet` to only output errors, or pipe the output to a file for later review.
+
+---
+
+## 4. Common pitfalls you’ll catch with the validator
+
+| Issue you might see | Why it matters for MapLibre |
+|---------------------|-----------------------------|
+| `source.type: ""vector""` but `url` is a `mapbox://` URL | MapLibre cannot resolve `mapbox://` sources; you need a public URL (e.g., `https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.pbf`) or a self-hosted tile endpoint. |
+| `glyphs: ""mapbox://fonts/...` | Same problem – replace with a glyph URL that serves PBF fonts (e.g., `https://fonts.openmaptiles.org/{fontstack}/{range}.pbf`). |
+| `sprite: ""mapbox://sprites/...` | Replace with a sprite PNG/JSON pair you host yourself or use a public sprite set. |
+| `layout[""text-field""]: [""get"", ""name""]` on a raster source | Raster sources don’t have feature properties; the validator will flag it. |
+| `sky` vs. `fog` | MapLibre uses `sky`; the validator will warn if you still have a `fog` object. |
+| `metadata.mapbox: {...}` | MapLibre ignores Mapbox-specific metadata; the validator will warn you. |
+
+Fixing these issues before you ship the style saves you from a blank map or console errors at runtime.
+
+---
+
+## 5. Visual debugging (complementary tool)
+
+Even after the CLI passes, you might want to **preview** the style and tweak it interactively:
+
+- **Maputnik** – an open-source style editor that works with MapLibre styles.  
+  ```bash
+  npx maputnik --style path/to/your/style.json
+  ```
+- **MapLibre GL JS “debug” mode** – add `map.showTileBoundaries = true;` or `map.showCollisionBoxes = true;` to see rendering problems.
+
+These tools are great for catching things the validator can’t (e.g., missing sprite images, font rendering quirks).
+
+---
+
+## 6. Quick cheat-sheet
+
+| Command | What it does |
+|---------|--------------|
+| `npm install --save-dev @maplibre/maplibre-gl-style-spec` | Adds the validator to your project. |
+| `npx gl-style-validate style.json` | Runs a one-off validation. |
+| `npm run style:check` (with script) | CI-friendly validation that fails on errors. |
+| `npx maputnik --style style.json` | Opens an interactive editor for visual checks. |
+
+---
+
+### TL;DR
+
+**Yes – run `gl-style-validate`** (provided by `@maplibre/maplibre-gl-style-spec`) on your exported style JSON. It will tell you exactly which Mapbox-specific URLs or properties need to be replaced before the style can be consumed by MapLibre. Add it to your build or CI pipeline to catch incompatibilities early, and use Maputnik for visual fine-tuning.",PASS,1.00,,All assertions passed,
+explicit — validate style JSON with CLI tool after migration,skills/maplibre-mapbox-migration/SKILL.md,"I'm migrating from Mapbox to MapLibre and want to check whether my exported style JSON is compatible before deploying. Is there a CLI tool I can run on the file?
+","Below is a quick-start guide to **validate a Mapbox-exported style JSON against the MapLibre style specification** with a command-line tool.  
+It shows how to install/run the validator, what the output means, and how to fix the most common incompatibilities you’ll hit after swapping the tile source.
+
+---
+
+## 1. The official CLI – `gl-style-validate`
+
+MapLibre ships a tiny CLI in the **`@maplibre/maplibre-gl-style-spec`** package.  
+The command is called **`gl-style-validate`** (or `npx gl-style-validate` if you don’t want a global install).
+
+| Feature | Details |
+|---------|---------|
+| **Checks** | • JSON syntax  <br>• Conformance to the MapLibre Style Specification (v8-compatible) <br>• Presence of required top-level keys (`version`, `sources`, `layers`, …) <br>• Valid values for each property (e.g., `type`, `source-layer`, `paint`, `layout`) <br>• Detects Mapbox-only keys (`glyphs`, `sprite`, `metadata.mapbox*`, `source.type: ""vector""` that points to `mapbox://…`) |
+| **Output** | Human-readable list of **errors** and **warnings** with JSON-pointer locations. Returns exit-code 1 on any error (perfect for CI). |
+| **Versioning** | The validator follows the **MapLibre Style Spec** version that ships with the package (currently v8.0.0 as of v6.x of `maplibre-gl`). You can override the spec version with `--spec-version <semver>` if you need to test against an older spec. |
+| **Installation options** | 1. **Global** – `npm i -g @maplibre/maplibre-gl-style-spec`  <br>2. **Project-local** – `npm i -D @maplibre/maplibre-gl-style-spec`  <br>3. **One-off** – `npx gl-style-validate …` (no install needed) |
+
+---
+
+## 2. Installing & Running the Validator
+
+### 2.1 Global install (good for repeated local use)
+
+```bash
+npm i -g @maplibre/maplibre-gl-style-spec
+```
+
+Now the command is on your `$PATH`:
+
+```bash
+gl-style-validate path/to/style.json
+```
+
+### 2.2 Project-local (recommended for CI)
+
+```bash
+# Add as a dev-dependency
+npm i -D @maplibre/maplibre-gl-style-spec
+```
+
+Add a script to `package.json`:
+
+```json
+{
+  ""scripts"": {
+    ""style:validate"": ""gl-style-validate ./src/style.json""
+  }
+}
+```
+
+Run it:
+
+```bash
+npm run style:validate
+```
+
+### 2.3 One-off with npx (no permanent install)
+
+```bash
+npx gl-style-validate ./src/style.json
+```
+
+---
+
+## 3. Example Output
+
+```text
+$ gl-style-validate ./style.json
+✔︎ JSON is well-formed
+✖︎ Invalid value at /layers/0/paint/line-color: expected a color string, got ""rgba(255,0,0,0.5,0.2)""
+✖︎ Unknown top-level property at /metadata/mapbox:api_version
+✖︎ Source “mapbox-streets” uses a Mapbox URL (mapbox://…); MapLibre cannot resolve it.
+⚠︎ “glyphs” points to a Mapbox CDN – you may want to replace it with a public glyph server.
+⚠︎ “sprite” URL is a Mapbox CDN – replace or host your own sprite sheet.
+
+✖ 5 errors, 2 warnings
+```
+
+* **Errors** → the style will **fail to load** in MapLibre.  
+* **Warnings** → the map will load, but you’ll likely see missing fonts/sprites or fallback behavior.
+
+The CLI exits with `1` when any error is present, which makes it perfect for CI pipelines:
+
+```bash
+# In GitHub Actions, GitLab CI, etc.
+- name: Validate MapLibre style
+  run: npx gl-style-validate ./style.json
+```
+
+---
+
+## 4. Typical Fixes After a Mapbox → MapLibre Switch
+
+| Problem reported by validator | What to do |
+|-------------------------------|------------|
+| **`source.type: ""vector""` with a `url: ""mapbox://…""`** | Replace the URL with a non-Mapbox source (e.g., `https://tiles.openfreemap.org/tiles/{z}/{x}/{y}.pbf` or a local PMTiles URL). Update `source-layer` names if they differ. |
+| **`glyphs` points to `mapbox://fonts/...`** | Use an open glyph server (e.g., `https://fonts.openfreemap.org/{fontstack}/{range}.pbf`) or host your own. |
+| **`sprite` points to a Mapbox CDN** | Host the sprite sheet yourself or use a free provider (e.g., `https://tiles.openfreemap.org/sprites/sprite`). |
+| **`metadata.mapbox*` keys** | Delete or rename them; they are ignored by MapLibre and cause validation errors. |
+| **`paint`/`layout` values that use Mapbox-only expressions** (e.g., `[""interpolate"", [""linear""], [""zoom""], …]` that reference `[""get"", ""mapbox:zoom""]`) | Rewrite the expression using standard MapLibre syntax. Most simple interpolations work unchanged; only the `mapbox:` namespace needs removal. |
+| **`version` set to 8** (Mapbox GL JS v2 style) | MapLibre supports version 8, but make sure you are on a recent `maplibre-gl` (v5+). If you need to target an older MapLibre version, downgrade the style version (`""version"": 7`). |
+| **`sky` missing but `fog` present** | MapLibre uses `sky` instead of `fog`. Convert `setFog`-style objects to `setSky` (see the migration table in the skill). |
+| **`source-layer` names that don’t exist in the new tileset** | Open the new vector source in a viewer (e.g., `maputnik` or `tileserver-gl`) to discover the correct layer names, then update the style JSON. |
+
+---
+
+## 5. Automating Validation in a CI/CD Pipeline
+
+Below is a minimal GitHub Actions workflow that runs the validator on every PR:
+
+```yaml
+name: Validate MapLibre style
+
+on:
+  pull_request:
+    paths:
+      - 'src/style.json'
+
+jobs:
+  style-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install validator
+        run: npm i -g @maplibre/maplibre-gl-style-spec
+      - name: Run validator
+        run: gl-style-validate src/style.json
+```
+
+If the validator exits with a non-zero code, the job fails and the PR can’t be merged until the style passes.
+
+---
+
+## 6. Extra Tools & Helpers
+
+| Tool | Why you might also use it |
+|------|---------------------------|
+| **Maputnik** (`npm i -g maputnik`) | Interactive visual editor that loads the same JSON. It will highlight missing sprites/glyphs and let you edit the style in the browser. |
+| **`@maplibre/maplibre-gl-style-spec` programmatic API** | If you need custom validation (e.g., ignore certain warnings), you can import the spec parser in a Node script: <br>`import { validate } from '@maplibre/maplibre-gl-style-spec';` |
+| **`stylelint` with `stylelint-config-maplibre`** | Lints CSS/SCSS that references MapLibre class names (`.maplibregl-ctrl`). Not a style-JSON validator, but useful for a full-stack migration. |
+| **`mapbox-gl-style-spec`** (the original Mapbox validator) | Helpful for a quick “are there any Mapbox-only keys?” check, but it will *not* flag the MapLibre-specific `sky` property. Use it only as a supplemental sanity check. |
+
+---
+
+## 7. Quick “cheat-sheet” Commands
+
+| Goal | Command |
+|------|---------|
+| **One-off validation** | `npx gl-style-validate ./style.json` |
+| **Validate and output JSON of errors** | `gl-style-validate ./style.json --json` |
+| **Validate against an older spec (e.g., v7)** | `gl-style-validate ./style.json --spec-version 7` |
+| **Ignore warnings (fail only on errors)** | `gl-style-validate ./style.json --no-warnings` |
+| **Run in CI (fail on any non-zero exit)** | `npm run style:validate` (see script above) |
+
+---
+
+## 8. TL;DR Checklist for Your Migration
+
+1. **Export the Mapbox style JSON** (via Mapbox Studio → *Download style*).  
+2. **Run the validator**: `npx gl-style-validate ./my-style.json`.  
+3. **Fix every error** that the validator reports (replace Mapbox URLs, remove Mapbox-only metadata, add/replace `glyphs` and `sprite` URLs, adjust `source-layer` names).  
+4. **Re-run** until the CLI reports **0 errors** (warnings are optional).  
+5. **Commit the cleaned style** and add the validation step to your CI pipeline.  
+6. **Load the style in MapLibre** (`new maplibregl.Map({style: './my-style.json', …})`) and verify that the map renders as expected.
+
+---
+
+## 9. References
+
+* **MapLibre Style Spec CLI** – <https://github.com/maplibre/maplibre-style-spec#cli-tools>  
+* **MapLibre GL JS migration guide** – <https://maplibre.org/maplibre-gl-js/docs/guides/mapbox-migration-guide/>  
+* **Maputnik (visual style editor)** – <https://maputnik.github.io/>  
+* **OpenFreeMap style example** – <https://tiles.openfreemap.org/styles/liberty> (good test source when you need a quick non-Mapbox style)
+
+---
+
+### Bottom line
+
+Yes—**`gl-style-validate`** (bundled with `@maplibre/maplibre-gl-style-spec`) is the official CLI you can run on any exported style JSON to guarantee it conforms to the MapLibre style spec before you ship. Use it locally, add it to CI, and fix the few Mapbox-specific keys it flags, and you’ll have a clean, production-ready style for MapLibre. Happy mapping!",PASS,1.00,,All assertions passed,

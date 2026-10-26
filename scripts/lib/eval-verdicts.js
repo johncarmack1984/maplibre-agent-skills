@@ -10,18 +10,18 @@
  *
  *   - `promptfoo eval --output x.json` writes
  *     `{ evalId, results: <EvaluateSummary>, config, shareableUrl, metadata }`
- *     — `createOutputData` in node_modules/promptfoo/dist/src/util-BA1y4Bfi.js:3797,
- *     via `writeJsonOutputSafely` (same file, :3856) from `writeOutput` (:3872).
+ *     — `createOutputData` in node_modules/promptfoo/dist/src/util-*.js,
+ *     via `writeJsonOutputSafely` (same file) from `writeOutput`.
  *   - That `results` value is the version-3 summary
  *     `{ version: 3, timestamp, prompts, results: [...], stats }` —
- *     `Eval.toEvaluateSummary` in node_modules/promptfoo/dist/src/eval-CMF40G1V.js:1380,
- *     with `stats` from `getStats` (same file, :1362): `successes`, `failures`,
+ *     `Eval.toEvaluateSummary` in node_modules/promptfoo/dist/src/eval-*.js,
+ *     with `stats` from `getStats` (same file): `successes`, `failures`,
  *     `errors`, `tokenUsage`, `durationMs`.
  *   - Each row carries `error` and `failureReason` —
  *     `EvalResult.toEvaluateResult` in
- *     node_modules/promptfoo/dist/src/evalResult-Dnh5pjl7.js:1041.
+ *     node_modules/promptfoo/dist/src/evalResult-*.js.
  *   - `ResultFailureReason` is `{ NONE: 0, ASSERT: 1, ERROR: 2 }` —
- *     node_modules/promptfoo/dist/src/tables-DxaDlQbd.js:3566.
+ *     node_modules/promptfoo/dist/src/tables-*.js.
  *
  * So the rows are at `sidecar.results.results`, not at `sidecar.results`. Any
  * other shape throws: a classifier that guessed would report a green week it
@@ -164,18 +164,17 @@ export function signatureOf(message) {
  *
  * promptfoo flags a grading result that holds no verdict with
  * `metadata.graderError: true` (typed at
- * node_modules/promptfoo/dist/src/index.d.ts:1493). Only `graderFail` sets it
- * (node_modules/promptfoo/dist/src/graders-B_if87De.js:545), for unparseable
- * judge output (:987), a call error or no output (:1010), a failed remote
- * grading (:1962), and G-Eval (:2083), plus the moderation path
- * (node_modules/promptfoo/dist/src/evaluator-SSlcaq_U.js:447); a parsed verdict
+ * node_modules/promptfoo/dist/src/index.d.ts). Only `graderFail` sets it
+ * (node_modules/promptfoo/dist/src/graders-*.js), for unparseable
+ * judge output, a call error or no output, a failed remote
+ * grading, and G-Eval, plus the moderation path
+ * (node_modules/promptfoo/dist/src/evaluator-*.js); a parsed verdict
  * never carries it. `handleLlmRubric` passes a flagged result through unchanged
- * (same file, :2418, via `isGraderFailure`, graders-B_if87De.js:2077: "a grader
+ * (same file, via `isGraderFailure`, graders-*.js: "a grader
  * error is not evidence that the criterion was or was not met"), so the row is
  * ASSERT and the flagged result sits in `gradingResult.componentResults`
- * (`AssertionsResult.addResult`, evaluator-SSlcaq_U.js:1162). Every component
- * is read because the row's `error` repeats only the last failing reason (same
- * file, :1183, copied at :6884).
+ * (`AssertionsResult.addResult`, evaluator-*.js). Every component
+ * is read because the row's `error` repeats only the last failing reason (same file).
  */
 function graderErrorOf(row) {
   const flagged = (row.gradingResult?.componentResults ?? []).find(
