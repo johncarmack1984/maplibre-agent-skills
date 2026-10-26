@@ -13,11 +13,13 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Changed
 
+- skills: `status` moves under `metadata`, as the Agent Skills spec requires, so claude.ai uploads accept them; `maplibre-running-evals` no longer installs with `npx skills add`; `validate:skills` checks front matter against the spec and requires the footer ([#138](https://github.com/maplibre/maplibre-agent-skills/pull/138))
 - `maplibre-terrain-patterns` replaced by `maplibre-terrain-rendering` (hillshade, color-relief, contours, 3D terrain and sky, `verified`), with its eval config split along the same seam and cross-references updated; the companion DEM-source content was withdrawn after a probe showed no gap to close ([#84](https://github.com/maplibre/maplibre-agent-skills/pull/84))
 - evals: rubrics for `maplibre-mapbox-migration` and `maplibre-pmtiles-patterns` now fail invented APIs; `maplibre-mapbox-migration` gains the Mapbox v2 → MapLibre API mapping, and both skills move to `verified` ([#85](https://github.com/maplibre/maplibre-agent-skills/pull/85))
 
 ### Fixed
 
+- `maplibre-v6-migration`: the CDN example uses a namespace import, the `setMissingStyleImageResolver` example calls `map.addImage()` because GL JS ignores the resolver's return value, and the worker note covers 6.13.0's self-contained worker ([#142](https://github.com/maplibre/maplibre-agent-skills/pull/142))
 - README: the install section gives the skill folders Cursor, GitHub Copilot, Codex and Claude Code read, and `-a github-copilot` in place of `-a vscode`, which the skills CLI rejects ([#139](https://github.com/maplibre/maplibre-agent-skills/pull/139))
 - `maplibre-source-wiring` and `maplibre-tile-sources`: replace "silently omitted" with the console warning GL JS logs for a missing sprite or icon, and `map.hasImage()` ([#104](https://github.com/maplibre/maplibre-agent-skills/pull/104))
 - `maplibre-sprites-icons`: gives each OSM Bright sheet's shield badges per network, and its shield test checks those ranges without the judge ([#135](https://github.com/maplibre/maplibre-agent-skills/pull/135))
