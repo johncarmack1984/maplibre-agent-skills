@@ -1,0 +1,29 @@
+{
+  "name": "maplibre",
+  "owner": {
+    "name": "MapLibre"
+  },
+  "metadata": {
+    "description": "Agent skills for building MapLibre apps, each tested to change a model's answer on real developer questions"
+  },
+  "plugins": [
+    {
+      "name": "maplibre-agent-skills",
+      "description": "MapLibre GL JS and Native guidance: tile sources and source wiring, PMTiles, terrain, fonts and glyphs, sprites and icons, cartography, and migrations from Mapbox and from GL JS v5",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/maplibre-cartography",
+        "./skills/maplibre-fonts-glyphs",
+        "./skills/maplibre-mapbox-migration",
+        "./skills/maplibre-pmtiles-patterns",
+        "./skills/maplibre-skill-authoring",
+        "./skills/maplibre-source-wiring",
+        "./skills/maplibre-sprites-icons",
+        "./skills/maplibre-terrain-rendering",
+        "./skills/maplibre-tile-sources",
+        "./skills/maplibre-v6-migration"
+      ]
+    }
+  ]
+}
