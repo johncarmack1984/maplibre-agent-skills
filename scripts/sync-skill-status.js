@@ -33,7 +33,7 @@ import {
   parseVerdicts,
   skillOf
 } from './lib/eval-verdicts.js';
-import { parseFrontmatter, statusOf, withStatus } from './lib/frontmatter.js';
+import { statusIn, withStatus } from './lib/frontmatter.js';
 import { setOutputs } from './lib/github-output.js';
 
 export function syncSkillStatus({
@@ -56,13 +56,7 @@ export function syncSkillStatus({
       continue;
     }
 
-    let status;
-    try {
-      status = statusOf(parseFrontmatter(content)?.data);
-    } catch {
-      ignored.push({ skill, reason: 'front matter does not parse, skipping' });
-      continue;
-    }
+    const status = statusIn(content);
     if (!status) continue; // no status field — not opted into auto-sync
     if (status === 'process') continue; // eval-exempt, never auto-flipped
 

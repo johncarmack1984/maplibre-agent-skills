@@ -2,7 +2,8 @@
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isInternal, parseFrontmatter, statusOf } from './lib/frontmatter.js';
+import { isInternal, statusOf } from './lib/frontmatter.js';
+import { parseFrontmatter } from './lib/parse-frontmatter.js';
 
 const START_MARKER = '<!-- skills-table:start -->';
 const END_MARKER = '<!-- skills-table:end -->';

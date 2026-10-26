@@ -22,6 +22,7 @@ import {
   measureLimits,
   paceMs,
   parseShard,
+  planRun,
   rateLimitWaits,
   reserveAfter,
   runEvals,
@@ -356,9 +357,9 @@ describe('rateLimitWaits', () => {
     const log = [
       '2026-10-22T17:53:33.438Z [DEBUG] [logger-B9f-j62Q.js:1215]: Rate limited on URL https://api.groq.com/openai/v1/chat/completions: HTTP 429 Too Many Requests, attempt 1/5, waiting before retry...',
       '2026-10-22T17:53:33.438Z [DEBUG] [logger-B9f-j62Q.js:1215]: Rate limited, waiting 518720ms (base 518400ms + 320ms jitter) before retry',
-      'Rate limited on URL https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=***: HTTP 429 Too Many Requests, attempt 1/5, waiting before retry...',
+      'Rate limited on URL https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=***: HTTP 429 Too Many Requests, attempt 1/5, waiting before retry...',
       'Rate limited, waiting 60000ms (base 60000ms + 0ms jitter) before retry',
-      'Rate limited on URL https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=***: HTTP 429 Too Many Requests, attempt 2/5, waiting before retry...',
+      'Rate limited on URL https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=***: HTTP 429 Too Many Requests, attempt 2/5, waiting before retry...',
       'Rate limited, waiting 61000ms (base 60000ms + 1000ms jitter) before retry'
     ].join('\n');
     assert.deepEqual(rateLimitWaits(log), [
@@ -735,7 +736,7 @@ describe('measureLimits', () => {
       { pin, apiKey: 'k', fetch: headerless },
       { pin, apiKey: 'k', fetch: offline },
       { pin, apiKey: undefined, fetch: groq() },
-      { pin: 'google:gemini-2.5-flash-lite', apiKey: 'k', fetch: groq() }
+      { pin: 'google:gemini-3.1-flash-lite', apiKey: 'k', fetch: groq() }
     ]) {
       assert.equal(await measureLimits(options), null);
     }
@@ -794,10 +795,10 @@ describe('judgePin', () => {
     const packageJson = {
       scripts: {
         'eval:graded':
-          'promptfoo eval --grader google:gemini-2.5-flash-lite --delay 8000 --no-cache -j 1'
+          'promptfoo eval --grader google:gemini-3.1-flash-lite --delay 8000 --no-cache -j 1'
       }
     };
-    assert.equal(judgePin(packageJson), 'google:gemini-2.5-flash-lite');
+    assert.equal(judgePin(packageJson), 'google:gemini-3.1-flash-lite');
     assert.equal(judgePin({ scripts: {} }), null);
   });
 });
@@ -821,7 +822,7 @@ function googleRefusal(quotaId, quotaValue = '20') {
               quotaId,
               quotaDimensions: {
                 location: 'global',
-                model: 'gemini-2.5-flash-lite'
+                model: 'gemini-3.1-flash-lite'
               },
               ...(quotaValue === null ? {} : { quotaValue })
             }
@@ -844,7 +845,7 @@ describe('judgeRefusal', () => {
     assert.deepEqual(judgeRefusal(googleRefusal(PER_DAY)), {
       quotaId: PER_DAY,
       limit: 20,
-      model: 'gemini-2.5-flash-lite'
+      model: 'gemini-3.1-flash-lite'
     });
   });
 
@@ -852,7 +853,7 @@ describe('judgeRefusal', () => {
     assert.deepEqual(judgeRefusal(googleRefusal(PER_DAY, null)), {
       quotaId: PER_DAY,
       limit: null,
-      model: 'gemini-2.5-flash-lite'
+      model: 'gemini-3.1-flash-lite'
     });
   });
 
@@ -870,7 +871,7 @@ describe('judgeRefusal', () => {
 });
 
 describe('judgeDaySpent', () => {
-  const pin = 'google:gemini-2.5-flash-lite';
+  const pin = 'google:gemini-3.1-flash-lite';
   const respond =
     (status, text, seen = []) =>
     async (url, request) => {
@@ -888,7 +889,7 @@ describe('judgeDaySpent', () => {
     assert.equal(seen.length, 1);
     assert.equal(
       seen[0].url,
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent'
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent'
     );
     assert.equal(seen[0].request.headers['x-goog-api-key'], 'k');
     assert.equal(
@@ -904,7 +905,7 @@ describe('judgeDaySpent', () => {
         apiKey: 'k',
         fetch: respond(429, googleRefusal(PER_DAY))
       }),
-      { quotaId: PER_DAY, limit: 20, model: 'gemini-2.5-flash-lite' }
+      { quotaId: PER_DAY, limit: 20, model: 'gemini-3.1-flash-lite' }
     );
   });
 
@@ -989,6 +990,50 @@ describe('runEvals', () => {
     assert.equal(written.configs[1].verdict, 'fail');
     assert.equal(written.configs[1].exitCode, 100);
     assert.deepEqual(summary.planned, written.planned);
+  });
+
+  it('records beside the CSVs what each config it graded was graded on', async () => {
+    const { resultsDir, workDir } = workspace();
+    const cartography = 'evals/prompts/maplibre-cartography.yaml';
+    const fonts = 'evals/prompts/maplibre-fonts-glyphs.yaml';
+    // The fonts child writes nothing, so that config gets no verdict.
+    const spawn = async (command, args) => {
+      const jsonPath = args[args.indexOf('--output') + 2];
+      if (jsonPath.includes('cartography')) {
+        writeFileSync(jsonPath, sidecar([graded('a', 0)]));
+      }
+      return { exitCode: 0, durationMs: 1000 };
+    };
+    const inputs = new Map([
+      [cartography, { skill: 's1', config: 'c1', harness: 'h' }],
+      [fonts, { skill: 's2', config: 'c2', harness: 'h' }]
+    ]);
+
+    await runEvals({
+      configs: [cartography, fonts],
+      name: '2026-10-27',
+      resultsDir,
+      workDir,
+      budgetMinutes: 240,
+      judge: 'the-judge',
+      inputs,
+      commit: 'abc123',
+      spawn,
+      log: () => {}
+    });
+
+    assert.deepEqual(
+      JSON.parse(readFileSync(join(resultsDir, '2026-10-27.json'), 'utf8')),
+      {
+        commit: 'abc123',
+        configs: {
+          'maplibre-cartography': {
+            inputs: { skill: 's1', config: 'c1', harness: 'h' },
+            judge: 'the-judge'
+          }
+        }
+      }
+    );
   });
 
   it('hands every child the limits the run measured, and records them', async () => {
@@ -1121,13 +1166,13 @@ describe('runEvals', () => {
   // What promptfoo leaves when Google refuses the judge: ERROR rows naming the
   // judge, and in its debug log the waits, but never Google's body.
   const JUDGE_REFUSED =
-    'RateLimitExhaustedError: Rate limit exceeded for google:gemini-2.5-flash-lite after 4 attempts';
+    'RateLimitExhaustedError: Rate limit exceeded for google:gemini-3.1-flash-lite after 4 attempts';
   const judgeWaits = (dir) => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(
       join(dir, 'promptfoo-debug-2026-10-24_10-50-02-597Z.log'),
       [
-        'Rate limited on URL https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent: HTTP 429 Too Many Requests, attempt 1/5, waiting before retry...',
+        'Rate limited on URL https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent: HTTP 429 Too Many Requests, attempt 1/5, waiting before retry...',
         'Rate limited, waiting 60516ms (base 60000ms + 516ms jitter) before retry'
       ].join('\n')
     );
@@ -1149,7 +1194,7 @@ describe('runEvals', () => {
       };
     };
   const judged = {
-    judge: 'google:gemini-2.5-flash-lite',
+    judge: 'google:gemini-3.1-flash-lite',
     env: { GOOGLE_API_KEY: 'k' }
   };
 
@@ -1191,7 +1236,7 @@ describe('runEvals', () => {
     assert.deepEqual(summary.day.judgeSpent, {
       quotaId: PER_DAY,
       limit: 20,
-      model: 'gemini-2.5-flash-lite'
+      model: 'gemini-3.1-flash-lite'
     });
     assert.deepEqual(summary.day.waiting, ['maplibre-mapbox-migration']);
     const cut = summary.configs[1];
@@ -1205,7 +1250,7 @@ describe('runEvals', () => {
     );
     assert.ok(
       lines.includes(
-        `Google refused the judge for its daily quota (20 requests a day for gemini-2.5-flash-lite, ${PER_DAY}); the rest wait for another day.`
+        `Google refused the judge for its daily quota (20 requests a day for gemini-3.1-flash-lite, ${PER_DAY}); the rest wait for another day.`
       )
     );
     // Its CSV is set aside, so the rotation keeps it first in line.
@@ -1496,6 +1541,93 @@ describe('longestWaiting', () => {
       }),
       [config('new'), config('a'), config('c'), config('b')]
     );
+  });
+});
+
+describe('planRun', () => {
+  const config = (skill) => `evals/prompts/maplibre-${skill}.yaml`;
+  const same = { skill: 's', config: 'c', harness: 'h' };
+  const plan = ({ graded, recorded = {}, inputs = {}, regradeDays = 0 }) =>
+    planRun({
+      configs: Object.keys(graded).map(config),
+      graded: new Map(
+        Object.entries(graded)
+          .filter(([, date]) => date !== null)
+          .map(([skill, date]) => [`maplibre-${skill}`, date])
+      ),
+      recorded: new Map(
+        Object.keys(graded).map((skill) => [
+          `maplibre-${skill}`,
+          skill in recorded ? recorded[skill] : same
+        ])
+      ),
+      inputs: new Map(
+        Object.keys(graded).map((skill) => [
+          config(skill),
+          inputs[skill] ?? same
+        ])
+      ),
+      today: '2026-10-26',
+      regradeDays
+    });
+  const due = (result) =>
+    result.due.map(({ config, why }) => [
+      config.replace(/^.*maplibre-|\.yaml$/g, ''),
+      why
+    ]);
+
+  it('grades a config whose inputs changed since its last grade, and says which', () => {
+    const result = plan({
+      graded: { a: '2026-10-20', b: '2026-10-20' },
+      inputs: {
+        a: { ...same, skill: 't' },
+        b: { ...same, config: 'd', harness: 'i' }
+      }
+    });
+    assert.deepEqual(due(result), [
+      ['a', 'SKILL.md changed since its grade of 2026-10-20'],
+      ['b', 'eval config and harness changed since its grade of 2026-10-20']
+    ]);
+    assert.deepEqual(result.later, []);
+  });
+
+  it('grades a config with no grade, no recorded inputs, or inputs it cannot read, the longest-waiting first', () => {
+    const result = plan({
+      graded: { a: '2026-10-24', b: null, c: '2026-10-22' },
+      recorded: { c: null },
+      inputs: { a: { error: 'ENOENT: skills/maplibre-a/SKILL.md' } }
+    });
+    assert.deepEqual(due(result), [
+      ['b', 'no graded run yet'],
+      ['c', 'graded 2026-10-22 by a run that recorded no inputs'],
+      ['a', 'inputs unreadable: ENOENT: skills/maplibre-a/SKILL.md']
+    ]);
+  });
+
+  it('grades only what changed when no regrade period is set', () => {
+    const result = plan({ graded: { a: '2026-09-01' } });
+    assert.deepEqual(result.due, []);
+    assert.deepEqual(result.later, [
+      { config: config('a'), why: 'graded 2026-09-01 on its current inputs' }
+    ]);
+  });
+
+  it('grades an unchanged config once its grade is the regrade period old, after every changed one', () => {
+    const result = plan({
+      graded: { a: '2026-10-19', b: '2026-10-25', c: '2026-10-20' },
+      inputs: { b: { ...same, skill: 't' } },
+      regradeDays: 7
+    });
+    assert.deepEqual(due(result), [
+      ['b', 'SKILL.md changed since its grade of 2026-10-25'],
+      ['a', 'last graded 2026-10-19, 7 days ago']
+    ]);
+    assert.deepEqual(result.later, [
+      {
+        config: config('c'),
+        why: 'graded 2026-10-20 on its current inputs; due again 2026-10-27'
+      }
+    ]);
   });
 });
 

@@ -1,13 +1,16 @@
 name: Eval
 
 ## Runs the evals in evals/prompts/*.yaml. Triggered by:
-#   - schedule: a drift check against the default branch every day, which
-#       grades the configs that have waited longest for a verdict, as many as
-#       one day of the Groq key's generator tokens holds; a full pass needs
-#       more than one day has (#108), and the rest are first the next day.
+#   - schedule: every day against the default branch, grading the configs that
+#       are due: each one whose SKILL.md, eval config or harness changed since
+#       its last graded run, then each one last graded EVAL_REGRADE_DAYS or more
+#       ago, which is what shows a provider changing a model behind its pinned
+#       id. As many as one day of the Groq key's generator tokens holds; the
+#       rest are first the next day. A day with nothing due runs nothing.
 #   - workflow_dispatch: a maintainer validates a branch or PR, pre- or post-merge.
 #       ref      – branch, or refs/pull/<N>/head for a fork PR. Blank = default branch.
-#       configs  – space-separated evals/prompts/*.yaml. Blank = all.
+#       configs  – space-separated evals/prompts/*.yaml. Blank = every config
+#                  whose inputs on that ref changed since its last graded run.
 #       baseline – run with the skill withheld (injectSkill=false). Gap-targeting
 #                  prompts are expected to FAIL here; a negative test should PASS.
 #
@@ -23,9 +26,9 @@ name: Eval
 
 on:
   schedule:
-    # Every day, each run grading as much as the day holds, so a full round
-    # takes as many days as its configs need; scripts/run-evals.js plans each
-    # one. 10:17 UTC: low API traffic, and off-:00 so GitHub doesn't drop it.
+    # Every day, each run grading what is due, as much of it as the day holds;
+    # scripts/run-evals.js plans each one. 10:17 UTC: low API traffic, and
+    # off-:00 so GitHub doesn't drop it.
     - cron: '17 10 * * *'
   workflow_dispatch:
     inputs:
@@ -34,7 +37,7 @@ on:
         required: false
         default: ''
       configs:
-        description: 'Space-separated evals/prompts/*.yaml paths (blank = all skills)'
+        description: 'Space-separated evals/prompts/*.yaml paths (blank = every config changed since its last graded run)'
         required: false
         default: ''
       baseline:
@@ -101,6 +104,10 @@ jobs:
           # lower one stops there and says so. The per-minute limit is measured
           # every run.
           EVAL_TOKENS_PER_DAY: 200000
+          # An unchanged config is graded again once its last grade is this
+          # many days old, on scheduled runs only: theirs are the grades the
+          # publish job commits, so a dispatch grades only what changed.
+          EVAL_REGRADE_DAYS: ${{ github.event_name == 'schedule' && 7 || 0 }}
         run: node scripts/run-evals.js
 
       - name: Upload results
@@ -108,7 +115,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: eval-results-${{ github.run_id }}
-          path: evals/results/*.csv
+          path: |
+            evals/results/*.csv
+            evals/results/*.json
 
       - name: Upload verdicts
         if: always()
@@ -160,9 +169,11 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          # evals/results/*.csv is gitignored to keep local runs out of the tree;
-          # the scheduled run's dated CSVs are the exception, hence -f.
-          git add -f evals/results/${{ env.name }}-*.csv
+          # The run's dated CSVs, and its record of what each config was graded
+          # on, which the next run plans from. A config the day cut off left no
+          # CSV, so a run may have none.
+          shopt -s nullglob
+          git add evals/results/${{ env.name }}.json evals/results/${{ env.name }}-*.csv
           git diff --staged --quiet || git commit -m "chore: eval results ${{ env.name }}"
           git pull --rebase
           git push

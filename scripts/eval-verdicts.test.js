@@ -55,7 +55,7 @@ function row(failureReason, description, error) {
 }
 
 const GRADER_RATE_LIMIT =
-  'RateLimitExhaustedError: Rate limit exceeded for google:gemini-2.5-flash-lite after 4 attempts';
+  'RateLimitExhaustedError: Rate limit exceeded for google:gemini-3.1-flash-lite after 4 attempts';
 const QUEUE_TIMEOUT =
   'Request groq:openai/gpt-oss-120b[7b7ebfedd4ce]-1788103001543-7fjq3b4amns-0 timed out after 300000ms in queue';
 const MAX_DURATION = 'Evaluation exceeded max duration of 2700000ms';
@@ -689,7 +689,7 @@ describe('classificationBlock', () => {
         judgeSpent: {
           quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier',
           limit: 20,
-          model: 'gemini-2.5-flash-lite'
+          model: 'gemini-3.1-flash-lite'
         }
       }
     };
@@ -701,7 +701,7 @@ describe('classificationBlock', () => {
     assert.match(block, /\*\*Classification: graded failure\.\*\*/);
     assert.match(
       block,
-      /Google refused the judge for its daily quota \(20 requests a day for gemini-2\.5-flash-lite, `GenerateRequestsPerDayPerProjectPerModel-FreeTier`\)/
+      /Google refused the judge for its daily quota \(20 requests a day for gemini-3\.1-flash-lite, `GenerateRequestsPerDayPerProjectPerModel-FreeTier`\)/
     );
     assert.match(block, /they go first the next day: maplibre-fonts-glyphs\./);
     assert.match(
