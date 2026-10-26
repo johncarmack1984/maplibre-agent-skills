@@ -4,7 +4,7 @@
     "name": "MapLibre"
   },
   "metadata": {
-    "description": "Agent skills for building MapLibre apps, each tested to change a model's answer on real developer questions"
+    "description": "Agent skills for building MapLibre apps"
   },
   "plugins": [
     {
