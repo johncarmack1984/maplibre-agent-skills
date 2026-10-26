@@ -1,0 +1,583 @@
+Description,skillFile,injectSkill,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+implicit — Devanagari labels drawn letter by letter,skills/maplibre-fonts-glyphs/SKILL.md,false,"Hindi labels on my MapLibre GL JS map come out wrong: vowel signs and conjuncts land in the wrong place, as if each letter were drawn on its own. My style has a glyphs URL that serves Noto Sans Devanagari. How do I fix it?","## TL;DR  
+MapLibre GL JS does **not** shape Devanagari (or any other complex script) itself – it expects the glyphs that come from the `glyphs` endpoint to already be *pre-shaped*.  
+If you point the style at a plain “raw-font-to-PBF” server (or at a static set of glyph-PBF files that were generated without HarfBuzz shaping) each code-point is drawn on its own, which is exactly the “vowel-signs and conjuncts in the wrong place” you are seeing.
+
+**Fix:** Serve the Devanagari font from a **shaping-aware glyph server** (the same kind of server Mapbox uses) or generate the glyph-PBFs yourself with HarfBuzz shaping and point the style to that URL.
+
+Below is a step-by-step guide that works for any MapLibre GL JS project.
+
+---
+
+## 1. Why the problem happens
+
+| What you have | What MapLibre expects | What you get |
+|---------------|----------------------|--------------|
+| `glyphs: ""https://my-cdn.com/fonts/{fontstack}/{range}.pbf""` that was created with `ttf2pbf` or `fontnik` **without** shaping | **Pre-shaped** glyphs (one glyph per *cluster* – i.e. a whole consonant-vowel-conjunct unit) | One glyph per Unicode code-point → vowel signs float, conjuncts split, etc. |
+
+MapLibre GL JS only does **simple left-to-right glyph placement**. It does **not** run HarfBuzz (or any OpenType layout engine) on the client. Therefore the glyph server must do the shaping for you and return a PBF that already contains the combined glyphs.
+
+---
+
+## 2. Choose a shaping-aware glyph server
+
+| Option | How to get it | Pros | Cons |
+|--------|---------------|------|------|
+| **Mapbox’s public glyph server** (`https://api.mapbox.com/fonts/v1/{username}/{fontstack}/{range}.pbf?access_token=…`) | Requires a Mapbox access token (free tier works) | Works out-of-the-box, always up-to-date, HarfBuzz-shaped | Tied to Mapbox, rate-limited, not self-hosted |
+| **Open-source Mapbox-GL-Native glyph server** (`glyphs-server` in the `mapbox-gl-native` repo) | `npm i -g @mapbox/mbgl-glyphs` (or run the Docker image) | Self-hosted, free, works with any font you drop in | You have to run a small Node/Docker service |
+| **Generate your own shaped PBFs** (e.g. `fontnik` with `--shaping`) | Run `fontnik` locally, then serve the resulting files via a static web server | No extra process at runtime, fully offline | You must re-run whenever you add a new font or range |
+
+The **easiest** for a quick fix is to point to Mapbox’s public server (if you already have a token). If you prefer a fully self-hosted solution, the Docker image is only a few MB and can be run on the same host that serves your style JSON.
+
+---
+
+## 3. Using the Mapbox public glyph server (quick test)
+
+```json
+{
+  ""version"": 8,
+  ""glyphs"": ""https://api.mapbox.com/fonts/v1/your-mapbox-username/{fontstack}/{range}.pbf?access_token=YOUR_MAPBOX_TOKEN"",
+  ""sources"": { … },
+  ""layers"": [
+    {
+      ""id"": ""place-labels"",
+      ""type"": ""symbol"",
+      ""source"": ""osm"",
+      ""source-layer"": ""place"",
+      ""layout"": {
+        ""text-field"": [""get"", ""name""],
+        ""text-font"": [""Noto Sans Devanagari Regular""],
+        ""text-size"": 12
+      }
+    }
+  ]
+}
+```
+
+*Replace `your-mapbox-username` with the username you created on mapbox.com (any username works) and `YOUR_MAPBOX_TOKEN` with a token that has the **fonts:read** scope.*
+
+Reload the map – Hindi labels should now be correctly shaped (vowel signs sit on top, conjuncts are rendered as a single glyph).
+
+---
+
+## 4. Self-hosting a shaping glyph server
+
+### 4.1. Docker method (recommended)
+
+```bash
+# 1️⃣ Pull the official image
+docker pull mapbox/mbgl-glyphs
+
+# 2️⃣ Create a folder with the fonts you need
+mkdir -p /srv/glyphs/fonts
+cp NotoSansDevanagari-Regular.ttf /srv/glyphs/fonts/
+
+# 3️⃣ Run the container (exposes /fonts and /glyphs endpoints)
+docker run -d \
+  -p 8080:80 \
+  -v /srv/glyphs/fonts:/fonts \
+  -e ""FONT_PATH=/fonts"" \
+  mapbox/mbgl-glyphs
+```
+
+The container will automatically:
+
+1. Load every `.ttf`/`.otf` in `/fonts`.
+2. Run HarfBuzz shaping on the fly.
+3. Serve the same URL pattern Mapbox uses:
+
+```
+http://localhost:8080/{fontstack}/{range}.pbf
+```
+
+### 4.2. Point your style at the local server
+
+```json
+{
+  ""glyphs"": ""http://localhost:8080/{fontstack}/{range}.pbf"",
+  ...
+}
+```
+
+### 4.3. (Optional) Pre-generate static PBFs
+
+If you prefer a static file server (e.g. CDN) you can pre-generate the glyphs:
+
+```bash
+# Install fontnik (requires node & npm)
+npm install -g fontnik
+
+# Generate for the Devanagari Unicode block (U+0900-U+097F)
+fontnik \
+  --font NotoSansDevanagari-Regular.ttf \
+  --range 0x0900-0x097F \
+  --output ./glyphs/Noto%20Sans%20Devanagari%20Regular.pbf \
+  --shaping
+```
+
+Then serve the `glyphs/` folder with any static web server and keep the same `{fontstack}` placeholder in the URL.
+
+---
+
+## 5. Verify that the font actually contains the required OpenType tables
+
+* Noto Sans Devanagari ships with a **GSUB** (Glyph Substitution) table that handles vowel signs, ligatures, and the “reph” (र्) positioning.  
+* If you ever replace the font with a stripped-down version (e.g. a subset that omitted the GSUB table), the glyph server will still return individual glyphs → the same broken rendering.
+
+You can double-check with `ttx` (from FontTools) or an online font inspector:
+
+```bash
+ttx -t GSUB NotoSansDevanagari-Regular.ttf | grep -i reph
+```
+
+If the table is missing, download the full font from Google Fonts again.
+
+---
+
+## 6. Common pitfalls & how to avoid them
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Hindi letters appear **separate** (vowel signs floating) | Glyph server does **no shaping** (e.g. raw `ttf2pbf` output) | Use a shaping server (Mapbox, Docker image, or pre-shaped PBFs) |
+| Some characters are fine, others not | Font subset missing the required glyphs or GSUB entries | Use the **full** Noto Sans Devanagari TTF/OTF, not a custom subset |
+| After fixing, the map still looks broken | Browser cached the old glyph PBFs | Clear the browser cache or add a cache-busting query string (`?v=2`) to the `glyphs` URL |
+| Labels disappear completely | Glyph server returns 404 for the requested range | Make sure the `{range}` placeholder is present and the server can serve the requested Unicode block (e.g. 0-255, 256-511, …) |
+| Using MapLibre GL JS v1.x | Older versions had a bug that ignored the `text-font` property for complex scripts | Upgrade to v2.4+ (or any recent version) – the bug is fixed, but you still need a shaping server |
+
+---
+
+## 7. Full minimal example (HTML + style)
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>MapLibre – Hindi labels correctly shaped</title>
+  <script src=""https://unpkg.com/maplibre-gl@4.2.0/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@4.2.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body, html { margin:0; height:100%; }
+    #map { width:100%; height:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+<script>
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      glyphs: 'http://localhost:8080/{fontstack}/{range}.pbf', // <-- your glyph server
+      sources: {
+        osm: {
+          type: 'vector',
+          url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.pbf' // example source
+        }
+      },
+      layers: [
+        {
+          id: 'country-labels',
+          type: 'symbol',
+          source: 'osm',
+          'source-layer': 'place',
+          layout: {
+            'text-field': ['get', 'name'],
+            'text-font': ['Noto Sans Devanagari Regular'],
+            'text-size': 12,
+            'text-anchor': 'center'
+          },
+          paint: {
+            'text-color': '#111'
+          }
+        }
+      ]
+    },
+    center: [77.2090, 28.6139], // Delhi
+    zoom: 5
+  });
+</script>
+</body>
+</html>
+```
+
+Open the page, zoom in on a Hindi-named place (e.g. “दिल्ली”), and you should see the vowel sign “ि” correctly placed under the consonant, and any conjuncts rendered as a single glyph.
+
+---
+
+## 8. TL;DR checklist
+
+1. **Do not** use a raw `ttf2pbf`/`fontnik` output that lacks shaping.  
+2. **Serve** the glyphs from a server that runs HarfBuzz (Mapbox public, Docker `mapbox/mbgl-glyphs`, or your own pre-shaped PBFs).  
+3. **Point** the `glyphs` property in the style JSON to that server (`{fontstack}/{range}.pbf`).  
+4. **Use** the full Noto Sans Devanagari font (or any Devanagari font that contains a GSUB table).  
+5. **Clear** caches and reload – Hindi (and any other complex-script) labels will now be correctly shaped.
+
+That",FAIL,0.00,,"The output correctly states that MapLibre GL JS expects pre-shaped glyphs and does not perform complex script shaping itself. It also provides solutions for serving shaped glyphs, which contradicts the rubric's assertion that a newer version of MapLibre GL JS (6.15.0+) automatically handles Devanagari shaping.",
+implicit — Devanagari labels drawn letter by letter,skills/maplibre-fonts-glyphs/SKILL.md,false,"Hindi labels on my MapLibre GL JS map come out wrong: vowel signs and conjuncts land in the wrong place, as if each letter were drawn on its own. My style has a glyphs URL that serves Noto Sans Devanagari. How do I fix it?","## TL;DR  
+
+The problem isn’t the **style** – it’s the **glyph source**.  
+MapLibre GL JS does **no text-shaping** itself; it expects the glyph-PBFs it downloads to already contain the correct OpenType-GSUB substitutions for complex scripts (Devanagari, Arabic, Thai, …).  
+If you point `glyphs:` at a server that simply slices the TTF/OTF into individual glyphs (the “raw-glyph” server that ships with the MapLibre demo), every code-point is drawn on its own and you get the classic “vowel-signs floating in the wrong place” artefact.
+
+**Fix:** Use a glyph server that runs HarfBuzz shaping (or generate the shaped glyph-PBFs yourself) and point your style at that server. The most common ways are:
+
+| Option | How to get it | What you need to change |
+|--------|----------------|--------------------------|
+| **Mapbox-compatible glyph server** (open-source) | `npm i -g @mapbox/mbtiles` → `npm i -g @mapbox/fontnik` → `npm i -g @mapbox/tilelive` → `npm i -g @mapbox/tilelive-vector` → `npm i -g @mapbox/tilelive-bridge` → `npm i -g @mapbox/tilelive-fonts` (or just clone the repo) | `glyphs: ""http://localhost:8080/fonts/{fontstack}/{range}.pbf""` |
+| **MapLibre-GL-Native glyph server** (the same code that powers MapLibre GL Native) | `git clone https://github.com/maplibre/maplibre-gl-native && cd maplibre-gl-native && cargo run --release --bin glyphs-server -- --font-dir ./fonts` | `glyphs: ""http://localhost:8080/fonts/{fontstack}/{range}.pbf""` |
+| **MapTiler / Mapbox / OpenMapTiles hosted glyph service** | Sign-up for a free key (or use the public demo endpoint) | `glyphs: ""https://api.maptiler.com/fonts/{fontstack}/{range}.pbf?key=YOUR_KEY""` |
+| **Pre-generated PBFs** (one-time build) | Use `glyphhanger` + `ttf2pbf` + HarfBuzz to create the PBFs and serve them as static files | Same URL pattern, but point to your static folder (e.g. `/fonts/Noto%20Sans%20Devanagari%20Regular/0-255.pbf`) |
+
+Below you’ll find a **step-by-step guide** for the two most common approaches:
+
+---
+
+## 1️⃣ Why the “raw-glyph” server fails for Hindi
+
+When you use the demo URL that ships with the MapLibre starter kit:
+
+```json
+""glyphs"": ""https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf""
+```
+
+the server simply extracts the *outline* for each Unicode code-point from the TTF/OTF and puts it into a PBF. No **GSUB** (Glyph Substitution) table is consulted, so:
+
+* `क` (U+0915) → rendered correctly.
+* `ि` (U+093F) → rendered as a separate glyph that sits **to the right** of the base consonant, because the server never told the renderer “move this vowel sign left of the base”.
+
+Devanagari (and many other Indic scripts) relies on **complex shaping**: a base consonant + vowel sign + possible halant + conjuncts → a single visual glyph cluster. The only way to get that right is to let a shaping engine (HarfBuzz) do the substitution **before** the glyphs are packaged into the PBF.
+
+---
+
+## 2️⃣ Using the open-source Mapbox glyph server (the easiest drop-in)
+
+### 2.1 Install the server
+
+```bash
+# Node-based server that ships with Mapbox GL Native
+npm install -g @mapbox/fontnik @mapbox/tilelive @mapbox/tilelive-vector @mapbox/tilelive-bridge @mapbox/tilelive-fonts
+```
+
+> **Note:** The above installs a *tilelive* pipeline that includes the `tilelive-fonts` plugin – that plugin does the HarfBuzz shaping for you.
+
+### 2.2 Prepare a font directory
+
+Create a folder (e.g. `fonts/`) and drop the Devanagari TTF(s) you want to serve into it:
+
+```bash
+mkdir -p ~/glyphs/fonts
+cd ~/glyphs/fonts
+# Grab the Noto Sans Devanagari regular (or any other Devanagari font)
+wget https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Regular.ttf
+```
+
+You can also add other scripts (Latin, Cyrillic, Arabic…) to the same folder – the server will serve any font you place there.
+
+### 2.3 Run the server
+
+```bash
+cd ~/glyphs
+tilelive copy \
+  ""bridge://?type=fonts&path=./fonts"" \
+  ""mbtiles://?path=./fonts.mbtiles"" \
+  --minzoom=0 --maxzoom=14
+```
+
+Now start the HTTP endpoint:
+
+```bash
+tilelive serve \
+  --port 8080 \
+  ""mbtiles://?path=./fonts.mbtiles""
+```
+
+You should see something like:
+
+```
+Listening on http://0.0.0.0:8080
+```
+
+The server now answers requests of the form:
+
+```
+http://localhost:8080/fonts/{fontstack}/{range}.pbf
+```
+
+and **does** HarfBuzz shaping on the fly.
+
+### 2.4 Point your style at the new server
+
+In your MapLibre style JSON (or in the `MapLibreGL.Map` constructor) replace the `glyphs` line:
+
+```json
+{
+  ""glyphs"": ""http://localhost:8080/fonts/{fontstack}/{range}.pbf"",
+  ...
+}
+```
+
+If you’re using the MapLibre JS API:
+
+```js
+const map = new maplibregl.Map({
+  container: 'map',
+  style: {
+    version: 8,
+    sources: { ... },
+    layers:  [ ... ],
+    glyphs: 'http://localhost:8080/fonts/{fontstack}/{range}.pbf'
+  },
+  center: [77.2090, 28.6139],
+  zoom: 12
+});
+```
+
+### 2.5 Verify
+
+Zoom in on a Hindi label (e.g. “भारत”). The vowel sign “ा” should now sit **to the right** of the base consonant, and conjuncts like “क्ष” should appear as a single ligature. No more “floating diacritics”.
+
+---
+
+## 3️⃣ Using the MapLibre-GL-Native glyph server (Rust version)
+
+If you prefer a binary with **no Node.js** dependency, the MapLibre GL Native repo ships a tiny glyph server written in Rust.
+
+### 3.1 Build the server
+
+```bash
+git clone https://github.com/maplibre/maplibre-gl-native.git
+cd maplibre-gl-native
+cargo build --release --bin glyphs-server
+```
+
+The binary will be at `target/release/glyphs-server`.
+
+### 3.2 Prepare fonts
+
+Same as before – put the TTF(s) in a folder, e.g. `~/glyphs/fonts`.
+
+### 3.3 Run
+
+```bash
+./target/release/glyphs-server \
+  --font-dir ~/glyphs/fonts \
+  --port 8080
+```
+
+You’ll get a log line:
+
+```
+Listening on http://0.0.0.0:8080
+```
+
+### 3.4 Point your style
+
+Exactly the same URL pattern as the Node server:
+
+```json
+""glyphs"": ""http://localhost:8080/fonts/{fontstack}/{range}.pbf""
+```
+
+### 3.5 Test
+
+Same verification steps – Hindi, Marathi, Nepali, etc. should now render correctly.
+
+---
+
+## 4️⃣ Using a hosted glyph service (MapTiler, Mapbox, OpenMapTiles)
+
+If you don’t want to run anything locally, you can use a public glyph endpoint that already does shaping.
+
+| Provider | URL pattern | Free tier |
+|----------|-------------|-----------|
+| **MapTiler** | `https://api.maptiler.com/fonts/{fontstack}/{range}.pbf?key=YOUR_KEY` | 100 000 requests / month |
+| **Mapbox** (requires token) | `https://api.mapbox.com/fonts/v1/{username}/{fontstack}/{range}.pbf?access_token=YOUR_TOKEN` | 50 000 free requests |
+| **OpenMapTiles** (self-hosted) | Same pattern as Mapbox, but you run the `tileserver-gl` Docker image which includes a glyph server | — |
+
+Just replace the `glyphs:` line in your style with the appropriate URL and you’re done.
+
+---
+
+## 5️⃣ Common pitfalls & how to avoid them
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| Hindi letters appear **separate** (vowel signs floating) | Using the demo “raw-glyph” server or a static PBF that was generated without shaping. | Switch to a shaping-aware glyph server (see above). |
+| Some Devanagari characters are **missing** (blank boxes) | Font file does not contain the required glyphs, or the font-stack name in the style does not match the file name. | Ensure the TTF includes the full Devanagari block and that `text-font` uses the exact family name (e.g., `""Noto Sans Devanagari Regular""`). |
+| Labels look **pixelated** at high zoom | Glyph PBFs only generated up to zoom 14 (default). | Run the glyph server with `--maxzoom 15` (or higher) or generate a higher-resolution MBTiles file. |
+| After switching servers, the map still shows broken Hindi | Browser cache still holds the old PBFs. | Hard-refresh (`Ctrl+Shift+R`) or add a cache-busting query param (`?v=2`). |
+| “Failed to load glyphs” error in console | URL typo, CORS, or server not reachable. | Verify the URL works in a browser (`curl http://localhost:8080/fonts/Noto%20Sans%20Devanagari%20Regular/0-255.pbf`). Ensure CORS headers (`Access-Control-Allow-Origin: *`). |
+
+---
+
+## 6️⃣ Quick “one-liner” for a typical MapLibre-GL-JS project
+
+If you just need a fast fix for development, the **MapTiler** hosted service works out of the box:
+
+```js
+const map = new maplibregl.Map({
+  container: 'map',
+  style: {
+    version: 8,
+    sources: { ... },
+    layers:  [ ... ],
+    glyphs: 'https://api.maptiler.com/fonts/{fontstack}/{range}.",FAIL,0.00,,"The output does not mention that MapLibre GL JS versions 6.15.0 or later fix the Devanagari rendering issue, nor does it mention the `font-faces` property for pinning specific fonts.",
+implicit — Devanagari labels drawn letter by letter,skills/maplibre-fonts-glyphs/SKILL.md,false,"Hindi labels on my MapLibre GL JS map come out wrong: vowel signs and conjuncts land in the wrong place, as if each letter were drawn on its own. My style has a glyphs URL that serves Noto Sans Devanagari. How do I fix it?","## TL;DR  
+The problem isn’t the **font** – it’s the **glyph server**.  
+MapLibre GL JS does **no text-shaping** itself; it expects the glyphs that come from the `{glyphs}` endpoint to already be *pre-shaped* (i.e. the “GSUB” substitutions for Devanagari, Arabic, Thai, etc. have already been applied).  
+
+If you point the style at a static “raw-TTF → SDF” server (or at a hand-made PBF that only contains the individual Unicode code-points), each code-point is drawn on its own and you get the classic “vowel-signs floating in the wrong place” artefact.
+
+**Fix:** use a glyph server that runs HarfBuzz (or another OpenType shaper) on-the-fly, or generate your own shaped glyph-PBFs with the same tool. The easiest ways are:
+
+| Option | What you do | Pros | Cons |
+|--------|-------------|------|------|
+| **Mapbox / MapTiler hosted glyph service** (e.g. `https://api.maptiler.com/fonts/{fontstack}/{range}.pbf?key=…`) | Just change the `glyphs` URL in your style. | No extra infrastructure, works out-of-the-box for Devanagari, Arabic, etc. | Requires an API key / usage limits. |
+| **Run the open-source MapLibre glyph server** (`glyphs-server`) locally or on your own host | `npm i -g @maplibre/maplibre-gl-native-glyphs` → `glyphs-server --fonts ./fonts` | Full control, free, works for any TTF/OTF you drop in. | You have to keep the server running and expose it via HTTP. |
+| **Pre-generate shaped PBFs yourself** (e.g. using `tilemaker`/`fontnik` with HarfBuzz) | Run the generator once, upload the resulting `.pbf` files to a static CDN. | Zero runtime cost, works even in offline environments. | One-off work, you must re-run whenever you add a new font or range. |
+
+Below you’ll find **step-by-step instructions** for the two most common approaches (MapTiler hosted service and a self-hosted glyph server). Pick the one that fits your workflow.
+
+---
+
+## 1️⃣ Why the “each letter on its own” bug happens
+
+1. **MapLibre GL JS** receives text strings (e.g. `""हिन्दी""`).  
+2. It looks up the *glyph* for each Unicode code-point in the **glyph-PBF** that the `{glyphs}` URL returns.  
+3. It **does not run any OpenType layout engine** (no HarfBuzz, no GSUB/GPOS).  
+4. If the PBF only contains the raw glyph outlines (one per code-point), the renderer places them side-by-side, which is fine for Latin but completely wrong for scripts that need shaping (Devanagari, Bengali, Tamil, Arabic, etc.).
+
+The fix is therefore to **feed MapLibre GL JS glyphs that have already been shaped**. The shaping step must happen **on the server** that produces the PBFs.
+
+---
+
+## 2️⃣ Quick fix – use a hosted glyph service that already shapes
+
+### 2.1 MapTiler (free tier, works for most production use)
+
+1. **Create a free MapTiler account** → you’ll get an API key (e.g. `YOUR_MAPTILER_KEY`).  
+2. In your style JSON (or in the `MapLibreGL.Map` constructor) replace the `glyphs` line with:
+
+```json
+""glyphs"": ""https://api.maptiler.com/fonts/{fontstack}/{range}.pbf?key=YOUR_MAPTILER_KEY""
+```
+
+3. Make sure the font you want is listed in the style’s `glyphs` stack, e.g.:
+
+```json
+""text-font"": [""Noto Sans Devanagari Regular""]
+```
+
+4. Reload the map. Devanagari should now render correctly (vowel signs, conjuncts, reph, etc.).
+
+> **Tip:** MapTiler’s glyph service already bundles the most common Google/Noto fonts, including `Noto Sans Devanagari`. If you need a custom font, you can upload it to your MapTiler account (see the MapTiler docs) and reference it by its exact family name.
+
+### 2.2 Mapbox (if you already have a Mapbox token)
+
+```json
+""glyphs"": ""https://api.mapbox.com/fonts/v1/{username}/{fontstack}/{range}.pbf?access_token=YOUR_MAPBOX_TOKEN""
+```
+
+Same steps as above – just swap the URL and token.
+
+---
+
+## 3️⃣ Self-hosted solution – run the open-source glyph server
+
+If you prefer not to rely on a third-party service (e.g. for privacy, offline use, or custom fonts), you can run the **MapLibre glyph server** yourself. It does exactly what Mapbox’s server does: it loads a TTF/OTF, runs HarfBuzz shaping for every requested Unicode range, and returns a PBF.
+
+### 3.1 Install the server
+
+```bash
+# Node.js is required (>=14)
+npm install -g @maplibre/maplibre-gl-native-glyphs
+```
+
+> The package name is `@maplibre/maplibre-gl-native-glyphs`. It ships a tiny HTTP server (`glyphs-server`) that reads fonts from a directory and serves the PBFs.
+
+### 3.2 Prepare your fonts
+
+Create a folder, e.g. `./fonts`, and drop the TTF/OTF files you need:
+
+```
+fonts/
+├─ NotoSansDevanagari-Regular.ttf
+├─ NotoSansDevanagari-Bold.ttf   (optional)
+└─ NotoSansDevanagari-Italic.ttf (optional)
+```
+
+> **Important:** The file name *must* match the `text-font` value you will use in the style, **without the extension**.  
+> Example: `""text-font"": [""NotoSansDevanagari-Regular""]`
+
+### 3.3 Start the server
+
+```bash
+glyphs-server --fonts ./fonts --port 8080
+```
+
+You’ll see something like:
+
+```
+[info] Listening on http://0.0.0.0:8080
+[info] Loaded 1 font families
+```
+
+The server now responds to URLs of the form:
+
+```
+http://localhost:8080/fonts/{fontstack}/{range}.pbf
+```
+
+* `{fontstack}` is the font family name (URL-escaped, spaces become `%20`).  
+* `{range}` is a 4-digit hex range, e.g. `0-255`, `256-511`, … (the client asks for the ranges it needs).
+
+### 3.4 Point your style at the local server
+
+```json
+""glyphs"": ""http://localhost:8080/fonts/{fontstack}/{range}.pbf""
+```
+
+If you’re serving the map from a different origin, make sure CORS is allowed (the server sends `Access-Control-Allow-Origin: *` by default).
+
+### 3.5 Verify it works
+
+```js
+const map = new maplibregl.Map({
+  container: 'map',
+  style: 'your-style.json',   // make sure the style contains the glyphs URL above
+  center: [77.2090, 28.6139],
+  zoom: 12
+});
+```
+
+You should now see Hindi labels rendered correctly, with vowel signs attached to the base consonants and proper conjunct formation.
+
+---
+
+## 4️⃣ Generating static shaped glyph PBFs (advanced, one-off)
+
+If you want to **avoid a running server** altogether (e.g. you’re deploying to a static-site host), you can pre-generate the glyph PBFs and serve them from a CDN.
+
+### 4.1 Tools you can use
+
+| Tool | How to install | Why it works |
+|------|----------------|--------------|
+| **`fontnik`** (Mapbox’s original glyph generator) | `npm i -g fontnik` | Generates PBFs with HarfBuzz shaping. |
+| **`tilemaker`** (includes a glyph generator) | `apt-get install tilemaker` (or build from source) | Can be scripted to output all ranges you need. |
+| **`glyphs-cli`** (a thin wrapper around `fontnik`) | `npm i -g @maplibre/glyphs-cli` | Simpler CLI. |
+
+### 4.2 Example with `glyphs-cli`
+
+```bash
+# Install
+npm i -g @maplibre/glyphs-cli
+
+# Create a folder for the output
+mkdir -p ./glyphs
+
+# Generate all ranges for Noto Sans Devanagari
+glyphs-cli \
+  --font ./fonts/NotoSansDevanagari-Regular.ttf \
+  --output ./glyphs \
+  --ranges 0-255,256-511,512-767,768-1023,1024-1279,1280-1535,1536-1791,1792-2047,2048-2303,2304-2559,2560-2815,2816-3071,3072-3327,3328-3583,3584-3839,3840-4095,4096-4351,4352-4607,4608-4863,4864-5119,5120-5375,5376-5631,5632-5887,5888-6143,6144-6399,6400-6655,6656-6911,6912-7167,7168-7423,7424-7679,7680-7935,7936-8191,8192-8447,8448-8703,8704-8959,8960-9215,9216-9471,9472-9727,9728-9983,9984-10239,10240-10495,10496-10751,10752-11007,11008-11263,11264-11519,11520-11775,11776-12031,12032-12287,12288-12543,12544-12799,12800-13055,13056-13311,13312-13567,13568-13823,13824-14079,14080-14335,14336-14591,14592-14847,14848-15103,15104-15359,15360-15615,15616-15871,15872-16127,16128-16383,16384-16639,16640-16895,16896-17151,17152-17407,17408-17663,17664-17919,17920-18175,18176-18431,18432-18687,18688-18943,18944-19199,19200-19455,19456-197",FAIL,0.00,,"The provided text states that MapLibre GL JS does not perform text shaping itself and expects pre-shaped glyphs from the glyph server. It identifies the problem as the glyph server not providing shaped glyphs for complex scripts like Devanagari. The text then offers solutions involving using a glyph server that runs HarfBuzz or pre-generating shaped glyphs. It does not claim that MapLibre GL JS *draws* Devanagari correctly by default with recent versions, nor does it mention pinning a specific font for Devanagari with the `font-faces` property. Instead, it focuses on the necessity of the glyph server providing shaped glyphs.",
