@@ -22,6 +22,7 @@ import {
   measureLimits,
   paceMs,
   parseShard,
+  planRun,
   rateLimitWaits,
   reserveAfter,
   runEvals,
@@ -991,6 +992,50 @@ describe('runEvals', () => {
     assert.deepEqual(summary.planned, written.planned);
   });
 
+  it('records beside the CSVs what each config it graded was graded on', async () => {
+    const { resultsDir, workDir } = workspace();
+    const cartography = 'evals/prompts/maplibre-cartography.yaml';
+    const fonts = 'evals/prompts/maplibre-fonts-glyphs.yaml';
+    // The fonts child writes nothing, so that config gets no verdict.
+    const spawn = async (command, args) => {
+      const jsonPath = args[args.indexOf('--output') + 2];
+      if (jsonPath.includes('cartography')) {
+        writeFileSync(jsonPath, sidecar([graded('a', 0)]));
+      }
+      return { exitCode: 0, durationMs: 1000 };
+    };
+    const inputs = new Map([
+      [cartography, { skill: 's1', config: 'c1', harness: 'h' }],
+      [fonts, { skill: 's2', config: 'c2', harness: 'h' }]
+    ]);
+
+    await runEvals({
+      configs: [cartography, fonts],
+      name: '2026-10-27',
+      resultsDir,
+      workDir,
+      budgetMinutes: 240,
+      judge: 'google:gemini-2.5-flash-lite',
+      inputs,
+      commit: 'abc123',
+      spawn,
+      log: () => {}
+    });
+
+    assert.deepEqual(
+      JSON.parse(readFileSync(join(resultsDir, '2026-10-27.json'), 'utf8')),
+      {
+        commit: 'abc123',
+        configs: {
+          'maplibre-cartography': {
+            inputs: { skill: 's1', config: 'c1', harness: 'h' },
+            judge: 'google:gemini-2.5-flash-lite'
+          }
+        }
+      }
+    );
+  });
+
   it('hands every child the limits the run measured, and records them', async () => {
     const { resultsDir, workDir } = workspace();
     const envs = [];
@@ -1496,6 +1541,93 @@ describe('longestWaiting', () => {
       }),
       [config('new'), config('a'), config('c'), config('b')]
     );
+  });
+});
+
+describe('planRun', () => {
+  const config = (skill) => `evals/prompts/maplibre-${skill}.yaml`;
+  const same = { skill: 's', config: 'c', harness: 'h' };
+  const plan = ({ graded, recorded = {}, inputs = {}, regradeDays = 0 }) =>
+    planRun({
+      configs: Object.keys(graded).map(config),
+      graded: new Map(
+        Object.entries(graded)
+          .filter(([, date]) => date !== null)
+          .map(([skill, date]) => [`maplibre-${skill}`, date])
+      ),
+      recorded: new Map(
+        Object.keys(graded).map((skill) => [
+          `maplibre-${skill}`,
+          skill in recorded ? recorded[skill] : same
+        ])
+      ),
+      inputs: new Map(
+        Object.keys(graded).map((skill) => [
+          config(skill),
+          inputs[skill] ?? same
+        ])
+      ),
+      today: '2026-10-26',
+      regradeDays
+    });
+  const due = (result) =>
+    result.due.map(({ config, why }) => [
+      config.replace(/^.*maplibre-|\.yaml$/g, ''),
+      why
+    ]);
+
+  it('grades a config whose inputs changed since its last grade, and says which', () => {
+    const result = plan({
+      graded: { a: '2026-10-20', b: '2026-10-20' },
+      inputs: {
+        a: { ...same, skill: 't' },
+        b: { ...same, config: 'd', harness: 'i' }
+      }
+    });
+    assert.deepEqual(due(result), [
+      ['a', 'SKILL.md changed since its grade of 2026-10-20'],
+      ['b', 'eval config and harness changed since its grade of 2026-10-20']
+    ]);
+    assert.deepEqual(result.later, []);
+  });
+
+  it('grades a config with no grade, no recorded inputs, or inputs it cannot read, the longest-waiting first', () => {
+    const result = plan({
+      graded: { a: '2026-10-24', b: null, c: '2026-10-22' },
+      recorded: { c: null },
+      inputs: { a: { error: 'ENOENT: skills/maplibre-a/SKILL.md' } }
+    });
+    assert.deepEqual(due(result), [
+      ['b', 'no graded run yet'],
+      ['c', 'graded 2026-10-22 by a run that recorded no inputs'],
+      ['a', 'inputs unreadable: ENOENT: skills/maplibre-a/SKILL.md']
+    ]);
+  });
+
+  it('grades only what changed when no regrade period is set', () => {
+    const result = plan({ graded: { a: '2026-09-01' } });
+    assert.deepEqual(result.due, []);
+    assert.deepEqual(result.later, [
+      { config: config('a'), why: 'graded 2026-09-01 on its current inputs' }
+    ]);
+  });
+
+  it('grades an unchanged config once its grade is the regrade period old, after every changed one', () => {
+    const result = plan({
+      graded: { a: '2026-10-19', b: '2026-10-25', c: '2026-10-20' },
+      inputs: { b: { ...same, skill: 't' } },
+      regradeDays: 7
+    });
+    assert.deepEqual(due(result), [
+      ['b', 'SKILL.md changed since its grade of 2026-10-25'],
+      ['a', 'last graded 2026-10-19, 7 days ago']
+    ]);
+    assert.deepEqual(result.later, [
+      {
+        config: config('c'),
+        why: 'graded 2026-10-20 on its current inputs; due again 2026-10-27'
+      }
+    ]);
   });
 });
 
