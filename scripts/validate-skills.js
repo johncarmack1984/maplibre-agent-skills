@@ -16,12 +16,8 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  ALLOWED_KEYS,
-  STATUSES,
-  parseFrontmatter,
-  statusOf
-} from './lib/frontmatter.js';
+import { ALLOWED_KEYS, STATUSES, statusOf } from './lib/frontmatter.js';
+import { parseFrontmatter } from './lib/parse-frontmatter.js';
 
 export const FOOTER =
   "---\n\n**This skill is a snapshot.** Where a primary source contradicts it — the References above, MapLibre's current documentation, or what MapLibre does when you run it — that source wins. Follow it, then [report the disagreement](https://github.com/maplibre/maplibre-agent-skills/issues/new?template=ai-failure-report.md), citing the source and your MapLibre version: editing your installed copy helps no one else and is overwritten on the next update.";

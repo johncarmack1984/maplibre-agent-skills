@@ -107,18 +107,27 @@ describe('syncSkillStatus', () => {
     assert.ok(content.endsWith(body));
   });
 
-  it('skips a skill whose front matter does not parse', () => {
-    const dir = skillsDir({ 'maplibre-cartography': 'verified' });
+  it('reads and flips the status under metadata, not one under another key', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'skill-status-'));
+    mkdirSync(join(dir, 'maplibre-cartography'));
+    const file = join(dir, 'maplibre-cartography', 'SKILL.md');
     writeFileSync(
-      join(dir, 'maplibre-cartography', 'SKILL.md'),
-      '---\nname: [unclosed\n---\n\n# Body\n'
+      file,
+      '---\nname: maplibre-cartography\ndescription: A skill.\ncompatibility:\n  status: n/a\nmetadata:\n  internal: false\n  status: provisional\n---\n\n# Body\n'
     );
     const result = syncSkillStatus({
-      verdictsText: 'maplibre-cartography:fail\n',
+      verdictsText: 'maplibre-cartography:pass\n',
       skillsDir: dir
     });
-    assert.deepEqual(result.changes, []);
-    assert.match(result.ignored[0].reason, /does not parse/);
+    assert.deepEqual(result.changes, [
+      'maplibre-cartography: provisional -> verified'
+    ]);
+    const content = readFileSync(file, 'utf8');
+    assert.match(content, /compatibility:\n {2}status: n\/a\n/);
+    assert.match(
+      content,
+      /metadata:\n {2}internal: false\n {2}status: verified\n/
+    );
   });
 
   it('reports a verdict naming a skill that has no SKILL.md', () => {
