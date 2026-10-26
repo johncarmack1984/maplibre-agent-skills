@@ -8,6 +8,7 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Added
 
+- Claude Code plugin: `/plugin install maplibre-agent-skills --marketplace maplibre/maplibre-agent-skills` installs every skill except the maintainers' eval runbook ([#145](https://github.com/maplibre/maplibre-agent-skills/pull/145))
 - `maplibre-sprites-icons` skill, extracted from `maplibre-cartography`: a decision tree for a `Marker`, a sprite, or `addImage`; `sprite` URL forms and several sheets; self-hosting; SVGs through `addImage`; finding a missing icon; route shields (#68) ([#96](https://github.com/maplibre/maplibre-agent-skills/pull/96))
 - `maplibre-running-evals` process skill: the step-by-step procedure for running the Promptfoo evals; `evals/README.md` now treats the pinned judge as the default and says when another judge is legitimate ([#81](https://github.com/maplibre/maplibre-agent-skills/pull/81))
 
