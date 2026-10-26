@@ -1,0 +1,1184 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+"explicit — CDN script tag, no bundler (ESM-only, UMD/CSP removed)",skills/maplibre-v6-migration/SKILL.md,"Show me the simplest way to add a MapLibre GL JS map to a plain HTML page using a CDN, no build tools or npm.
+","Below is a **complete, minimal HTML file** that shows a MapLibre GL JS map using only a CDN – no npm, no bundler, no build step.  
+It works with the **v6** ESM-only build, so the script tag must be a module and the CSS has to be loaded separately.
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"">
+  <title>MapLibre GL JS – CDN example</title>
+
+  <!-- 1️⃣ MapLibre CSS (required for the map canvas & controls) -->
+  <link
+    href=""https://unpkg.com/maplibre-gl@6.15.0/dist/maplibre-gl.css""
+    rel=""stylesheet""
+  />
+
+  <style>
+    /* Full-screen map container – adjust as you like */
+    html, body { margin:0; height:100%; }
+    #map { width:100%; height:100%; }
+  </style>
+</head>
+
+<body>
+  <div id=""map""></div>
+
+  <!-- 2️⃣ ESM script – import the .mjs build from the CDN -->
+  <script type=""module"">
+    // Import the whole namespace (you could also import only what you need)
+    import * as maplibregl from
+      'https://unpkg.com/maplibre-gl@6.15.0/dist/maplibre-gl.mjs';
+
+    // Create the map
+    const map = new maplibregl.Map({
+      container: 'map',               // id of the div above
+      style: 'https://demotiles.maplibre.org/style.json', // any valid style URL
+      center: [0, 0],                 // [lng, lat]
+      zoom: 2                         // initial zoom
+    });
+
+    // Optional – add a navigation control (zoom buttons, compass)
+    map.addControl(new maplibregl.NavigationControl());
+  </script>
+</body>
+</html>
+```
+
+### Why it looks like this
+
+| Step | What changed in v6 | What the code does |
+|------|-------------------|--------------------|
+| **CSS** | Still a plain stylesheet, unchanged. | Loads the default MapLibre styles (sprites, glyphs, etc.). |
+| **Script tag** | v6 removed the UMD bundle; only an **ESM** (`.mjs`) file exists. | `type=""module""` tells the browser to treat the script as an ES module. |
+| **Import** | No default export any more (`import maplibregl from …` no longer works). | We use a **namespace import** (`import * as maplibregl`) or you can import only the pieces you need (`import { Map, NavigationControl } from …`). |
+| **Worker URL** | The CDN ESM build automatically resolves the worker via `import.meta.url`. | No extra `setWorkerUrl()` call is required. |
+| **Version pinning** | A major version bump (v5 → v6) silently broke pages that used `@latest`. | The URL explicitly pins to `6.15.0` (or any other v6.x you prefer). |
+| **Serving** | Modules can’t be loaded from `file://` in most browsers. | Open the file via a local web server (`python -m http.server`, `live-server`, etc.) or host it on any static-file server. |
+
+### Quick test
+
+1. Save the snippet above as `index.html`.
+2. Serve it (e.g. `python -m http.server 8000` from the same folder).
+3. Open `http://localhost:8000` in a modern browser (Chrome, Edge, Firefox, Safari).
+
+You should see a world map centered on `[0, 0]` with zoom-in/out buttons. That’s it – no npm, no bundler, just plain HTML and a CDN. 🎉",PASS,1.00,,All assertions passed,
+implicit — convert a Mapbox import to MapLibre (default export removed),skills/maplibre-v6-migration/SKILL.md,"Convert this Mapbox snippet to MapLibre GL JS: `import mapboxgl from 'mapbox-gl';`
+","**Mapbox GL JS**
+
+```js
+import mapboxgl from 'mapbox-gl';
+```
+
+**MapLibre GL JS (v6+)**
+
+```js
+// ✅ Namespace import – works in all bundlers and with the ESM-only build
+import * as maplibregl from 'maplibre-gl';
+
+// or, if you only need a few symbols, use named imports
+import { Map, NavigationControl } from 'maplibre-gl';
+```
+
+### How to use it
+
+```js
+// using the namespace import
+const map = new maplibregl.Map({
+  container: 'map',          // id of the DOM element
+  style: 'https://example.com/style.json',
+  center: [0, 0],
+  zoom: 2
+});
+
+// using named imports (same result)
+const map = new Map({
+  container: 'map',
+  style: 'https://example.com/style.json',
+  center: [0, 0],
+  zoom: 2
+});
+```
+
+### Why the change?
+
+* **v6 is ESM-only** – the package no longer provides a default export.  
+* `import mapboxgl from 'mapbox-gl'` (or `import maplibregl from 'maplibre-gl'`) will throw a runtime error (`ERR_PACKAGE_PATH_NOT_EXPORTED`).  
+* Using a **namespace import** (`* as …`) or **named imports** (`{ Map, … }`) is the supported way.
+
+### Quick checklist when migrating
+
+| ✅ What to do | ❌ What not to do |
+|---------------|------------------|
+| `import * as maplibregl from 'maplibre-gl';` | `import maplibregl from 'maplibre-gl';` |
+| `import { Map, NavigationControl } from 'maplibre-gl';` | `const maplibregl = require('maplibre-gl');` (CommonJS) |
+| Pin the version in your `package.json` (e.g. `""maplibre-gl"": ""^6.0.0""`). | Use an unpinned CDN like `@latest`. |
+
+If you’re bundling (Webpack, Vite, Rollup, etc.) remember to call `setWorkerUrl()` once before creating the map (see the migration guide). For a plain CDN `<script type=""module"">` import you don’t need that extra step.",PASS,1.00,,All assertions passed,
+anti-pattern — write a CommonJS script that loads maplibre-gl,skills/maplibre-v6-migration/SKILL.md,"Write a Node.js script using CommonJS that loads the maplibre-gl package and prints its version.
+","**Important note – v6 no longer ships a CommonJS entry point**  
+Starting with **MapLibre GL JS v6** the package’s `package.json` only defines an `""import""` condition.  
+Calling
+
+```js
+const maplibregl = require('maplibre-gl');   // ❌
+```
+
+throws `ERR_PACKAGE_PATH_NOT_EXPORTED`.  
+So a *pure* CommonJS script cannot `require()` the library any more.
+
+You have two practical options:
+
+1. **Turn the file into an ES-module** (`.mjs` or `""type"":""module""` in `package.json`) and use a normal `import`.  
+2. **Stay in a CommonJS file** and load the library with a **dynamic `import()`** (which returns a promise). This works in Node ≥ 12.20/14.13.
+
+Below is a **self-contained CommonJS script** that uses the second approach, reads the library’s `package.json` (which is always exported) and prints the version that the installed package reports.
+
+```js
+// file: print-maplibre-version.cjs   (or any .js file run with node)
+(async () => {
+  try {
+    // 1️⃣ Dynamically import the ESM build
+    const maplibregl = await import('maplibre-gl');   // returns the module namespace object
+
+    // 2️⃣ The library itself exposes its version on the exported object
+    //    (as of v6 it is `maplibregl.version` – same as v5)
+    const libVersion = maplibregl.version;
+
+    // 3️⃣ As a fallback (or if you just want the npm version) read the package.json
+    //    This works because Node resolves the path inside the package even when
+    //    the package has an ""exports"" field.
+    const { version: pkgVersion } = await import('maplibre-gl/package.json');
+
+    console.log('MapLibre GL JS version (module export):', libVersion);
+    console.log('MapLibre GL JS version (package.json):', pkgVersion);
+  } catch (err) {
+    console.error('Failed to load maplibre-gl:', err);
+    process.exit(1);
+  }
+})();
+```
+
+### How to run it
+
+```bash
+# make sure you have a v6+ installation
+npm install maplibre-gl@^6
+
+# run the script with Node
+node print-maplibre-version.cjs
+```
+
+You should see something like:
+
+```
+MapLibre GL JS version (module export): 6.13.0
+MapLibre GL JS version (package.json): 6.13.0
+```
+
+---
+
+#### If you *must* use a static `require()` (e.g. an older codebase)
+
+The only way to keep a synchronous `require()` is to **pin to a v5.x release**, because v5 still exported a CommonJS entry point:
+
+```bash
+npm install maplibre-gl@5
+node -e ""console.log(require('maplibre-gl').version)""
+```
+
+But as soon as you upgrade to v6, the `require()` call will break, and the migration guide (see the “No CommonJS” section) tells you to switch to ESM or dynamic import as shown above.",PASS,1.00,,All assertions passed,
+explicit — dynamically supply a missing sprite icon at runtime,skills/maplibre-v6-migration/SKILL.md,"How do I dynamically supply an icon at runtime when MapLibre GL JS can't find it in the style's sprite?
+","### Supplying a missing icon at runtime in **MapLibre GL JS v6**
+
+In v5 you could do this:
+
+```js
+map.on('styleimagemissing', e => {
+  map.addImage(e.id, myGeneratedImage);
+});
+```
+
+In **v6** the `styleimagemissing` event is **notify-only** – calling `addImage()` from the handler no longer resolves the pending request.  
+The new way is to register a **missing-style-image resolver** with `map.setMissingStyleImageResolver()`.  
+The resolver is called whenever the style asks for an image that isn’t already in the sprite, and you must add the image yourself (synchronously or asynchronously).  
+
+Below is a complete pattern that works in both plain-module (CDN) usage and in a bundler-based project.
+
+---
+
+## 1. Basic pattern (ESM)
+
+```js
+import * as maplibregl from 'maplibre-gl';   // or import {Map, setMissingStyleImageResolver} from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+
+const map = new maplibregl.Map({
+  container: 'map',
+  style: 'https://example.com/my-style.json',
+  center: [0, 0],
+  zoom: 2
+});
+
+/**
+ * Register the resolver **once**, before any layers that reference unknown icons are rendered.
+ * The resolver receives the missing image id and should add the image to the map.
+ * It may return a Promise – MapLibre will wait for it to settle before continuing.
+ */
+map.setMissingStyleImageResolver(async (missingId) => {
+  // 1️⃣  Decide how you want to obtain the image.
+  //    • Generate it on-the-fly (canvas, SVG, etc.)
+  //    • Fetch a PNG/JPEG/WebP from a server
+  //    • Pull it from IndexedDB / local cache
+  const image = await fetchIcon(missingId);   // ← your own async function
+
+  // 2️⃣  Add the image to the map.  The second argument can be an HTMLImageElement,
+  //     HTMLCanvasElement, ImageBitmap, or an object {width, height, data: Uint8Array}
+  map.addImage(missingId, image, { sdf: true }); // `sdf` optional, depends on your use-case
+});
+
+/**
+ * Example async fetcher – replace with whatever logic you need.
+ */
+async function fetchIcon(id) {
+  // Assume you have a URL pattern like `/icons/<id>.png`
+  const response = await fetch(`/icons/${encodeURIComponent(id)}.png`);
+  if (!response.ok) throw new Error(`Icon ${id} not found`);
+  const blob = await response.blob();
+  // Convert Blob → HTMLImageElement (MapLibre accepts ImageBitmap too)
+  const img = await createImageBitmap(blob);
+  // If you prefer an <img> element:
+  // const img = new Image();
+  // img.src = URL.createObjectURL(blob);
+  // await img.decode();
+  return img;
+}
+```
+
+### What the code does
+
+| Step | Explanation |
+|------|-------------|
+| **`setMissingStyleImageResolver`** | Registers a *single* resolver that will be called for **any** missing image id. |
+| **Resolver receives `missingId`** | The id is exactly the string used in the style’s `icon-image` (or `background-pattern`, etc.). |
+| **Fetch / generate the image** | You can do anything async here – network request, canvas drawing, reading from IndexedDB, etc. |
+| **`map.addImage(missingId, image, options)`** | Adds the image to the map’s internal sprite. Once added, the original style request is satisfied and the layer renders. |
+| **Return / await** | If the resolver returns a Promise (as in the example), MapLibre will wait for it before proceeding. If you add the image synchronously, just return `undefined`. |
+
+---
+
+## 2. Using `styleimagemissing` only for logging (optional)
+
+If you still want to be notified *without* handling the resolution (e.g., for debugging), you can keep the old listener:
+
+```js
+map.on('styleimagemissing', e => {
+  console.warn('Missing style image:', e.id);
+});
+```
+
+But **do not** call `addImage()` here – it will have no effect on the pending request.
+
+---
+
+## 3. Bundler considerations (Vite, webpack, etc.)
+
+When you’re using a bundler you still need the resolver **exactly** as shown above.  
+The only extra step is the **worker URL** setup (required for any bundled build, not for CDN ESM). Example for Vite:
+
+```js
+import { Map, setWorkerUrl } from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
+
+setWorkerUrl(workerUrl);   // <-- required for Vite / esbuild / Rollup
+```
+
+After the `setWorkerUrl()` call you can register the missing-image resolver exactly as in the plain-module example.
+
+---
+
+## 4. Common pitfalls & how to avoid them
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| **Icon never appears, console shows “styleimagemissing”** | Resolver not registered **or** `addImage` not called inside the resolver. | Call `map.setMissingStyleImageResolver()` **before** the map starts rendering, and ensure `map.addImage()` runs inside the resolver. |
+| **`addImage` throws “Image already exists”** | The same id was added earlier (maybe you added it manually or the resolver ran twice). | Guard against duplicates: `if (!map.hasImage(id)) map.addImage(id, img);` |
+| **Map stays blank, worker error** | Bundler build missing `setWorkerUrl()`. | Add the `setWorkerUrl()` snippet for your bundler (see section 3). |
+| **`fetchIcon` returns a Blob but `addImage` fails** | You passed a `Blob` directly; `addImage` expects an `ImageBitmap`, `HTMLImageElement`, `HTMLCanvasElement`, or raw pixel data. | Convert the Blob to an `ImageBitmap` (`await createImageBitmap(blob)`) or to an `<img>` element before calling `addImage`. |
+| **Performance lag when many icons are missing** | Resolver fetches each icon sequentially on the main thread. | Cache results (`Map<string, ImageBitmap>`) and/or pre-fetch a set of known icons during app initialization. |
+
+---
+
+## 5. Full minimal example (CDN-only)
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"">
+  <title>MapLibre – dynamic missing icons</title>
+  <link href=""https://unpkg.com/maplibre-gl@6/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>#map { position:absolute; top:0; bottom:0; width:100%; }</style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script type=""module"">
+  import * as maplibregl from 'https://unpkg.com/maplibre-gl@6/dist/maplibre-gl.mjs';
+
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://example.com/style-with-missing-icons.json',
+    center: [0, 0],
+    zoom: 2
+  });
+
+  // Register resolver
+  map.setMissingStyleImageResolver(async (id) => {
+    // Simple fetch-and-decode example
+    const resp = await fetch(`https://example.com/icons/${id}.png`);
+    if (!resp.ok) return; // silently ignore if you don’t have it
+    const blob = await resp.blob();
+    const img = await createImageBitmap(blob);
+    map.addImage(id, img);
+  });
+</script>
+</body>
+</html>
+```
+
+---
+
+## 6. TL;DR checklist
+
+1. **Remove any `styleimagemissing`-based `addImage` logic.**  
+2. Call `map.setMissingStyleImageResolver(resolverFn)` **once**, before the map renders.  
+3. Inside the resolver, **fetch / generate** the image and **add it** with `map.addImage(id, image, options)`.  
+4. (Bundler only) Ensure you have called `setWorkerUrl()` as described in the v6 migration guide.  
+5. Optionally keep a `styleimagemissing` listener for logging, but **don’t** try to resolve the image there.
+
+That’s all you need to dynamically supply icons at runtime in MapLibre GL JS v6. Happy mapping!",PASS,1.00,,All assertions passed,
+implicit — read camera state for custom rendering math,skills/maplibre-v6-migration/SKILL.md,"In MapLibre GL JS, I need the map camera state (center, zoom, bearing, pitch, and the projection matrix) to do some custom math. Show me how to get it.
+","Below is a **v6-compatible** recipe that gives you everything you can get from the public API:
+
+| What you need | Public getter (v6) | How to use it |
+|---------------|-------------------|---------------|
+| **Center**    | `map.getCenter()` | Returns a `LngLat` object (`{lng, lat}`) |
+| **Zoom**      | `map.getZoom()`   | Returns a number |
+| **Bearing**   | `map.getBearing()`| Returns a number (degrees, clockwise from north) |
+| **Pitch**     | `map.getPitch()`  | Returns a number (degrees) |
+| **Projection matrix** | **Only available inside a custom layer’s `render` callback** | See the “Projection matrix” section below |
+
+---
+
+## 1️⃣ Basic camera state (center, zoom, bearing, pitch)
+
+```js
+// Assuming you already have a MapLibre map instance called `map`
+import * as maplibregl from 'maplibre-gl';   // v6 – namespace import
+
+// … map creation …
+const map = new maplibregl.Map({
+  container: 'map',
+  style: 'https://demotiles.maplibre.org/style.json',
+  center: [0, 0],
+  zoom: 2,
+});
+
+/* ---- Get the current camera values ---- */
+function logCameraState() {
+  const center = map.getCenter();   // LngLat {lng, lat}
+  const zoom   = map.getZoom();     // number
+  const bearing = map.getBearing(); // degrees
+  const pitch   = map.getPitch();   // degrees
+
+  console.log('center:', center);
+  console.log('zoom:',   zoom);
+  console.log('bearing:', bearing);
+  console.log('pitch:',   pitch);
+}
+
+// Call it whenever you need the state (e.g. after a moveend)
+map.on('moveend', logCameraState);
+```
+
+> **Why not `map.transform`?**  
+> In v6 the internal `map.transform` property was removed (see the migration guide). All the public getters above replace the most common uses of that private object.
+
+---
+
+## 2️⃣ Projection matrix (the 4 × 4 matrix used by the WebGL renderer)
+
+The matrix is **not exposed on the `Map` object** any more. The only place the library hands it to you is the `render` method of a **custom layer**. The pattern is:
+
+```js
+// 1️⃣ Define a custom layer that just captures the matrix
+const matrixCaptureLayer = {
+  id: 'matrix-capture',
+  type: 'custom',
+  // The layer must be rendered after the base map, so we give it a high `render` order.
+  // (You can also add it at the end of the style with `map.addLayer`.)
+  render: (gl, matrix) => {
+    // `matrix` is a Float32Array[16] – the column-major projection * view matrix
+    // Store it somewhere you can read later (e.g. a global variable, a closure, etc.)
+    window.lastProjectionMatrix = matrix.slice(); // copy if you need it later
+    // No drawing is required – we just want the matrix.
+  }
+};
+
+// 2️⃣ Add the layer (after the map is ready)
+map.on('load', () => {
+  map.addLayer(matrixCaptureLayer);
+});
+
+// 3️⃣ Use the matrix whenever you need it
+function doCustomMath() {
+  const m = window.lastProjectionMatrix;
+  if (!m) {
+    console.warn('Matrix not ready yet – wait for the first render');
+    return;
+  }
+
+  // Example: transform a world-space point (lng/lat) to clip space
+  const lngLat = map.getCenter();               // any LngLat you like
+  const point = map.project(lngLat);            // → {x, y} in pixel coordinates
+  const vec = [point.x, point.y, 0, 1];          // homogeneous clip-space vector
+
+  // Multiply by the matrix (you can use gl-matrix, three.js, etc.)
+  // Here’s a tiny manual multiply for illustration:
+  const out = new Float32Array(4);
+  for (let i = 0; i < 4; ++i) {
+    out[i] = m[i] * vec[0] + m[i + 4] * vec[1] + m[i + 8] * vec[2] + m[i + 12] * vec[3];
+  }
+  console.log('Clip-space coordinates:', out);
+}
+
+// Call it after the first render (or on any later event)
+map.on('render', doCustomMath);
+```
+
+### What the code is doing
+
+| Step | Explanation |
+|------|-------------|
+| **Custom layer definition** | The `render(gl, matrix)` signature is part of the `CustomLayerInterface`. `matrix` is the exact same projection-view matrix the internal renderer uses. |
+| **`map.addLayer`** | Adding the layer makes the renderer call `render` on every frame (after the base map has been drawn). |
+| **Storing the matrix** | In the example we stash a copy on `window.lastProjectionMatrix`. In a real app you’d probably keep it in a React state, a Redux store, or a class field. |
+| **Using the matrix** | Once you have the `Float32Array[16]` you can feed it to any linear-algebra library (e.g. `gl-matrix`, `three.js`, `mathjs`) to do your custom math. |
+
+> **Important:** The matrix is only defined *after* the first render pass. If you try to read it earlier (e.g. right after `map.on('load')`) you’ll get `undefined`. Listen to `render` or `moveend` after the first frame to be safe.
+
+---
+
+## 3️⃣ Full example (CDN ESM + custom layer)
+
+If you are loading MapLibre from a CDN (the only way to do a plain `<script>` now), the same pattern works:
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>MapLibre – camera + matrix</title>
+  <style>
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script type=""module"">
+  // 1️⃣ Import the ESM build from the CDN
+  import * as maplibregl from 'https://unpkg.com/maplibre-gl@^6.0.0/dist/maplibre-gl.mjs';
+
+  // 2️⃣ Create the map
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://demotiles.maplibre.org/style.json',
+    center: [-74.5, 40],
+    zoom: 9
+  });
+
+  // 3️⃣ Custom layer that captures the projection matrix
+  const matrixCaptureLayer = {
+    id: 'matrix-capture',
+    type: 'custom',
+    render: (gl, matrix) => {
+      window.projMatrix = matrix.slice(); // keep a copy
+    }
+  };
+
+  map.on('load', () => {
+    map.addLayer(matrixCaptureLayer);
+  });
+
+  // 4️⃣ Helper to log everything
+  function logAll() {
+    const center  = map.getCenter();
+    const zoom    = map.getZoom();
+    const bearing = map.getBearing();
+    const pitch   = map.getPitch();
+    const matrix  = window.projMatrix;
+
+    console.log('center :', center);
+    console.log('zoom   :', zoom);
+    console.log('bearing:', bearing);
+    console.log('pitch  :', pitch);
+    console.log('matrix :', matrix);
+  }
+
+  // Log after each move + after the first render that gives us a matrix
+  map.on('moveend', logAll);
+  map.on('render', logAll);
+</script>
+</body>
+</html>
+```
+
+*The only thing that changed from a v5 CDN example is the `type=""module""` import and the fact that we no longer have a `dist/maplibre-gl.js` file.*
+
+---
+
+## 4️⃣ TL;DR – What you need to remember after the v5→v6 migration
+
+| Feature | v5 way | v6 way (what you should use) |
+|---------|--------|------------------------------|
+| **Import** | `import maplibregl from 'maplibre-gl'` (default) | `import * as maplibregl from 'maplibre-gl'` **or** named imports |
+| **CommonJS** | `require('maplibre-gl')` works | **Not supported** – use ESM (`import`) or dynamic `await import()` |
+| **Camera getters** | `map.transform.center`, `map.transform.zoom`, … | `map.getCenter()`, `map.getZoom()`, `map.getBearing()`, `map.getPitch()` |
+| **Projection matrix** | Accessible via the private `map.transform` (not officially documented) | Only via a **custom layer’s `render(gl, matrix)`** callback. No public `map.transform` any more. |
+| **CDN script** | `<script src=""…/dist/maplibre-gl.js""></script>` | `<script type=""module""> import … from '…/dist/maplibre-gl.mjs'; … </script>` |
+| **Worker URL** | Not needed for CDN ESM | Needed only when bundling (call `setWorkerUrl()` once). |
+
+---
+
+### Quick copy-paste for a typical bundler (Vite, webpack, etc.)
+
+```js
+// src/main.js  (ESM)
+import { Map, setWorkerUrl } from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
+
+setWorkerUrl(workerUrl);
+
+const map = new Map({
+  container: 'map',
+  style: 'https://demotiles.maplibre.org/style.json',
+  center: [0, 0],
+  zoom: 2,
+});
+
+/* ---- Camera getters ---- */
+function printCamera() {
+  console.log({
+    center:  map.getCenter(),
+    zoom:    map.getZoom(),
+    bearing: map.getBearing(),
+    pitch:   map.getPitch(),
+  });
+}
+map.on('moveend', printCamera);
+
+/* ---- Projection matrix via custom layer ---- */
+const matrixLayer = {
+  id: 'matrix',
+  type: 'custom',
+  render: (_, matrix) => {
+    // store or use the matrix here
+    console.log('Projection matrix (Float32Array[16]):', matrix);
+  }
+};
+map.on('load', () => map.addLayer(matrixLayer));
+```
+
+That’s it—now you have **center, zoom, bearing, pitch, and the exact WebGL projection matrix** ready for any custom math you need to perform. Happy coding!",PASS,1.00,,All assertions passed,
+"implicit — type-safe handler for the data event, narrowed on sourceDataType",skills/maplibre-v6-migration/SKILL.md,"Write a type-safe TypeScript handler for MapLibre GL JS's 'data' event that narrows on `sourceDataType`, importing whatever event type MapLibre GL JS exports for it.
+","Below is a **minimal, type-safe** example that shows how to listen to the `data` event in a MapLibre GL JS v6 map, import the correct event types, and narrow the callback to the **source-data** branch so you can safely inspect `sourceDataType` (and the other source-specific fields).
+
+```ts
+// ------------------------------------------------------------
+// 1️⃣  Imports – note the *named* imports (no default export)
+// ------------------------------------------------------------
+import type {
+  Map,                     // the Map class (you can also import only what you need)
+  MapSourceDataEvent,      // emitted when source data changes
+  MapStyleDataEvent        // emitted when style data changes
+} from 'maplibre-gl';
+
+// ------------------------------------------------------------
+// 2️⃣  Optional: a tiny type-guard – makes the narrowing explicit
+// ------------------------------------------------------------
+function isSourceDataEvent(
+  ev: MapSourceDataEvent | MapStyleDataEvent
+): ev is MapSourceDataEvent {
+  // `sourceDataType` exists only on source-data events
+  return 'sourceDataType' in ev;
+}
+
+// ------------------------------------------------------------
+// 3️⃣  Create the map (any valid options)
+// ------------------------------------------------------------
+const map = new Map({
+  container: 'map',               // id of the <div> in your HTML
+  style: 'https://demotiles.maplibre.org/style.json',
+  center: [0, 0],
+  zoom: 2
+});
+
+// ------------------------------------------------------------
+// 4️⃣  Attach the `data` listener – fully typed & narrowed
+// ------------------------------------------------------------
+map.on('data', (e: MapSourceDataEvent | MapStyleDataEvent) => {
+  // -----------------------------------------------------------------
+  // First, decide which “flavour” of event we have.
+  // -----------------------------------------------------------------
+  if (isSourceDataEvent(e)) {
+    // ---------------------------------------------------------------
+    // ✅ This is a MapSourceDataEvent – all source-specific fields are
+    //    now known to TypeScript.
+    // ---------------------------------------------------------------
+    console.log('🔎 source data event');
+    console.log('  sourceId        :', e.sourceId);
+    console.log('  sourceDataType  :', e.sourceDataType); // <-- the property you care about
+    console.log('  isSourceLoaded  :', e.isSourceLoaded);
+    console.log('  tile            :', e.tile); // may be undefined for non-tile sources
+
+    // Example: react only when a tile finishes loading
+    if (e.sourceDataType === 'tile' && e.tile?.status === 'loaded') {
+      console.log(`Tile ${e.tile?.uid} for source ""${e.sourceId}"" is loaded`);
+    }
+
+  } else {
+    // ---------------------------------------------------------------
+    // ✅ This is a MapStyleDataEvent – style-related fields only.
+    // ---------------------------------------------------------------
+    console.log('🎨 style data event');
+    console.log('  dataType        :', e.dataType); // 'style' | 'source' | …
+    console.log('  isStyleLoaded   :', e.isStyleLoaded);
+  }
+});
+```
+
+### What the snippet does
+
+| Step | Why it matters for v6 |
+|------|-----------------------|
+| **1️⃣ Import types** | v6 removed the default export; you must use named imports (`import * as maplibregl …` or `import { Map } …`). |
+| **2️⃣ Type-guard** | The union `MapSourceDataEvent | MapStyleDataEvent` is the new type for the `data` event. The guard (`'sourceDataType' in ev`) tells TypeScript which branch we’re in. |
+| **3️⃣ Map creation** | Plain `new Map({ … })` works the same as before (just remember the ESM-only build). |
+| **4️⃣ Handler** | Inside the callback we can safely read `e.sourceDataType` (or any other source-specific property) without a compile-time error. |
+
+#### No `MapDataEvent` any more
+In v5 you might have written:
+
+```ts
+import type { MapDataEvent } from 'maplibre-gl';
+map.on('data', (e: MapDataEvent) => { … });
+```
+
+That type **does not exist** in v6, which is why the code above imports the two new event types and narrows the union.
+
+---
+
+### Quick-reference of the two event interfaces (v6)
+
+```ts
+// From `node_modules/maplibre-gl/dist/maplibre-gl.d.ts`
+
+export interface MapSourceDataEvent extends Event {
+  type: 'data';
+  sourceId: string;
+  sourceDataType: 'metadata' | 'source' | 'tile' | 'style' | 'sprite' | 'glyphs';
+  isSourceLoaded: boolean;
+  tile?: {
+    uid: number;
+    // …other tile-specific fields
+    status: 'loading' | 'loaded' | 'errored';
+  };
+  // …other shared Event fields
+}
+
+export interface MapStyleDataEvent extends Event {
+  type: 'data';
+  dataType: 'style' | 'source' | 'sprite' | 'glyphs';
+  isStyleLoaded: boolean;
+  // …no source-specific fields
+}
+```
+
+Feel free to expand the `if (e.sourceDataType === …)` block with whatever logic you need (e.g., handling `metadata`, `source`, `tile`, etc.). The compiler will now protect you from accidentally accessing a property that isn’t present on the current event type.",PASS,1.00,,All assertions passed,
+explicit — set up MapLibre GL JS in a Vite app,skills/maplibre-v6-migration/SKILL.md,"I'm adding MapLibre GL JS to a Vite + TypeScript app (not a CDN script, an npm install). Show me the map setup.
+","Below is a **minimal, working example** that shows how to bootstrap a MapLibre GL JS map in a **Vite + TypeScript** project that you installed from npm.  
+All of the v5 → v6 breaking-changes that affect a Vite build are handled:
+
+| v5 → v6 issue | What we do in the example |
+|---------------|---------------------------|
+| **No default export** | `import * as maplibregl from 'maplibre-gl'` (or named imports) |
+| **ESM-only package** | Vite already runs ESM, so we use the normal import |
+| **Worker URL must be set** | `setWorkerUrl()` with Vite’s `?worker&url` helper |
+| **styleimagemissing → setMissingStyleImageResolver** | Demonstrated with a tiny async resolver |
+| **map.transform removed** | Use the public camera getters (`getZoom()`, …) |
+| **MapDataEvent → MapSourceDataEvent / MapStyleDataEvent** | Shown in a typed `data` listener |
+| **CSS** | Imported from the package (Vite will bundle it) |
+
+---
+
+## 1️⃣ Install the packages (pin a major version)
+
+```bash
+# Pin the major version so you don’t accidentally pull a future breaking release
+npm i maplibre-gl@^6.0.0
+# Optional – if you want the default “MapLibre” logo to be hidden
+npm i @maplibre/maplibre-gl-style-spec@^6.0.0   # only needed for custom style work
+```
+
+> **Never** use `@latest` in a production bundle – a future major release would silently break the app.
+
+---
+
+## 2️⃣ Vite config (no special changes needed)
+
+Vite already supports the `?worker&url` query that MapLibre’s install guide recommends, so you can keep the default `vite.config.ts`.  
+If you have a custom `optimizeDeps` or `ssr` config, make sure **`maplibre-gl` is not externalized** – otherwise the worker file can’t be resolved.
+
+```ts
+// vite.config.ts (only needed if you have a custom config)
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react'; // or any other framework plugin
+
+export default defineConfig({
+  plugins: [react()],
+  // No special handling for maplibre-gl is required
+});
+```
+
+---
+
+## 3️⃣ Create a TypeScript module that mounts the map
+
+Below is a plain-JS/TS file you can import from any framework (React, Vue, Svelte, or just a script tag in `index.html`).  
+It demonstrates:
+
+* Importing the library **as a namespace** (`* as maplibregl`) – the default export was removed.
+* Importing the CSS so the map controls appear.
+* Setting the worker URL with Vite’s `?worker&url` helper.
+* Registering a **missing-style-image resolver** (`setMissingStyleImageResolver`).
+* Using the **public camera API** (`getZoom()`, `getCenter()`, …) instead of `map.transform`.
+* Typing a `data` event with the new `MapSourceDataEvent | MapStyleDataEvent` union.
+
+```ts
+// src/map.ts
+import * as maplibregl from 'maplibre-gl';               // ← namespace import (no default export)
+import 'maplibre-gl/dist/maplibre-gl.css';               // ← bring the default CSS into the bundle
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
+
+// ---------------------------------------------------------------------------
+// 1️⃣ Tell MapLibre where the WebWorker lives (required for any bundler build)
+// ---------------------------------------------------------------------------
+maplibregl.setWorkerUrl(workerUrl);
+
+// ---------------------------------------------------------------------------
+// 2️⃣ Optional: resolve missing style images at runtime
+// ---------------------------------------------------------------------------
+async function generateIcon(id: string): Promise<ImageBitmap> {
+  // Example: create a simple 32×32 red square on the fly.
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 32;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = 'red';
+  ctx.fillRect(0, 0, 32, 32);
+  // `createImageBitmap` is preferred because MapLibre stores the result as an ImageBitmap.
+  return await createImageBitmap(canvas);
+}
+
+// Register the resolver once (usually right after setWorkerUrl)
+maplibregl.setMissingStyleImageResolver(async (id) => {
+  const img = await generateIcon(id);
+  // The resolver **must** call `addImage`; the return value is ignored.
+  maplibregl.addImage(id, img);
+});
+
+// ---------------------------------------------------------------------------
+// 3️⃣ Initialise the map
+// ---------------------------------------------------------------------------
+export function initMap(containerId: string): maplibregl.Map {
+  const map = new maplibregl.Map({
+    container: containerId,               // id of the <div> in your HTML
+    style: 'https://demotiles.maplibre.org/style.json', // any valid style URL
+    center: [0, 0],                       // [lng, lat]
+    zoom: 2,
+    // You can add any other Map options here (bearing, pitch, hash, etc.)
+  });
+
+  // -----------------------------------------------------------------------
+  // 4️⃣ Example: listen to a data event with the new typings
+  // -----------------------------------------------------------------------
+  map.on('data', (e: maplibregl.MapSourceDataEvent | maplibregl.MapStyleDataEvent) => {
+    if ('sourceId' in e) {
+      // This is a MapSourceDataEvent
+      console.log('Source data event', e.sourceId, e.sourceDataType);
+    } else {
+      // This is a MapStyleDataEvent
+      console.log('Style data event');
+    }
+  });
+
+  // -----------------------------------------------------------------------
+  // 5️⃣ Public camera API (instead of map.transform)
+  // -----------------------------------------------------------------------
+  map.on('load', () => {
+    console.log('Zoom:', map.getZoom());
+    console.log('Center:', map.getCenter().toArray());
+    console.log('Bearing:', map.getBearing());
+    console.log('Pitch:', map.getPitch());
+  });
+
+  return map;
+}
+```
+
+### How to use it in a simple HTML page (no framework)
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"" />
+  <title>Vite + MapLibre</title>
+  <style>
+    #map { width: 100vw; height: 100vh; }
+  </style>
+</head>
+<body>
+  <div id=""map""></div>
+
+  <script type=""module"">
+    import { initMap } from './src/map.ts';
+    initMap('map');
+  </script>
+</body>
+</html>
+```
+
+If you are using a framework (React, Vue, Svelte, etc.) just call `initMap('map')` inside a `useEffect`/`onMounted` hook after the container element is rendered.
+
+---
+
+## 4️⃣ Quick checklist for a Vite + TS project
+
+| ✅ Done? | Item |
+|---------|------|
+| ✅ | `npm i maplibre-gl@^6` (pinned) |
+| ✅ | Imported the CSS (`import 'maplibre-gl/dist/maplibre-gl.css'`) |
+| ✅ | Called `setWorkerUrl()` with the Vite `?worker&url` import |
+| ✅ | Replaced any `import maplibregl from 'maplibre-gl'` with a namespace or named import |
+| ✅ | Replaced `require('maplibre-gl')` (if any) with dynamic `import()` or ESM import |
+| ✅ | Switched any `styleimagemissing` handler to `setMissingStyleImageResolver` |
+| ✅ | Removed all `map.transform` accesses – use `getZoom()`, `getCenter()`, … |
+| ✅ | Updated TypeScript event typings from `MapDataEvent` to `MapSourceDataEvent | MapStyleDataEvent` |
+| ✅ | Verified the map renders (no blank screen, no worker-load errors in the console) |
+
+---
+
+## 5️⃣ Common pitfalls & how to fix them
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| **`ERR_PACKAGE_PATH_NOT_EXPORTED`** in the console | You still have a `require('maplibre-gl')` somewhere (Node script, legacy CommonJS file). | Convert that file to ESM (`import …`) or use `await import('maplibre-gl')`. |
+| **Blank map, “Failed to load worker”** | `setWorkerUrl()` was omitted or the import path is wrong. | Ensure the `workerUrl` import uses `?worker&url` (Vite) and that `setWorkerUrl(workerUrl)` runs **before** creating the `Map`. |
+| **Missing icons that never appear** | Still using the old `styleimagemissing` listener. | Replace it with `setMissingStyleImageResolver` as shown above. |
+| **TypeScript error: `MapDataEvent` not found** | Old typings from v5. | Import `MapSourceDataEvent` / `MapStyleDataEvent` and narrow the union as in the example. |
+| **`map.transform` is undefined** | Code still reaches into the internal transform. | Switch to the public getters (`getZoom()`, `getCenter()`, …) or, if you need the raw projection matrix, do it inside a custom layer’s `render()` callback where the matrix is passed in. |
+
+---
+
+## 6️⃣ Full minimal repo layout (for reference)
+
+```
+my-vite-app/
+├─ index.html
+├─ src/
+│  ├─ main.ts          ← entry point (calls initMap)
+│  └─ map.ts           ← code from the example above
+├─ vite.config.ts
+├─ tsconfig.json
+└─ package.json
+```
+
+**src/main.ts**
+
+```ts
+import { initMap } from './map';
+
+document.addEventListener('DOMContentLoaded', () => {
+  initMap('map');   // assumes <div id=""map""></div> exists in index.html
+});
+```
+
+Run it:
+
+```bash
+npm run dev   # (or `vite` if you use the default script)
+```
+
+You should see a fully functional MapLibre map, with the worker loading correctly, TypeScript happy, and no v5-specific code left behind.
+
+---
+
+### TL;DR
+
+* **Import** with `* as maplibregl` (no default export).  
+* **Set the worker URL**: `import workerUrl … ?worker&url; maplibregl.setWorkerUrl(workerUrl);`.  
+* **Use `setMissingStyleImageResolver`** for dynamic icons.  
+* **Replace `map.transform`** with the public camera getters.  
+* **Update event typings** to `MapSourceDataEvent | MapStyleDataEvent`.  
+
+That’s all you need to get MapLibre GL JS v6 running smoothly in a Vite + TypeScript project. Happy mapping!",PASS,1.00,,All assertions passed,
+"negative — vector tile source setup, unrelated to v6 breaking changes",skills/maplibre-v6-migration/SKILL.md,"How do I add a vector tile source from a PMTiles file to a MapLibre GL JS map and style a line layer from it?
+","Below is a **complete, working example** that shows how to:
+
+1. Load a **PMTiles** file (a single-file container of vector tiles) in the browser.  
+2. Register the `pmtiles://` protocol that the PMTiles library provides.  
+3. Add that file as a **vector source** to a MapLibre GL JS map.  
+4. Draw a **line layer** from one of the source’s layers.
+
+The snippets work with **MapLibre GL JS v6** (the current ESM-only build) and with a typical bundler (Vite, webpack, etc.). If you are still on v5 you can keep the old import style, but the rest of the code is the same.
+
+---
+
+## 1️⃣ Install the packages (npm / yarn)
+
+```bash
+# core map library
+npm i maplibre-gl@^6
+
+# PMTiles helper (official library)
+npm i pmtiles
+```
+
+> **Tip:** If you are using a CDN you can skip this step – the CDN URLs are shown later.
+
+---
+
+## 2️⃣ Register the `pmtiles://` protocol
+
+The PMTiles library ships a tiny protocol handler that intercepts `fetch()` calls for URLs that start with `pmtiles://`.  
+You only need to do this **once**, before you create the map.
+
+```js
+// src/pmtiles-setup.js  (or put it at the top of your main file)
+import { PMTiles } from 'pmtiles';
+
+// 1️⃣ Create a PMTiles object that points at the file (local or remote)
+const pmtiles = new PMTiles('https://example.com/tiles/my-data.pmtiles');
+
+// 2️⃣ Register the protocol handler with the global fetch interceptor
+pmtiles.addProtocol('pmtiles');   // now fetch('pmtiles://my-data/...') works
+```
+
+If you are loading the file from the **same origin** (e.g. `./data/my-data.pmtiles`), you can also use a relative URL:
+
+```js
+const pmtiles = new PMTiles(new URL('./data/my-data.pmtiles', import.meta.url).href);
+pmtiles.addProtocol('pmtiles');
+```
+
+> **Why not `map.addSource({ url: ... })` directly?**  
+> The `url` field of a vector source expects a *TileJSON* or a *URL template*. The PMTiles protocol pretends to be a TileJSON endpoint, so the source can be declared exactly as you would for a normal XYZ source.
+
+---
+
+## 3️⃣ Create the MapLibre map (ESM import – v6)
+
+```js
+// src/main.js
+import * as maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+import './pmtiles-setup.js';   // ← registers the protocol
+
+// If you are bundling, you must tell MapLibre where its worker lives:
+import { setWorkerUrl } from 'maplibre-gl';
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
+setWorkerUrl(workerUrl);
+
+// ------------------------------------------------------------------
+// 1️⃣ Initialise the map
+const map = new maplibregl.Map({
+  container: 'map',               // <div id=""map""></div> in your HTML
+  style: 'https://demotiles.maplibre.org/style.json', // any base style you like
+  center: [0, 0],
+  zoom: 2,
+});
+
+// ------------------------------------------------------------------
+// 2️⃣ Add the PMTiles vector source (once the style is loaded)
+map.on('style.load', () => {
+  map.addSource('my-pmtiles-source', {
+    type: 'vector',
+    // The part after the scheme is the *name* you gave the PMTiles file.
+    // It can be anything you want – we’ll just reuse the filename without extension.
+    url: 'pmtiles://my-data',   // <-- the protocol we registered above
+  });
+
+  // ----------------------------------------------------------------
+  // 3️⃣ Add a line layer that draws from a source-layer inside the PMTiles file
+  //    You need to know the exact source-layer name that the vector tiles contain.
+  //    You can discover it with `pmtiles inspect` or by looking at the TileJSON.
+  map.addLayer({
+    id: 'my-line-layer',
+    type: 'line',
+    source: 'my-pmtiles-source',
+    // Replace this with the actual layer name inside the PMTiles tileset
+    'source-layer': 'roads',          // e.g. ""roads"", ""railways"", etc.
+    layout: {
+      'line-cap': 'round',
+      'line-join': 'round',
+    },
+    paint: {
+      'line-color': '#ff6600',
+      'line-width': 2,
+      'line-opacity': 0.9,
+    },
+  });
+});
+```
+
+### What the code does
+
+| Step | Explanation |
+|------|-------------|
+| **PMTiles registration** | `pmtiles.addProtocol('pmtiles')` installs a global `fetch` interceptor that rewrites `pmtiles://…` URLs to read from the single-file container. |
+| **`setWorkerUrl`** | Required only when you bundle the library (Vite, webpack, etc.). The CDN version auto-detects the worker, so you can omit this if you load MapLibre from a CDN. |
+| **`map.addSource`** | Declares a *vector* source whose tiles are served by the PMTiles protocol. |
+| **`map.addLayer`** | Draws a line from the source-layer named `roads`. Adjust `source-layer`, `paint`, and `layout` to suit your data. |
+
+---
+
+## 4️⃣ CDN-only version (no build step)
+
+If you prefer a pure-HTML page without a bundler, you can pull both libraries from a CDN. The only difference is that the CDN build already bundles the worker, so **no `setWorkerUrl` call is needed**.
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"">
+  <title>PMTiles + MapLibre</title>
+  <link href=""https://unpkg.com/maplibre-gl@^6/dist/maplibre-gl.css"" rel=""stylesheet"">
+  <style>
+    #map { position:absolute; top:0; bottom:0; left:0; right:0; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script type=""module"">
+  // ---- 1️⃣ Import the ESM builds from the CDN ----
+  import * as maplibregl from 'https://unpkg.com/maplibre-gl@^6/dist/maplibre-gl.mjs';
+  import { PMTiles } from 'https://cdn.jsdelivr.net/npm/pmtiles@latest/dist/index.mjs';
+
+  // ---- 2️⃣ Register the protocol ----
+  const pm = new PMTiles('https://example.com/tiles/my-data.pmtiles');
+  pm.addProtocol('pmtiles');
+
+  // ---- 3️⃣ Initialise the map ----
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://demotiles.maplibre.org/style.json',
+    center: [0, 0],
+    zoom: 2,
+  });
+
+  // ---- 4️⃣ Add source + line layer once the style is ready ----
+  map.on('style.load', () => {
+    map.addSource('my-pmtiles-source', {
+      type: 'vector',
+      url: 'pmtiles://my-data',
+    });
+
+    map.addLayer({
+      id: 'my-line-layer',
+      type: 'line',
+      source: 'my-pmtiles-source',
+      'source-layer': 'roads',   // <-- change to your actual layer name
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': '#ff6600',
+        'line-width': 2,
+        'line-opacity': 0.9,
+      },
+    });
+  });
+</script>
+</body>
+</html>
+```
+
+**Key points for the CDN version**
+
+* Use `type=""module""` and import the **`.mjs`** build (`dist/maplibre-gl.mjs`).  
+* No default export – we import the whole namespace (`* as maplibregl`).  
+* No `setWorkerUrl()` – the worker is auto-detected from `import.meta.url`.  
+
+---
+
+## 5️⃣ How to discover the correct `source-layer` name
+
+A PMTiles file contains a **TileJSON** document that lists the layers it provides. You can inspect it in a few ways:
+
+```bash
+# 1️⃣ Using the pmtiles CLI (install globally with `npm i -g pmtiles`)
+pmtiles inspect https://example.com/tiles/my-data.pmtiles
+```
+
+or programmatically:
+
+```js
+import { PMTiles } from 'pmtiles';
+const pm = new PMTiles('https://example.com/tiles/my-data.pmtiles');
+const metadata = await pm.getMetadata();   // returns the TileJSON
+console.log(metadata.vector_layers);       // array of { id, fields, ... }
+```
+
+Pick the `id` you want (e.g. `""roads""` in the example above) and use it as the `'source-layer'` value.
+
+---
+
+## 6️⃣ Common pitfalls & how to fix them
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| **Map stays gray / no tiles appear** | `pmtiles://` protocol not registered **or** wrong URL (`pmtiles://my-data` must match the name you gave the `PMTiles` instance). | Ensure `pm.addProtocol('pmtiles')` runs **before** `map.addSource`. |
+| **`ERR_PACKAGE_PATH_NOT_EXPORTED`** | Using `require('maplibre-gl')` in a Node/Electron environment (v6 is ESM-only). | Switch to `import * as maplibregl from 'maplibre-gl'` or use dynamic `await import('maplibre-gl')`. |
+| **Worker fails to load (blank map in a bundler)** | Missing `setWorkerUrl()` call. | Import the worker URL (`?worker&url` for Vite) and call `setWorkerUrl(workerUrl)`. |
+| **`styleimagemissing` never resolves** | Still using the old v5 pattern (`map.on('styleimagemissing', …)`). | Use `map.setMissingStyleImageResolver(...)` instead (not needed for PMTiles). |
+| **`map.transform` is undefined** | Code still reaching into the private `transform` property (removed in v6). | Replace with public getters (`map.getZoom()`, `map.getCenter()`, etc.). |
+| **TypeScript error: `MapDataEvent` not found** | Using the old catch-all event type. | Import `MapSourceDataEvent` / `MapStyleDataEvent` and narrow the union. |
+
+---
+
+## 7️⃣ Full minimal repo layout (for a bundler)
+
+```
+my-app/
+├─ public/
+│   └─ index.html          ← just a <div id=""map""></div>
+├─ src/
+│   ├─ pmtiles-setup.js    ← protocol registration (see §2)
+│   └─ main.js             ← map creation (see §3)
+├─ package.json
+└─ vite.config.js          ← (optional) Vite config – no special changes needed
+```
+
+**`package.json`** (relevant bits)
+
+```json
+{
+  ""type"": ""module"",
+  ""dependencies"": {
+    ""maplibre-gl"": ""^6"",
+    ""pmtiles"":",FAIL,0.30,,"The output provides a lot of detail about PMTiles and MapLibre GL JS, including how to register the PMTiles protocol, add a vector source, and draw a line layer. It also addresses common pitfalls and provides CDN and bundler examples. However, the rubric specifically asks to *avoid* pivoting to v6 migration topics like ESM imports, setMissingStyleImageResolver, or map.transform. The output includes significant sections on these topics, which are not directly related to the core PMTiles vector source question and deviate from the rubric's constraint.",
