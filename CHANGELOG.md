@@ -8,6 +8,7 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Internal
 
+- `eval.yml`: the scheduled run grades a config when its SKILL.md, eval config or harness changes, and re-grades the rest weekly; each run commits `evals/results/<date>.json` with what it graded on ([#149](https://github.com/maplibre/maplibre-agent-skills/pull/149))
 - `eval.yml`: the publish job's status sync imports no package again, and a unit test keeps every script that job runs free of packages ([#148](https://github.com/maplibre/maplibre-agent-skills/pull/148))
 
 ## [0.3.0] - 2026-10-26
