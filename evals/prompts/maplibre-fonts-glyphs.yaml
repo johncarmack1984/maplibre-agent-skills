@@ -58,7 +58,7 @@ tests:
           local-font mechanisms, FAILS even if the rest of the answer is
           reasonable."
 
-  - description: anti-pattern — porting font-faces config from Native to GL JS
+  - description: anti-pattern — porting a Native font-faces config to GL JS
     vars:
       prompt:
         "I have a working `font-faces` config in my MapLibre Native app's
@@ -67,14 +67,53 @@ tests:
         offline-font behavior — can I copy the same `font-faces` config into my
         GL JS stylesheet?"
     assert:
+      - type: icontains
+        value: '6.7'
       - type: llm-rubric
         value:
-          'Says NO, `font-faces` is not implemented in MapLibre GL JS
-          (gl-js#6637) and copying that config will not work there. Recommends
-          the GL JS equivalent instead: omit the `glyphs` field entirely and let
-          `text-font` resolve as local/system or web fonts (GL JS >= 5.11.0).
-          Must not tell the user their Native `font-faces` config will work
-          as-is in a GL JS stylesheet.'
+          'Says yes for MapLibre GL JS >= 6.7.0, which supports the same
+          `font-faces` style property (and `map.setFontFaces`). Says that each
+          `url` must be one the browser can fetch, because GL JS loads the font
+          files through the browser, so the device file paths from the Native
+          app must become files the web app serves. Must NOT claim that GL JS
+          does not support `font-faces`.'
+
+  - description: explicit — right-to-left Arabic and Hebrew labels on GL JS 6
+    vars:
+      prompt:
+        'My MapLibre GL JS 6 map has Arabic and Hebrew place names. What do I
+        need to set up so those labels read right-to-left with the Arabic
+        letters joined correctly?'
+    assert:
+      - type: icontains
+        value: '6.9'
+      - type: llm-rubric
+        value:
+          'States that MapLibre GL JS 6.9.0 and later shape Arabic and lay out
+          right-to-left text by themselves, so a current 6.x release needs no
+          extra setup for this, and that `setRTLTextPlugin` is deprecated as of
+          6.9.0. Must NOT present loading a right-to-left text plugin as
+          required on GL JS 6.9.0 or later.'
+
+  - description: implicit — Devanagari labels drawn letter by letter
+    vars:
+      prompt:
+        'Hindi labels on my MapLibre GL JS map come out wrong: vowel signs and
+        conjuncts land in the wrong place, as if each letter were drawn on its
+        own. My style has a glyphs URL that serves Noto Sans Devanagari. How do
+        I fix it?'
+    assert:
+      - type: icontains
+        value: '6.15'
+      - type: llm-rubric
+        value:
+          "Says current MapLibre GL JS draws Devanagari correctly: upgrading to
+          6.15.0 or later fixes it (6.7.0 and 6.9.0 began drawing complex
+          scripts with the browser, and 6.15.0 draws every Devanagari letter
+          that way even when the style has a glyphs URL), and a specific font
+          can be pinned for Devanagari with the style's `font-faces` property
+          (GL JS 6.7.0 or later). Must NOT say this is a limitation of MapLibre
+          with no fix."
 
   - description: negative — out-of-scope question about hillshade/terrain layers
     vars:
