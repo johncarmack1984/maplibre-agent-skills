@@ -1,0 +1,581 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+anti-pattern — assuming Mapbox v2 features work in MapLibre,skills/maplibre-mapbox-migration/SKILL.md,"I was using Mapbox GL JS v2 in my app, including map.setFog() and some v2-specific camera features. After migrating to MapLibre, these are broken. Did I do something wrong in the migration?
+","## TL;DR  
+
+* **`map.setFog()` → `map.setSky()`** (and add a `sky` object to your style).  
+* **Free-camera APIs (`getFreeCameraOptions`, `setFreeCameraOptions`, `FreeCameraOptions`) do not exist in MapLibre.**  
+  Use the **camera-calculation helpers** (`calculateCameraOptionsFromCameraLngLatAltRotation`, `calculateCameraOptionsFromTo`) and then call `jumpTo`, `easeTo` or `flyTo`.  
+* The rest of the migration (package, namespace, token, style URL, plugins, etc.) is the same as described in the **Mapbox → MapLibre** skill you already have.  
+
+Below is a focused “fix-the-broken-features” guide plus a quick sanity-check checklist to make sure the rest of the migration is solid.
+
+---
+
+## 1. Why Those Calls are Broken
+
+| Feature | Mapbox GL JS v2 | MapLibre GL JS |
+|---------|----------------|----------------|
+| `map.setFog()` / `fog` style property | **Implemented** (adds a simple atmospheric fog layer) | **Not implemented** – the API was never added to MapLibre. |
+| `map.getFreeCameraOptions()` / `map.setFreeCameraOptions()` / `FreeCameraOptions` | **Implemented** (allows you to set a camera by lng/lat/alt/rotation) | **Not implemented** – MapLibre only knows the classic `center`, `zoom`, `pitch`, `bearing` (plus `elevation`/`roll` from v5). |
+
+MapLibre deliberately **does not ship any Mapbox-v2-only APIs**. The library stopped at the v1.13 codebase, and the Mapbox team added those methods *after* the fork. So you didn’t “do something wrong”; you’re simply trying to call APIs that don’t exist in MapLibre.
+
+The fix is to **use the MapLibre equivalents** (or emulate the effect yourself).
+
+---
+
+## 2. Re-creating Fog → Sky
+
+### 2.1 Add a `sky` object to your style
+
+MapLibre’s atmospheric effect lives in the **`sky`** object (spec-level, not a layer). You can add it directly in the style JSON or via `map.setSky()` at runtime.
+
+**Style-JSON example (add to the root of the style):**
+
+```json
+{
+  ""version"": 8,
+  ""sources"": { … },
+  ""layers"": [ … ],
+  ""sky"": {
+    ""type"": ""sky"",
+    ""sky-type"": ""atmosphere"",          // ""gradient"" is also allowed
+    ""sky-color"": ""#199EF3"",
+    ""horizon-color"": ""#ffffff"",
+    ""fog-color"": ""#0000ff"",
+    ""fog-ground-blend"": 0.5,
+    ""horizon-fog-blend"": 0.5,
+    ""sky-horizon-blend"": 0.5,
+    ""atmosphere-blend"": 1.0
+  }
+}
+```
+
+If you prefer to set it programmatically (e.g. toggle fog on/off), you can call:
+
+```js
+// map is a maplibregl.Map instance
+map.setSky({
+  ""sky-type"": ""atmosphere"",
+  ""sky-color"": ""#199EF3"",
+  ""horizon-color"": ""#ffffff"",
+  ""fog-color"": ""#0000ff"",
+  ""fog-ground-blend"": 0.5,
+  ""horizon-fog-blend"": 0.5,
+  ""sky-horizon-blend"": 0.5,
+  ""atmosphere-blend"": 1.0
+});
+```
+
+**Key points**
+
+* `sky` replaces the old `fog` object.  
+* The property names are **different** (`sky-color` vs. `color`, `fog-ground-blend` vs. `ground-blend`, etc.).  
+* The `sky` object is **part of the style**, not a layer you add with `addLayer`.  
+* If you want a *simple* fog-only effect, you can keep `sky-type: ""gradient""` and only set the fog-related fields.
+
+### 2.2 Updating existing code
+
+```js
+// BEFORE (Mapbox)
+map.setFog({
+  ""color"": ""#ffffff"",
+  ""high-color"": ""#ffffff"",
+  ""space-color"": ""#000000"",
+  ""horizon-blend"": 0.3
+});
+
+// AFTER (MapLibre)
+map.setSky({
+  ""sky-type"": ""atmosphere"",
+  ""sky-color"": ""#ffffff"",
+  ""horizon-color"": ""#ffffff"",
+  ""fog-color"": ""#000000"",
+  ""horizon-fog-blend"": 0.3
+});
+```
+
+If you have a UI toggle that calls `map.setFog(null)` to turn fog off, replace it with:
+
+```js
+map.setSky(null); // removes the sky object (no atmosphere)
+```
+
+---
+
+## 3. Re-creating Free-Camera Controls
+
+### 3.1 What you probably had in Mapbox
+
+```js
+// Example: look at a point from a specific altitude/tilt
+const cam = map.getFreeCameraOptions();
+cam.center = [lng, lat];
+cam.altitude = 2000;          // metres above ground
+cam.pitch = 45;
+cam.bearing = 30;
+map.setFreeCameraOptions(cam);
+```
+
+### 3.2 MapLibre’s approach
+
+MapLibre works with **`CameraOptions`** (center, zoom, pitch, bearing, elevation, roll). There is **no `FreeCameraOptions` class**. To compute a camera that mimics “look from altitude X at point Y”, you can:
+
+1. **Calculate the camera options** using the helper that converts a *camera position* (lng/lat/alt) + orientation into the classic `center/zoom/pitch/bearing` set.
+2. **Apply the options** with `jumpTo`, `easeTo`, or `flyTo`.
+
+#### Helper: `calculateCameraOptionsFromCameraLngLatAltRotation`
+
+```js
+/**
+ * @param {maplibregl.LngLat} lngLat   – target point you want to look at
+ * @param {number} altitude            – metres above the ellipsoid (or ground, depending on terrain)
+ * @param {number} bearing             – clockwise from north, degrees
+ * @param {number} pitch               – degrees, 0 = looking straight down
+ * @param {number} roll                – degrees, clockwise rotation around the view axis (optional)
+ * @returns {maplibregl.CameraOptions}
+ */
+const camOpts = map.calculateCameraOptionsFromCameraLngLatAltRotation(
+  [lng, lat],          // lngLat you want to *center* on
+  altitude,            // altitude in metres
+  bearing,             // bearing
+  pitch,               // pitch
+  0                    // roll (optional, default 0)
+);
+```
+
+Now feed the result to any camera transition method:
+
+```js
+// Instant jump (no animation)
+map.jumpTo(camOpts);
+
+// Smooth animation
+map.easeTo(camOpts);   // or map.flyTo(camOpts) for a “fly” effect
+```
+
+#### Helper: `calculateCameraOptionsFromTo` (look-at from one point to another)
+
+If you need a *look-at* where the camera is positioned at `from` and points at `to`:
+
+```js
+const camOpts = map.calculateCameraOptionsFromTo(
+  [fromLng, fromLat],   // camera position
+  fromAltitude,         // altitude of the camera
+  [toLng, toLat],       // point you want to look at
+  toAltitude            // altitude of the target (usually 0)
+);
+map.easeTo(camOpts);
+```
+
+### 3.3 Quick migration snippet
+
+```js
+// MAPBOX (broken after migration)
+const cam = map.getFreeCameraOptions();
+cam.center = [12.4924, 41.8902];
+cam.altitude = 1500;
+cam.pitch = 45;
+cam.bearing = 20;
+map.setFreeCameraOptions(cam);
+
+// MAPLIBRE (working)
+const camOpts = map.calculateCameraOptionsFromCameraLngLatAltRotation(
+  [12.4924, 41.8902], // lng/lat you want centered
+  1500,               // altitude in metres
+  20,                 // bearing
+  45,                 // pitch
+  0                   // roll (optional)
+);
+map.easeTo(camOpts);   // or map.jumpTo(camOpts) for no animation
+```
+
+### 3.4 What about `elevation` and `roll`?
+
+* **`elevation`** (MapLibre v5+) lets you offset the camera vertically *relative* to the ground (useful with terrain). It is part of `CameraOptions` and can be set directly:
+
+```js
+map.easeTo({ center: [lng, lat], zoom: 14, pitch: 45, bearing: 30, elevation: 200 });
+```
+
+* **`roll`** is also a `CameraOptions` field (v5+). Use it if you need a “banked” view.
+
+---
+
+## 4. Full “Fog-and-Free-Camera” Migration Checklist
+
+| ✅ Item | What to do | Example |
+|--------|------------|---------|
+| **Add sky to style** | Either edit your style JSON (`sky` object) **or** call `map.setSky()` at runtime. | `map.setSky({ ""sky-type"": ""atmosphere"", ""sky-color"": ""#199EF3"", … })` |
+| **Remove `map.setFog` calls** | Delete or replace with `setSky`. | `map.setFog(null)` → `map.setSky(null)` |
+| **Replace free-camera code** | Use `calculateCameraOptionsFromCameraLngLatAltRotation` (or `calculateCameraOptionsFromTo`) + `jumpTo/easeTo/flyTo`. | See code snippet above. |
+| **Update any UI that exposed fog/camera sliders** | Ensure the UI now updates the `sky` object or calls the new camera helper. | Slider → `map.setSky({ ""fog-ground-blend"": value })` |
+| **Verify MapLibre version** | v6+ is ES-module-only; make sure you import `* as maplibregl from 'maplibre-gl'` (or `{Map}`) and that your bundler supports ESM. | `import * as maplibregl from 'maplibre-gl';` |
+| **Check CSS class prefixes** | `mapboxgl-` → `maplibregl-` (e.g., `.maplibregl-ctrl`). | Update any custom CSS. |
+| **Remove `mapboxgl.accessToken`** | No token needed for MapLibre itself. | Delete `mapboxgl.accessToken = '…'`. |
+| **Swap style URL** | Use a non-Mapbox style (OpenFreeMap, your own, or a style you exported & rewired). | `style: 'https://tiles.openfreemap.org/styles/liberty'`. |
+| **Test** | Load the map, open dev-tools, ensure no `Uncaught ReferenceError: map.setFog is not a function` or similar. | - |
+| **Optional: Validate style** | `npx gl-style-validate style.json` (install `@maplibre/maplibre-gl-style-spec`). | - |
+
+If you run through the checklist and still see errors, the most common culprits are:
+
+* **Forgot to rename a single `mapboxgl` reference** (e.g., a stray `new mapboxgl.Popup()`).
+* **Using a Mapbox-only style URL** (`mapbox://styles/...`) – the map will fail to load tiles.
+* **Using a Mapbox-only plugin** that still expects `mapboxgl` on the global window (e.g., some older geocoder widgets). Swap to the MapLibre-compatible fork or a pure-JS alternative.
+
+---
+
+## 5. Quick “Before → After” Code Comparison
+
+### 5.1 Original Mapbox code (broken after migration)
+
+```js
+mapboxgl.accessToken = 'pk.eyJ...';
+const map = new mapboxgl.Map({
+  container: 'map',
+  style: 'mapbox://styles/mapbox/streets-v12',
+  center: [-122.42, 37.78],
+  zoom: 12
+});
+
+map.setFog({
+  ""color"": ""#ffffff"",
+  ""high-color"": ""#ffffff"",
+  ""space-color"": ""#000000"",
+  ""horizon-blend"": 0.3
+});
+
+const cam = map.getFreeCameraOptions();
+cam.center = [-122.42, 37.78];
+cam.altitude = 2000;
+cam.pitch = 45;
+cam.bearing = 30;
+map.setFreeCameraOptions(cam);
+```
+
+### 5.2 Fully migrated MapLibre version
+
+```js
+import * as maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+
+const map = new maplibregl.Map({
+  container: 'map',
+  // Choose any non-Mapbox style; here we use OpenFreeMap’s liberty style
+  style: 'https://tiles.openfreemap.org/styles/liberty',
+  center: [-122.42, 37.78],
+  zoom: 12
+});
+
+/* ---------- Atmospheric effect (fog → sky) ---------- */
+map.setSky({
+  ""sky-type"": ""atmosphere"",
+  ""sky-color"": ""#ffffff"",
+  ""horizon",PASS,1.00,,All assertions passed,
+anti-pattern — assuming Mapbox v2 features work in MapLibre,skills/maplibre-mapbox-migration/SKILL.md,"I was using Mapbox GL JS v2 in my app, including map.setFog() and some v2-specific camera features. After migrating to MapLibre, these are broken. Did I do something wrong in the migration?
+","## TL;DR  
+
+* **You didn’t do anything “wrong”** – MapLibre simply **doesn’t implement the Mapbox-GL-JS v2-only APIs** (`setFog`, `FreeCameraOptions`, etc.).  
+* The migration steps you already followed (package swap, namespace change, token removal, style URL change) are correct.  
+* What you now need is **the MapLibre equivalents** (or a workaround) for the features you were using:  
+
+| Mapbox GL JS v2 feature | MapLibre GL JS equivalent / workaround |
+|--------------------------|----------------------------------------|
+| `map.setFog({...})` (and the `fog` root-level style object) | `map.setSky({...})` + `sky` style object (see below). |
+| `map.getFreeCameraOptions()` / `map.setFreeCameraOptions()` (FreeCameraOptions) | Use the **camera-options helpers** (`calculateCameraOptionsFromCameraLngLatAltRotation`, `calculateCameraOptionsFromTo`) and then call `jumpTo`, `easeTo`, or `flyTo`. |
+| `map.setTerrain({source: 'mapbox-dem', exaggeration: …})` (still works) | Same API – just point the source at a non-Mapbox DEM. |
+| Any other v2-only methods (e.g. `setProjection('globe')` in v2) | `map.setProjection('globe')` **does exist** in MapLibre v5+; just make sure you’re on a recent version. |
+
+Below is a **complete “what to do next” guide** that walks you through fixing those two broken pieces, plus a few extra sanity-checks that often get missed after the initial package-swap migration.
+
+---
+
+## 1. Verify Your MapLibre Version
+
+MapLibre v6 (released 2026-07-22) is the current stable line and **requires ES-module imports**. It also ships the newest API surface (including `setSky`, `setProjection`, and the camera-options helpers).  
+
+```bash
+npm list maplibre-gl   # should show ^6.x
+```
+
+If you are still on an older 4.x/5.x version, upgrade:
+
+```bash
+npm install maplibre-gl@^6
+```
+
+> **Why it matters:** `setSky` was added in v5.0.0, the camera-options helpers landed in v5.0.0 as well, and the API signatures were cleaned up in v6. Staying on v6 guarantees you have everything you need.
+
+---
+
+## 2. Replace `setFog` → `setSky`
+
+### 2.1 What changed?
+
+* **Mapbox**: `map.setFog({ ""color"": ""#f8f4f0"", ""high-color"": ""#245"", ""horizon-blend"": 0.3 })`  
+* **MapLibre**: The fog concept was renamed **“sky”** and the property names are slightly different. The style spec now has a top-level `sky` object (instead of `fog`).
+
+### 2.2 Code example
+
+```javascript
+// Mapbox (v2)
+map.setFog({
+  ""color"": ""#f8f4f0"",
+  ""high-color"": ""#245"",
+  ""horizon-blend"": 0.3,
+  ""space-color"": ""#000""
+});
+```
+
+```javascript
+// MapLibre (v6)
+map.setSky({
+  // sky-color = background of the sky dome
+  ""sky-color"": ""#f8f4f0"",
+
+  // horizon-color = color at the horizon line
+  ""horizon-color"": ""#245"",
+
+  // fog-color = colour of the fog that blends into the horizon
+  ""fog-color"": ""#f8f4f0"",
+
+  // blend factors – 0-1
+  ""horizon-fog-blend"": 0.3,
+  ""sky-horizon-blend"": 0.5,
+  ""atmosphere-blend"": 0.8
+});
+```
+
+### 2.3 Updating the style JSON (if you keep the fog in the style)
+
+If you have a style file that contains a `fog` object, rename it to `sky` and rename the properties accordingly. Example snippet:
+
+```json
+{
+  ""version"": 8,
+  ""sky"": {
+    ""sky-type"": ""atmosphere"",
+    ""sky-color"": ""#88ccee"",
+    ""horizon-color"": ""#ffffff"",
+    ""fog-color"": ""#cceeff"",
+    ""sky-horizon-blend"": 0.5,
+    ""atmosphere-blend"": 0.8
+  },
+  ...
+}
+```
+
+You can validate the style with the CLI:
+
+```bash
+npx gl-style-validate my-style.json
+```
+
+---
+
+## 3. Replace Free-Camera APIs
+
+### 3.1 What Mapbox gave you
+
+```javascript
+// Mapbox v2
+const opts = map.getFreeCameraOptions();   // {center, zoom, pitch, bearing, altitude, roll}
+opts.altitude = 2000;                      // raise the camera
+map.setFreeCameraOptions(opts);
+```
+
+### 3.2 MapLibre’s approach
+
+MapLibre does **not** expose a `FreeCameraOptions` class. Instead you:
+
+1. **Calculate** a full `CameraOptions` object from the parameters you care about.
+2. **Apply** it with `jumpTo`, `easeTo`, or `flyTo`.
+
+#### Helper functions (available from v5)
+
+| Helper | What it does |
+|--------|--------------|
+| `map.calculateCameraOptionsFromCameraLngLatAltRotation(lngLat, altitude, bearing, pitch, roll)` | Returns a `CameraOptions` object that you can feed to `jumpTo/easeTo/flyTo`. |
+| `map.calculateCameraOptionsFromTo({fromLngLat, fromAltitude, toLngLat, toAltitude, bearing, pitch})` | Returns a “look-at” camera that points from `from` to `to`. |
+| `map.getFreeCameraOptions` **does not exist** – you must keep the values you need yourself (e.g. store the last altitude in a variable). |
+
+#### Example: “raise the camera 2 km”
+
+```javascript
+// Assume you already have a map instance
+const current = map.getCenter();          // returns a LngLat object
+const currentZoom = map.getZoom();
+const currentPitch = map.getPitch();
+const currentBearing = map.getBearing();
+
+// Desired altitude (in meters)
+const newAltitude = 2000;
+
+// Build the CameraOptions
+const camOpts = map.calculateCameraOptionsFromCameraLngLatAltRotation(
+  current,          // lngLat
+  newAltitude,      // altitude (meters)
+  currentBearing,
+  currentPitch,
+  0                 // roll (optional, default 0)
+);
+
+// Apply – choose the transition you like
+map.easeTo(camOpts);   // smooth animation
+// or map.jumpTo(camOpts); // instant
+```
+
+#### Example: “look from a high point down to a target”
+
+```javascript
+const from = { lng: -122.42, lat: 37.78 };
+const to   = { lng: -122.45, lat: 37.80 };
+
+const camOpts = map.calculateCameraOptionsFromTo({
+  fromLngLat: from,
+  fromAltitude: 3000,   // 3 km up
+  toLngLat: to,
+  toAltitude: 0,        // ground level
+  bearing: 0,
+  pitch: 60
+});
+
+map.flyTo(camOpts);
+```
+
+### 3.3 Keeping altitude state
+
+Because there is no `getFreeCameraOptions`, you’ll often want to **store the altitude** yourself:
+
+```javascript
+let cameraAltitude = 0; // global or in a React state, etc.
+
+function raiseCamera(delta) {
+  cameraAltitude += delta;
+  const camOpts = map.calculateCameraOptionsFromCameraLngLatAltRotation(
+    map.getCenter(),
+    cameraAltitude,
+    map.getBearing(),
+    map.getPitch(),
+    0
+  );
+  map.easeTo(camOpts);
+}
+```
+
+---
+
+## 4. Double-Check Other v2-Only Features
+
+| Feature | Mapbox v2 | MapLibre status | What to do |
+|---------|-----------|----------------|------------|
+| **Globe projection** (`map.setProjection('globe')`) | ✅ (v2) | ✅ (v5+) | Works unchanged – just call `map.setProjection('globe')`. |
+| **Terrain exaggeration** (`map.setTerrain({source:..., exaggeration: 2})`) | ✅ | ✅ (same API) | Ensure the DEM source is not a `mapbox://` URL. |
+| **Custom glyphs / sprite URLs** | `glyphs: ""mapbox://fonts/...` | Must be absolute URLs (e.g. `https://mytileserver.com/fonts/{fontstack}/{range}.pbf`) | Update the style JSON. |
+| **Mapbox-specific expressions** (`[""image"", ""mapbox://...""]`) | ✅ | ❌ (needs a URL that resolves to an image) | Replace with a URL to a hosted PNG/SVG or a data URI. |
+| **Mapbox-only plugins** (e.g., `mapbox-gl-geocoder`) | ✅ | Some have MapLibre forks (`@maplibre/maplibre-gl-geocoder`) or you can use open alternatives (e.g., `leaflet-geocoder`, `pelias`). | Swap the import and adjust any `mapboxgl` references. |
+
+If you encounter any other “unknown method” errors, search the **MapLibre API reference** (`https://maplibre.org/maplibre-gl-js/docs/API/`) rather than the Mapbox docs.
+
+---
+
+## 5. Full Minimal Example (ES-module, MapLibre v6)
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>MapLibre – fog → sky & free-camera demo</title>
+  <link href=""https://unpkg.com/maplibre-gl@^6/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+    .control { position:absolute; top:10px; left:10px; background:#fff; padding:5px; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+<div class=""control"">
+  <button id=""raise"">Raise 500 m</button>
+  <button id=""sky"">Toggle sky</button>
+</div>
+
+<script type=""module"">
+  import * as maplibregl from 'https://unpkg.com/maplibre-gl@^6/dist/maplibre-gl.mjs';
+
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://tiles.openfreemap.org/styles/liberty', // any non-Mapbox style
+    center: [-122.42, 37.78],
+    zoom: 12,
+    pitch: 45,
+    bearing: 0,
+    antialias: true // needed for sky rendering
+  });
+
+  // ---- SKY (replaces fog) ----
+  let skyEnabled = false;
+  function enableSky() {
+    map.setSky({
+      ""sky-type"": ""atmosphere"",
+      ""sky-color"": ""#88ccee"",
+      ""horizon-color"": ""#ffffff"",
+      ""fog-color"": ""#cceeff"",
+      ""sky-horizon-blend"": 0.5,
+      ""atmosphere-blend"": 0.8
+    });
+    skyEnabled = true;
+  }
+  function disableSky() {
+    map.setSky(null); // removes the sky layer
+    skyEnabled = false;
+  }
+
+  document.getElementById('sky').addEventListener('click', () => {
+    skyEnabled ? disableSky() : enableSky();
+  });
+
+  // ---- FREE-CAMERA (altitude) ----
+  let altitude = 0; // meters above ground
+  const ALT_STEP = 500;
+
+  document.getElementById('raise').addEventListener('click', () => {
+    altitude += ALT_STEP;
+    const cam = map.calculateCameraOptionsFromCameraLngLatAltRotation(
+      map.getCenter(),
+      altitude,
+      map.getBearing(),
+      map.getPitch(),
+      0
+    );
+    map.easeTo(cam);
+  });
+
+  // Optional: add navigation controls
+  map.addControl(new maplibregl.NavigationControl());
+
+  // Wait for the style to load before we can call setSky / camera helpers
+  map.on('style.load', () => {
+    // start with sky off; you can enable it here if you want
+    // enableSky();
+  });
+</script>
+</body>
+</html>
+```
+
+*The example demonstrates the two most common “v2-only” features you mentioned and shows the exact MapLibre replacements.*
+
+---
+
+## 6. Checklist – After Fixing the Two Features
+
+| ✅ | Item |
+|----|------|
+| 1 | **Package** – `npm install maplibre-gl@^6` (or CDN ES-module). |
+| 2 | **Imports / CSS** – `import * as maplibregl from 'maplibre-gl'` + `import 'maplibre-gl/dist/maplibre-gl.css'`. |
+| 3 | **Namespace** – All `mapboxgl` → `maplibregl`. |
+| 4 | **Access token** – Removed. |
+| 5 | **Style URL** – Non-Mapbox (`https://tiles.openfreemap.org/...`, your own style JSON, or a hosted style from MapTiler, Martin, etc.). |
+| 6 | **Fog → Sky** – Replace `map.setFog` with `map.setSky` and update any `fog` objects in style JSON. |
+| 7 | **Free-camera** – Use `calculateCameraOptionsFromCameraLngLatAltRotation` (or `calculateCameraOptionsFromTo`) + `jump",PASS,1.00,,All assertions passed,

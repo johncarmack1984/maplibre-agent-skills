@@ -1,0 +1,557 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+"negative — unrelated question, expression syntax",skills/maplibre-source-wiring/SKILL.md,"How do I color my circle layer based on a numeric population property, so bigger values are darker?
+","Below is a **complete, copy-and-paste ready** recipe that shows how to colour a `circle` layer in MapLibre GL JS according to a numeric `population` property – the larger the population, the darker the colour.
+
+It covers:
+
+| What you need | Why it matters |
+|---------------|----------------|
+| **A vector (or GeoJSON) source** that contains a numeric `population` field on each feature | The expression reads that field with `[""get"",""population""]`. |
+| **Correct `source-layer` name** (for vector sources) | If the name is wrong the layer draws nothing – no error is thrown. |
+| **A colour ramp** (e.g. light-yellow → dark-red) | `[""interpolate"", …]` maps the numeric value to a colour. |
+| **Optional radius scaling** | Often you want the circles to grow with population as well. |
+| **CORS / glyphs / sprite** (if you also have labels) | Not needed for the colour itself, but a blank map is usually a CORS problem. |
+
+---
+
+## 1️⃣ Minimal working example
+
+```html
+<!doctype html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>Population-coloured circles</title>
+  <script src=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body { margin:0; padding:0; }
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script>
+  // -------------------------------------------------
+  // 1️⃣ Initialise the map
+  // -------------------------------------------------
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {},          // we’ll add sources later
+      layers: []            // we’ll add layers later
+    },
+    center: [-98.5, 39.8], // USA centre
+    zoom: 4
+  });
+
+  // -------------------------------------------------
+  // 2️⃣ Add a source – replace with your own URL / data
+  // -------------------------------------------------
+  // Example using a public GeoJSON of US cities (replace with yours)
+  map.addSource('cities', {
+    type: 'geojson',
+    // If you already have a vector tile source, use `type: 'vector'` and `url`/`tiles`
+    data: 'https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json',
+    // If the population field lives inside `properties.population`,
+    // you can promote it to the feature id (optional, not needed for colour):
+    // promoteId: 'population'   // only if you need feature-state later
+  });
+
+  // -------------------------------------------------
+  // 3️⃣ Add the circle layer
+  // -------------------------------------------------
+  map.addLayer({
+    id: 'city-circles',
+    type: 'circle',
+    source: 'cities',
+    // source-layer: 'my_layer'   // <-- ONLY for vector sources
+    paint: {
+      // ---- 3a️⃣ Circle radius (optional, also data-driven) ----
+      // Here we make the radius grow with population, but you can skip it.
+      'circle-radius': [
+        'interpolate',
+        ['linear'],
+        ['get', 'population'],
+        0,      2,      // 0 people → 2 px
+        1000,   4,
+        10000,  8,
+        100000, 12,
+        1000000, 20   // 1 M → 20 px
+      ],
+
+      // ---- 3b️⃣ Circle colour (the core of the answer) ----
+      // Larger population → darker colour.
+      // We use a yellow-to-red ramp, but you can pick any colours.
+      'circle-color': [
+        'interpolate',
+        ['linear'],               // linear interpolation between stops
+        ['get', 'population'],    // the numeric property
+        0,    '#ffffb2',          // light yellow for 0
+        1000, '#fecc5c',
+        10000, '#fd8d3c',
+        50000, '#f03b20',
+        100000, '#bd0026'         // dark red for 100 k+
+      ],
+
+      // ---- 3c️⃣ Optional visual tweaks ----
+      'circle-opacity': 0.7,
+      'circle-stroke-width': 1,
+      'circle-stroke-color': '#fff'
+    }
+  });
+
+  // -------------------------------------------------
+  // 4️⃣ (Optional) Add a label layer so you can see the numbers
+  // -------------------------------------------------
+  map.addLayer({
+    id: 'city-labels',
+    type: 'symbol',
+    source: 'cities',
+    layout: {
+      'text-field': ['to-string', ['get', 'population']],
+      'text-size': 12,
+      'text-offset': [0, 1.5]
+    },
+    paint: {
+      'text-color': '#000',
+      'text-halo-color': '#fff',
+      'text-halo-width': 1
+    }
+  });
+</script>
+</body>
+</html>
+```
+
+### What the key bits do
+
+| Code snippet | Explanation |
+|--------------|-------------|
+| `'circle-color': ['interpolate', ['linear'], ['get','population'], …]` | **Data-driven styling** – MapLibre reads the `population` property for each feature and linearly interpolates between the colour stops you provide. |
+| `0, '#ffffb2', 1000, '#fecc5c', …` | The **stops**. The first number is the population value, the second is the colour (hex, rgb, hsl, etc.). Anything between two stops gets a colour that is a blend of the two. |
+| `'circle-radius': ['interpolate', …]` | Same technique, but for size. You can omit this if you only care about colour. |
+| `circle-opacity`, `circle-stroke-*` | Cosmetic tweaks that make the circles easier to see on top of a basemap. |
+
+---
+
+## 2️⃣ How to adapt this to **your own data**
+
+### a) Vector tiles (instead of GeoJSON)
+
+If you are using a vector tile source (e.g. a TileJSON endpoint), the only differences are:
+
+```js
+map.addSource('mytiles', {
+  type: 'vector',
+  url: 'https://example.com/tiles.json'   // <-- TileJSON endpoint
+  // OR
+  // tiles: ['https://example.com/tiles/{z}/{x}/{y}.pbf'],
+  // minzoom: 0,
+  // maxzoom: 14,
+  // tileSize: 512   // default for vector tiles
+});
+
+map.addLayer({
+  id: 'my-circles',
+  type: 'circle',
+  source: 'mytiles',
+  'source-layer': 'places',   // <-- **exact** name from the TileJSON's vector_layers
+  paint: { … same paint block as above … }
+});
+```
+
+*Tip:* Open the TileJSON (`https://example.com/tiles.json`) in a browser or `curl`. Look for the `vector_layers` array – it tells you the exact `source-layer` names and the fields each layer contains. If the `vector_layers` field is missing, you can usually find the name in the provider’s docs (e.g. `transportation`, `water`, `places`).
+
+### b) Property is a **string** instead of a number
+
+If `population` comes in as a string (e.g. `""12345""`), coerce it to a number:
+
+```js
+'circle-color': [
+  'interpolate',
+  ['linear'],
+  ['to-number', ['get', 'population']],
+  0, '#ffffb2',
+  1000, '#fecc5c',
+  …
+]
+```
+
+### c) Want a **step** (discrete bins) instead of a smooth gradient
+
+```js
+'circle-color': [
+  'step',
+  ['get', 'population'],
+  '#ffffb2',   // default colour for values < 1000
+  1000, '#fecc5c',
+  10000, '#fd8d3c',
+  50000, '#f03b20',
+  100000, '#bd0026'
+]
+```
+
+`step` is useful when you want clear “low / medium / high” categories.
+
+### d) Using a **different colour palette**
+
+You can generate a palette with any colour-tool (e.g. https://colorbrewer2.org/, https://d3js.org/). Paste the hex values into the stops. For a **sequential** (light → dark) palette you might use:
+
+```js
+'circle-color': [
+  'interpolate',
+  ['linear'],
+  ['get', 'population'],
+  0,   '#f7fbff',
+  10,  '#deebf7',
+  100, '#c6dbef',
+  1000, '#9ecae1',
+  10000, '#6baed6',
+  100000, '#3182bd',
+  1000000, '#08519c'
+]
+```
+
+---
+
+## 3️⃣ Common pitfalls & how to debug them
+
+| Symptom | Likely cause | Quick check |
+|---------|--------------|-------------|
+| **No circles appear, but network shows 200s** | `source-layer` name wrong (vector source) or `population` field missing / not numeric. | Open the TileJSON (or GeoJSON) and verify the field name. In the console: `map.querySourceFeatures('mytiles', {sourceLayer: 'places'}).map(f=>f.properties.population)` |
+| **Circles appear but all the same colour** | The expression is not being evaluated – maybe you used `[""get"",""population""]` on a raster source, or the property is a string that never converts to a number. | Add `console.log(map.getStyle())` and inspect the `paint` object. Try a static colour first (`'circle-color': '#f00'`) to confirm the layer works. |
+| **Colours look wrong (e.g. dark for low values)** | Interpolation direction reversed or stops out of order. | Ensure the stops are **ascending** in the numeric value. |
+| **Map is blank, but network shows 404s for tiles** | Wrong tile URL template (`{z}/{x}/{y}` vs `{z}/{x}/{-y-1}`) or CORS. | Open a single tile URL in the browser (replace `{z}/{x}/{y}` with real numbers). |
+| **Labels disappear after adding the circle layer** | You added the layer *after* the label layers, so it sits on top. | Use `map.addLayer(layerObj, firstSymbolId)` where `firstSymbolId` is the id of the first `symbol` layer (usually a label). Example: `const firstLabel = map.getStyle().layers.find(l=>l.type==='symbol').id; map.addLayer(circleLayer, firstLabel);` |
+| **`setFeatureState` does nothing** | Feature has no `id`. | Add `promoteId: 'population'` (or the appropriate property) to the source definition, or ensure the GeoJSON features have a top-level `id`. |
+
+---
+
+## 4️⃣ Full “real-world” snippet (vector tiles + proper layer order)
+
+```js
+map.on('load', () => {
+  // 1️⃣ Add the vector source (TileJSON endpoint)
+  map.addSource('basemap', {
+    type: 'vector',
+    url: 'https://example.com/tiles.json'   // <-- your TileJSON URL
+  });
+
+  // 2️⃣ Find the first symbol layer (labels) so we can insert below it
+  const firstLabelId = map.getStyle().layers.find(l => l.type === 'symbol').id;
+
+  // 3️⃣ Add the circle layer *before* the labels
+  map.addLayer({
+    id: 'pop-circles',
+    type: 'circle',
+    source: 'basemap',
+    'source-layer': 'places',               // <-- exact name from TileJSON
+    paint: {
+      'circle-radius': [
+        'interpolate',
+        ['linear'],
+        ['get', 'population'],
+        0, 2,
+        1000, 4,
+        10000, 8,
+        100000, 12,
+        1000000, 20
+      ],
+      'circle-color': [
+        'interpolate',
+        ['linear'],
+        ['get', 'population'],
+        0,   '#ffffb2',
+        1000, '#fecc5c',
+        10000, '#fd8d3c',
+        50000, '#f03b20',
+        100000",FAIL,0.00,,"The output fails to meet the negative constraints. It explicitly includes sections titled 'Common pitfalls & how to debug them' which advise on fixing 'source-layer', TileJSON, CORS, and layer ordering, and treats potential issues as blank-map or non-rendering problems.",
+"negative — unrelated question, expression syntax",skills/maplibre-source-wiring/SKILL.md,"How do I color my circle layer based on a numeric population property, so bigger values are darker?
+","Below is a **complete, copy-and-paste ready** recipe for “bigger population → darker colour” on a **circle layer** in MapLibre GL JS.  
+It walks you through:
+
+1. **Getting the data** (GeoJSON or vector tiles) – make sure the numeric property is called `population` (or rename it).  
+2. **Adding the source** (with `promoteId` if you ever need `setFeatureState`).  
+3. **Creating the circle layer** and using a **data-driven paint expression** (`interpolate` or `step`) that maps the numeric value to a colour ramp.  
+4. **Optional tweaks** (radius, opacity, handling missing values, debugging tips).
+
+---
+
+## 1️⃣ Prepare the data
+
+```js
+// Example: a GeoJSON FeatureCollection with a numeric `population` property
+const cityGeojson = {
+  type: ""FeatureCollection"",
+  features: [
+    {
+      type: ""Feature"",
+      properties: { name: ""Smallville"", population: 1200 },
+      geometry: { type: ""Point"", coordinates: [-93.292, 44.977] }
+    },
+    {
+      type: ""Feature"",
+      properties: { name: ""Middletown"", population: 45000 },
+      geometry: { type: ""Point"", coordinates: [-93.5, 45.0] }
+    },
+    {
+      type: ""Feature"",
+      properties: { name: ""Big City"", population: 850000 },
+      geometry: { type: ""Point"", coordinates: [-93.2, 44.9] }
+    }
+  ]
+};
+```
+
+> **If you are using vector tiles** (`type: ""vector""`), the same expression works – just replace the source definition with a TileJSON URL or `tiles` array and be sure the property lives in the correct `source-layer`.
+
+---
+
+## 2️⃣ Add the source
+
+```js
+map.addSource('cities', {
+  type: 'geojson',          // or 'vector' if you have tiles
+  data: cityGeojson,
+  // If you ever need feature-state (e.g. hover), promote the id:
+  promoteId: 'name'         // any unique property; can be a string or {layer: 'prop'}
+});
+```
+
+> **Why `promoteId`?**  
+> `setFeatureState` works only on features that have an `id`. If your data already has a unique property (e.g. `name`, `city_id`, `population_id`), `promoteId` tells MapLibre to treat that property as the feature’s id. It’s optional for pure colour styling, but cheap to add and saves you a headache later.
+
+---
+
+## 3️⃣ Add the circle layer with a colour ramp
+
+### 3.1 Choose a colour scale
+
+- **Light → Dark** (e.g. light-blue to dark-blue) works well for “bigger = darker”.
+- You can use any CSS colour string, hex, `rgb()`, or `hsl()`.
+
+```js
+// Light-to-dark blue ramp (you can replace with any colours you like)
+const colorRamp = [
+  0,    '#e0f3ff',   // very low population → very light
+  1000, '#c2e0ff',
+  10000,'#94caff',
+  50000,'#5ab4ff',
+  200000,'#2188ff',
+  1000000,'#0055ff' // very high population → dark
+];
+```
+
+### 3.2 Use `interpolate` (continuous ramp)
+
+```js
+map.addLayer({
+  id: 'city-circles',
+  type: 'circle',
+  source: 'cities',
+  // If you are using a vector source, also add:
+  // 'source-layer': 'your_source_layer_name',
+  paint: {
+    // ---- colour based on population ----
+    'circle-color': [
+      'interpolate',
+      ['linear'],               // linear interpolation between stops
+      ['get', 'population'],    // the numeric property
+      ...colorRamp              // spread the stop/value pairs
+    ],
+
+    // ---- optional: radius that also grows with population ----
+    'circle-radius': [
+      'interpolate',
+      ['linear'],
+      ['get', 'population'],
+      0,      4,   // tiny circles for near-zero pop
+      1000,   6,
+      10000,  10,
+      50000,  14,
+      200000, 20,
+      1000000,30
+    ],
+
+    // ---- optional: a little transparency so overlapping circles are visible ----
+    'circle-opacity': 0.7
+  }
+});
+```
+
+> **How it works**  
+> - `['get', 'population']` pulls the numeric value from each feature.  
+> - `['interpolate', ['linear'], …]` creates a smooth gradient between the stop values you supplied (`0 → #e0f3ff`, `1000 → #c2e0ff`, …).  
+> - The colour for any intermediate population is automatically calculated, so “bigger = darker” is guaranteed.
+
+### 3.3 Or use `step` (discrete bins)
+
+If you prefer distinct colour bands instead of a smooth gradient:
+
+```js
+map.addLayer({
+  id: 'city-circles-step',
+  type: 'circle',
+  source: 'cities',
+  paint: {
+    'circle-color': [
+      'step',
+      ['get', 'population'],
+      '#e0f3ff',   // ≤ 1 000
+      1000, '#c2e0ff',   // >1 000 ≤10 000
+      10000, '#94caff',  // >10 000 ≤50 000
+      50000, '#5ab4ff',  // >50 000 ≤200 000
+      200000, '#2188ff', // >200 000 ≤1 000 000
+      1000000, '#0055ff' // >1 000 000
+    ],
+    'circle-radius': 8,
+    'circle-opacity': 0.8
+  }
+});
+```
+
+`step` is great when you want clear “low / medium / high” buckets.
+
+---
+
+## 4️⃣ Common pitfalls & quick-check list
+
+| Symptom | Likely cause | Quick fix |
+|---------|--------------|-----------|
+| **All circles are the same colour** | Property name typo (`population` vs `pop`) or property is a string, not a number. | Verify with `console.log(feature.properties.population)` in a `map.on('click', ...)` handler. |
+| **No circles appear at all** | Source not added, or `source-layer` missing for vector sources. | Open the Network tab → check the TileJSON / GeoJSON request. |
+| **Colours look wrong (light where they should be dark)** | The colour ramp is reversed. | Swap the colour order or use `['interpolate', ['linear'], …]` with stops in ascending order. |
+| **Map is blank, but network shows 200s** | CORS missing on the tile server (or on the glyph/sprite server if you also have labels). | Add `Access-Control-Allow-Origin: *` (or your domain) on the server. |
+| **Hover/selection doesn’t work** | Feature has no `id`. | Add `promoteId: 'yourUniqueProp'` when adding the source. |
+| **Zoom-level mismatch on raster basemap** | `tileSize` defaulted to 512 while the server serves 256-px tiles. | Add `tileSize: 256` to the raster source definition. |
+
+---
+
+## 5️⃣ Full minimal example (HTML + JS)
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>Population-based circle colour</title>
+  <script src=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body { margin:0; padding:0; }
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+<script>
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {
+        // a simple empty style – we’ll add our own source & layer
+        ""osm"": {
+          type: ""raster"",
+          tiles: [""https://tile.openstreetmap.org/{z}/{x}/{y}.png""],
+          tileSize: 256,
+          attribution: ""© OpenStreetMap contributors""
+        }
+      },
+      layers: [
+        { id: ""osm"", type: ""raster"", source: ""osm"" }
+      ]
+    },
+    center: [-93.3, 44.95],
+    zoom: 8
+  });
+
+  // Wait for the base style to load before adding our data
+  map.on('load', () => {
+    // 1️⃣ Add the GeoJSON source
+    map.addSource('cities', {
+      type: 'geojson',
+      data: {
+        type: ""FeatureCollection"",
+        features: [
+          { type: ""Feature"", properties: { name: ""Smallville"", population: 1200 }, geometry: { type: ""Point"", coordinates: [-93.292, 44.977] } },
+          { type: ""Feature"", properties: { name: ""Middletown"", population: 45000 }, geometry: { type: ""Point"", coordinates: [-93.5, 45.0] } },
+          { type: ""Feature"", properties: { name: ""Big City"", population: 850000 }, geometry: { type: ""Point"", coordinates: [-93.2, 44.9] } }
+        ]
+      },
+      promoteId: 'name'   // optional but handy for later state handling
+    });
+
+    // 2️⃣ Add the circle layer with a continuous colour ramp
+    map.addLayer({
+      id: 'city-circles',
+      type: 'circle',
+      source: 'cities',
+      paint: {
+        'circle-color': [
+          'interpolate',
+          ['linear'],
+          ['get', 'population'],
+          0,    '#e0f3ff',
+          1000, '#c2e0ff',
+          10000,'#94caff',
+          50000,'#5ab4ff',
+          200000,'#2188ff',
+          1000000,'#0055ff'
+        ],
+        'circle-radius': [
+          'interpolate',
+          ['linear'],
+          ['get', 'population'],
+          0, 4,
+          1000, 6,
+          10000, 10,
+          50000, 14,
+          200000, 20,
+          1000000, 30
+        ],
+        'circle-opacity': 0.7
+      }
+    });
+
+    // Optional: popup on click to verify the property
+    map.on('click', 'city-circles', (e) => {
+      const props = e.features[0].properties;
+      new maplibregl.Popup()
+        .setLngLat(e.lngLat)
+        .setHTML(`<strong>${props.name}</strong><br/>Population: ${props.population}`)
+        .addTo(map);
+    });
+  });
+</script>
+</body>
+</html>
+```
+
+Open the file in a browser → you’ll see three circles, each coloured progressively darker as the `population` grows, and a tooltip confirming the numbers.
+
+---
+
+## 6️⃣ Going further
+
+| Want to… | How to extend |
+|----------|----------------|
+| **Use a custom colour palette** (e.g. Viridis, Plasma) | Replace the hex strings in `colorRamp` with the palette values. You can generate a ramp with a small script or use an online tool like <https://github.com/d3/d3-scale-chromatic>. |
+| **Show a legend** | Create a simple HTML `<div>` that mirrors the stops you used (`<svg>` rectangles + labels). |
+| **Animate the colour on hover** | Use `setFeatureState` + a `circle-color` expression that checks `['feature-state', 'hover']`. Remember to `promoteId`. |
+| **Load from a vector-tile server** | Change the source to `{type:'vector', url:'https://example.com/tiles.json'}` and add `source-layer: 'your_layer_name'` to the layer definition. The same `circle-color` expression works unchanged. |
+| **Performance-tune** | If you have thousands of points, consider clustering (`cluster: true`) and style the clusters separately. |
+
+---
+
+### TL;DR
+
+```js
+map.addLayer({
+  id: 'city-circles',
+  type: 'circle',
+  source: 'cities',               // (or a vector source + source-layer)
+  paint:",PASS,1.00,,All assertions passed,
