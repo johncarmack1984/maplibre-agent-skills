@@ -8,6 +8,7 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Fixed
 
+- `maplibre-source-wiring`: keeps its failure modes out of the tips or gotchas section of an answer to an unrelated question ([#163](https://github.com/maplibre/maplibre-agent-skills/pull/163))
 - `maplibre-pmtiles-patterns`: the layer names are the `vector_layers` array of `pmtiles show --metadata`, which plain `show` prints only as `<object>`; `verify` checks the archive structure, not tile contents ([#157](https://github.com/maplibre/maplibre-agent-skills/pull/157))
 - `maplibre-source-wiring`: opens with its scope rule, so an answer to an unrelated styling question no longer adds a blank-map debugging section ([#156](https://github.com/maplibre/maplibre-agent-skills/pull/156))
 - `maplibre-v6-migration`: opens with its scope rule, so an answer to an unrelated question no longer adds v6 migration sections ([#153](https://github.com/maplibre/maplibre-agent-skills/pull/153))
