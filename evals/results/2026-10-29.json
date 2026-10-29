@@ -1,0 +1,29 @@
+{
+  "commit": "53916e2fffac5b786dc183d66c107303a5705c17",
+  "configs": {
+    "maplibre-sprites-icons": {
+      "inputs": {
+        "skill": "ad679f9a77f4de8e",
+        "config": "f1405ba36f7c1e35",
+        "harness": "addb1d2ec77b56d9"
+      },
+      "judge": "google:gemini-3.1-flash-lite"
+    },
+    "maplibre-v6-migration": {
+      "inputs": {
+        "skill": "debe42bdac1c8802",
+        "config": "91bbce894272d474",
+        "harness": "addb1d2ec77b56d9"
+      },
+      "judge": "google:gemini-3.1-flash-lite"
+    },
+    "maplibre-source-wiring": {
+      "inputs": {
+        "skill": "ead48e157ed6b764",
+        "config": "16c9f9fe5e8596d1",
+        "harness": "addb1d2ec77b56d9"
+      },
+      "judge": "google:gemini-3.1-flash-lite"
+    }
+  }
+}
