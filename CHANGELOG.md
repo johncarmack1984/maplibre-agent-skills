@@ -16,6 +16,8 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Internal
 
+- `npm run format:check`: checks the files git tracks or would track, so a file that `.git/info/exclude` or a global excludes file hides from git no longer fails the check ([#160](https://github.com/maplibre/maplibre-agent-skills/pull/160))
+- `.githooks/pre-push`: a push that only deletes branches skips the checks ([#159](https://github.com/maplibre/maplibre-agent-skills/pull/159))
 - `eval.yml`: a test that fails any attempt fails its config and the run; the re-runs show whether the failure repeats, and the drift issue lists every attempt ([#158](https://github.com/maplibre/maplibre-agent-skills/pull/158))
 - `eval:graded`: the judge is `gemini-3.1-flash-lite`, which held recorded answers to their rubrics where `gemini-2.5-flash-lite` passed misses ([#150](https://github.com/maplibre/maplibre-agent-skills/pull/150))
 - `eval.yml`: the scheduled run grades a config when its SKILL.md, eval config or harness changes, and re-grades the rest weekly; each run commits `evals/results/<date>.json` with what it graded on ([#149](https://github.com/maplibre/maplibre-agent-skills/pull/149))
