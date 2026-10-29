@@ -1,0 +1,849 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+explicit — route shields missing badge on the open OpenMapTiles stack,skills/maplibre-cartography/SKILL.md,"I'm using an open OpenMapTiles / OSM-based vector basemap with MapLibre GL JS (no Mapbox account). My interstate and US highway shields render as bare floating numbers with no shield badge behind them; the numbers are fine. My tiles do populate network, ref, and ref_length. Which exact sprite image names do the shield layers expect, and how do I get the badges to appear without editing the layers?","**Short answer**
+
+The shield layers that come with the standard OpenMapTiles / OSM‑based vector styles look for a **single sprite image per network‑type and per reference‑length**.  
+The image IDs are built like this:
+
+```
+{network}_{ref_length}
+```
+
+where  
+
+| `network` value (taken from the tile property) | Sprite ID prefix |
+|-----------------------------------------------|------------------|
+| `us-interstate`                               | `us-interstate_` |
+| `us-highway` (U.S. highways that are not interstates) | `us-highway_` |
+| `us-state` (state‑level highways)            | `us-state_` |
+| any other network (e.g. `ca-highway`, `de-bahn`, …) | `road_` (fallback) |
+
+`ref_length` is the **character count of the `ref` string** (the number that is already being drawn as the label).  
+So the exact sprite image names that the default style expects are:
+
+```
+us-interstate_1
+us-interstate_2
+us-interstate_3
+us-interstate_4
+us-interstate_5   (and higher if you have 6‑digit refs)
+
+us-highway_1
+us-highway_2
+us-highway_3
+us-highway_4
+us-highway_5
+
+us-state_1
+us-state_2
+us-state_3
+us-state_4
+us-state_5
+```
+
+(If you ever need a 6‑digit reference you would also add `us-interstate_6`, etc.)
+
+For **any network that does not have a dedicated set of shields** the style falls back to the generic “road” sprites:
+
+```
+road_1
+road_2
+road_3
+road_4
+road_5
+```
+
+If those IDs are present in the sprite sheet, the badge (the coloured shield background) will be drawn behind the number automatically – **no layer edits are required**.
+
+---
+
+## How to get those sprites onto your map
+
+1. **Use a sprite that already contains them**  
+   The official OpenMapTiles “bright” (and “basic”) sprite ships with all of the above IDs.
+
+   *Example URLs* (replace `your‑domain` with the host you control, or use the public demo for testing):
+
+   ```text
+   https://openmaptiles.org/styles/bright/sprite   ← base URL (no .json/.png)
+   https://openmaptiles.org/styles/basic/sprite
+   ```
+
+   Point your style’s `sprite` property at that base URL:
+
+   ```json
+   {
+     ""version"": 8,
+     ""sprite"": ""https://openmaptiles.org/styles/bright/sprite"",
+     ...
+   }
+   ```
+
+2. **Self‑host the sprite** (recommended for production)  
+
+   * a. Download the PNG + JSON (and the @2x versions) from the OpenMapTiles repo or from the URL above (just add `.json` or `.png`).  
+   * b. Upload the four files (`sprite.png`, `sprite.json`, `sprite@2x.png`, `sprite@2x.json`) to a static host you control (GitHub Pages, Netlify, Vercel, S3, etc.).  
+   * c. Set the `sprite` property to the **base URL** of where you placed them, e.g.:
+
+      ```json
+      ""sprite"": ""https://mycdn.example.com/tileset/sprite""
+      ```
+
+3. **If you already have a custom sprite** and it is missing the shield images, just add the missing IDs.  
+   You can generate a new sprite that includes the shield SVGs with any of the standard tools:
+
+   * **spritezero** – `spritezero mySprite ./svg-folder`  
+   * **spreet** – `spreet ./svg-folder -o mySprite`  
+   * **Martin** – `martin sprite ./svg-folder -o mySprite`
+
+   Put the shield SVGs in the folder with the exact filenames matching the IDs (e.g. `us-interstate_2.svg`, `us-highway_3.svg`, …).  
+   When the sprite is rebuilt, the style will automatically pick up the badges.
+
+4. **Verify that the IDs exist**  
+
+   Open the sprite JSON in a browser (e.g. `https://openmaptiles.org/styles/bright/sprite.json`) and search for the keys listed above. If they are present, the shields will render.
+
+   ```json
+   {
+     ""us-interstate_2"": { ""width"": 64, ""height"": 64, ""x"": 0, ""y"": 0, ""pixelRatio"": 1 },
+     ""us-highway_3"":   { ""width"": 64, ""height"": 64, ""x"": 64, ""y"": 0, ""pixelRatio"": 1 },
+     ""road_1"":         { ""width"": 64, ""height"": 64, ""x"": 128, ""y"": 0, ""pixelRatio"": 1 },
+     ...
+   }
+   ```
+
+   If a key is missing, the layer will fall back to drawing only the number (what you are seeing).
+
+---
+
+## Quick checklist (no layer changes needed)
+
+| ✅ | Step |
+|---|------|
+| 1 | Confirm your style’s `sprite` URL points to a sprite that contains the shield IDs. |
+| 2 | Open the sprite JSON and search for `us-interstate_`, `us-highway_`, `us-state_`, and `road_`. |
+| 3 | If any are missing, replace the sprite with one that includes them (download the official OpenMapTiles sprite or rebuild your own). |
+| 4 | Clear the browser cache (or add a cache‑busting query string) so the new sprite is fetched. |
+| 5 | Reload the map – the badge should now appear behind the numbers. |
+
+That’s all you need. The shield **badge** is purely a sprite image; the number is rendered by the `text-field` expression, so once the correct sprite IDs are present the style works without any further edits. Happy mapping!",PASS,1.00,,All assertions passed,
+implicit — point symbols camouflaged against aerial imagery,skills/maplibre-cartography/SKILL.md,I have custom point icons on a MapLibre GL JS map over satellite/aerial imagery. Green icons vanish over vegetation and brown ones disappear over bare ground — they camouflage against whatever is behind them. How do I make the icons reliably stand out across all the different backgrounds in the imagery?,"Below is a **step‑by‑step recipe** that turns “green disappears in the forest / brown disappears on the field” into **icons that stay readable on any satellite or aerial image**.  
+All of the recommendations come from the *maplibre‑cartography* skill – they work for MapLibre GL JS 1.x and 2.x and are safe for both desktop and mobile browsers.
+
+---
+
+## 1. Why the camouflage happens
+
+| What you see | Why it fails on imagery |
+|--------------|------------------------|
+| A solid‑color PNG (green, brown, …) | The icon’s hue is the same hue that the photo already contains. MapLibre can’t add a “background” behind the icon – it only paints the pixels you give it. |
+| No outline or glow | The photo supplies the only contrast, so wherever the photo is green/ brown the icon blends in. |
+| No depth cue | A flat icon looks like a sticker that can float above the photo, which makes it even harder to separate. |
+
+The fix is **to give the icon its own contrast layer** (a halo/outline or a shadow) **and to keep the icon’s fill highly saturated** so the chroma axis (color intensity) is different from the low‑saturation background of most imagery.
+
+---
+
+## 2. Use **SDF** (Signed‑Distance‑Field) sprites – the only way to add a halo in the style
+
+### 2.1. Convert your SVG/PNG icons to SDF
+
+```bash
+# Using spritezero (npm)
+npm i -g @mapbox/spritezero
+# Put all SVGs you want to use in ./icons/
+spritezero ./my-sprite ./icons
+```
+
+*Important:*  
+* The SVG must be **monochrome** (single fill colour, e.g. `#ffffff`).  
+* Keep a generous `viewBox` padding (≥ 10 % of the width/height) – the halo will be drawn outside the original shape, and you don’t want it clipped.  
+* If you need a gradient or a 3‑D look, bake it **into the SVG** (e.g. a linear gradient that goes from light‑top to dark‑bottom). The gradient stays when the image is rasterised for the SDF.
+
+### 2.2. Load the sprite in the style
+
+```json
+{
+  ""version"": 8,
+  ""sprite"": ""https://my.cdn.com/styles/my‑style/sprite"",   // no .json/.png
+  ""glyphs"": ""https://my.cdn.com/fonts/{fontstack}/{range}.pbf"",
+  ""layers"": [ … ]
+}
+```
+
+> **Never point a production style at `raw.githubusercontent.com`** – it is rate‑limited and may return 404 for anonymous users (see the skill references).
+
+---
+
+## 3. Add a **halo** (outline) in the style
+
+```json
+{
+  ""id"": ""my‑points"",
+  ""type"": ""symbol"",
+  ""source"": ""my‑points"",
+  ""layout"": {
+    ""icon-image"": ""my‑icon"",          // matches the ID in the sprite JSON
+    ""icon-allow-overlap"": true,
+    ""icon-ignore-placement"": false
+  },
+  ""paint"": {
+    // 1️⃣ Saturated fill – choose a hue that is *not* common in imagery.
+    //    Earth‑tone “amber” (#ff9500) or “terracotta” (#d45a3a) work well.
+    ""icon-color"": ""#ff9500"",
+
+    // 2️⃣ Dark, semi‑transparent halo that works on bright *and* dark ground.
+    ""icon-halo-color"": ""rgba(0,0,0,0.75)"",
+    ""icon-halo-width"": 2,            // pixels; 1–2 is usually enough
+    ""icon-halo-blur"": 0.5,           // softens the edge a little
+
+    // 3️⃣ Optional: a thin lighter inner halo for extra contrast on very dark ground.
+    //    (use only if the dark halo looks too heavy on bright fields)
+    // ""icon-halo-color"": ""rgba(255,255,255,0.4)"",
+    // ""icon-halo-width"": 1
+  }
+}
+```
+
+### Why this works
+
+| Property | What it does | Why it helps on imagery |
+|----------|--------------|--------------------------|
+| **`icon-color`** (saturated) | Gives the icon a strong chroma signal. | Most aerial photos are low‑saturation, so a vivid orange/terracotta stands out. |
+| **`icon-halo-color`** (dark, 75 % opacity) | Draws a thin ring *outside* the SDF shape. | Dark halo contrasts against bright soil, rooftops, snow, water, etc. |
+| **`icon-halo-width`** (1–2 px) | Controls halo thickness. | Thin enough to stay “outline‑like”, thick enough to be seen at 1 px icon sizes. |
+| **`icon-halo-blur`** (0.3‑0.7) | Softens the halo edge. | Prevents a hard “sticker” look and keeps the halo from looking like a separate object. |
+
+> **Tip:** If you have many icon colours (green, brown, blue, …) keep the *halo* the same dark semi‑transparent value for every one. The halo is the real legibility guarantee; the fill colour can stay semantic.
+
+---
+
+## 4. Add a **contact shadow** (ground‑anchor) – optional but makes the icon feel “placed”
+
+A contact shadow is a blurred ellipse that sits **under** the icon, not a drop‑shadow that lifts it.
+
+```json
+{
+  ""id"": ""my‑points‑shadow"",
+  ""type"": ""circle"",
+  ""source"": ""my‑points"",
+  ""layout"": { ""visibility"": ""visible"" },
+  ""paint"": {
+    ""circle-radius"": [
+      ""interpolate"", [""linear""], [""zoom""],
+      10, 6,
+      16, 12
+    ],
+    ""circle-color"": ""rgba(0,0,0,0.25)"",
+    ""circle-blur"": 0.8,
+    ""circle-opacity"": 0.6,
+    ""circle-pitch-alignment"": ""map"",
+    ""circle-pitch-scale"": ""map""
+  },
+  ""filter"": [""=="", ""$type"", ""Point""]
+}
+```
+
+*Place this layer **below** the symbol layer* (add it first in the `layers` array). The ellipse will stretch with the map pitch, giving the impression that the icon sits on the terrain.
+
+---
+
+## 5. Keep the **layer ordering** right
+
+| Order (bottom → top) | Reason |
+|----------------------|--------|
+| 1️⃣ `background` |
+| 2️⃣ Raster imagery (satellite) |
+| 3️⃣ Hillshade (if you use it) |
+| 4️⃣ Terrain fills (land, water, parks) |
+| 5️⃣ Road / line layers |
+| **6️⃣ Your point‑shadow layer** (if you added one) |
+| **7️⃣ Your point‑icon layer** (the SDF symbol) |
+| 8️⃣ Basemap label layers (place names, road names) |
+| 9️⃣ Any custom label layers you add later |
+
+If you inject a data source at runtime, **add your layers before the first `symbol` layer**:
+
+```js
+const style = map.getStyle();
+const firstSymbolId = style.layers.find(l => l.type === 'symbol').id;
+
+map.addLayer(shadowLayer, firstSymbolId);   // under labels
+map.addLayer(iconLayer,   firstSymbolId);   // also under labels
+```
+
+That guarantees your icons never cover the basemap’s text.
+
+---
+
+## 6. When you *must* use a raster PNG (no SDF)
+
+If you cannot rebuild the sprite as SDF, bake the outline/halo **into the PNG itself**:
+
+1. In your graphics editor, add a **2 px stroke** around the shape.  
+2. Make the stroke **dark semi‑transparent** (`#000000BF`).  
+3. Add a **soft drop‑shadow** that is offset **down‑and‑right** by ~1 px and blurred (radius ≈ 2 px).  
+4. Export with a transparent background and a generous canvas margin (so the halo isn’t clipped).
+
+> **Caveat:** The halo will be *fixed* – you cannot change its colour or width at runtime. If you ever need a different colour scheme, you’ll have to re‑export the PNG.
+
+---
+
+## 7. Test the result – a quick visual checklist
+
+| Test | What to look for |
+|------|-------------------|
+| **Zoom out to 10 – 12** | Icons should still be visible; halo should not merge with neighboring icons. |
+| **Zoom in to 16 – 18** | Halo stays thin, icon colour stays vivid, shadow stays under the icon. |
+| **Pan over varied terrain** (forest, fields, water, urban rooftops) | No spot where the icon disappears. |
+| **High‑contrast mode** (browser “force‑dark” or OS high‑contrast) | Dark halo still visible; if you use a light halo for a special case, keep its opacity ≤ 0.8. |
+| **WCAG contrast check** | Use the *combined* colour (icon‑color + halo) against a typical background (e.g., `#4a7c2e` for forest). The contrast ratio should be ≥ 4.5:1 for normal text (the halo counts as part of the “text”). |
+
+You can automate the check with the WebAIM Contrast API or a small script that samples a few pixels from the imagery and computes the contrast against `rgba(0,0,0,0.75)`.
+
+---
+
+## 8. Accessibility & performance notes
+
+| Concern | Recommendation |
+|---------|----------------|
+| **Contrast** | The dark halo (`rgba(0,0,0,0.75)`) + a saturated fill meets WCAG 2.1 AA for most natural‑image backgrounds. |
+| **Color‑only meaning** | If the icon colour conveys a data value (e.g., green = park, brown = agriculture), also add a **shape cue** (different SVG outlines) or a **pattern** inside the SDF (e.g., diagonal lines for “restricted”). |
+| **GPU load** | SDF icons are cheap; a halo adds only a few extra fragments. Keep `icon-halo-width` ≤ 2 px to avoid unnecessary overdraw. |
+| **Screen‑reader** | The map canvas itself isn’t readable. Provide a hidden `<table>` or ARIA‑label that lists the point features, or use the `maplibre-gl-accessibility` plugin for keyboard navigation. |
+
+---
+
+## 9. Full example – minimal style snippet
+
+```json
+{
+  ""version"": 8,
+  ""sprite"": ""https://my.cdn.com/styles/example/sprite"",
+  ""glyphs"": ""https://my.cdn.com/fonts/{fontstack}/{range}.pbf"",
+  ""sources"": {
+    ""satellite"": {
+      ""type"": ""raster"",
+      ""tiles"": [""https://my.tiles.com/sat/{z}/{x}/{y}.jpg""],
+      ""tileSize"": 256
+    },
+    ""my-points"": {
+      ""type"": ""geojson"",
+      ""data"": ""https://my.api.com/points.geojson""
+    }
+  },
+  ""layers"": [
+    { ""id"": ""bg"", ""type"": ""background"", ""paint"": { ""background-color"": ""#000000"" } },
+    { ""id"": ""sat"", ""type"": ""raster"", ""source"": ""satellite"" },
+
+    /* optional contact shadow */
+    {
+      ""id"": ""point-shadow"",
+      ""type"": ""circle"",
+      ""source"": ""my-points"",
+      ""paint"": {
+        ""circle-radius"": [""interpolate"", [""linear""], [""zoom""], 10, 6, 16, 12],
+        ""circle-color"": ""rgba(0,0,0,0.25)"",
+        ""circle-blur"": 0.8,
+        ""circle-opacity"": 0.6,
+        ""circle-pitch-alignment"": ""map"",
+        ""circle-pitch-scale"": ""map""
+      }
+    },
+
+    /* the actual icon */
+    {
+      ""id"": ""point-icon"",
+      ""type"": ""symbol"",
+      ""source"": ""my-points"",
+      ""layout"": {
+        ""icon-image"": ""my-icon"",
+        ""icon-allow-overlap"": true
+      },
+      ""paint"": {
+        ""icon-color"": ""#ff9500"",
+        ""icon-halo-color"": ""rgba(0,0,0,0.75)"",
+        ""icon-halo-width"": 2,
+        ""icon-halo-blur"": 0.5
+      }
+    },
+
+    /* basemap labels would",PASS,1.00,,All assertions passed,
+anti-pattern — reducing road opacity to calm bright roads on imagery,skills/maplibre-cartography/SKILL.md,I dropped my OSM Bright vector road layers on top of satellite imagery and the bright orange/yellow roads look garish and dominate the map. My instinct is to lower their opacity so the imagery shows through. Is that the right fix?,"### Short answer  
+**No – lowering the opacity of the OSM Bright road layers is the wrong fix.**  
+A semi‑transparent orange/yellow line lets the busy photographic background bleed through, which makes the road network look “washed‑out” and destroys the visual hierarchy you need when the basemap is imagery.
+
+Instead, **re‑tone the road palette, keep the lines opaque, and let width & casing do the hierarchy work**. The steps below follow the cartographic best‑practice checklist from the **maplibre‑cartography** skill.
+
+---
+
+## 1. Why opacity hurts on imagery
+
+| Problem | What happens when you set `line-opacity < 1` |
+|---------|----------------------------------------------|
+| **Figure‑ground clash** | The bright hue already competes with the unpredictable colors of satellite imagery. Adding transparency lets the underlying colors show through, so the road line can look brown on a field, green on a forest, or pink on a roof – all of which look like “stains” rather than a reference layer. |
+| **Loss of hierarchy** | Road importance is normally encoded by width and casing contrast. When you make the line translucent the casing (often a darker line underneath) becomes hard to see, so a minor road can look as heavy as a highway. |
+| **Accessibility** | WCAG contrast is calculated on the *combined* foreground+background. A 0.6‑opacity orange over a bright field may drop below the 4.5:1 ratio required for normal text‑size labels that sit on the same road line. |
+| **Performance** | Transparent fragments force the GPU to blend each pixel, which is a tiny but unnecessary cost when you could simply draw an opaque, well‑contrasted line. |
+
+---
+
+## 2. The proper fix: **Desaturate & neutral‑tone the roads**
+
+1. **Pick a neutral base colour** (light‑gray for the fill, darker‑gray for the casing).  
+2. **Keep the lines fully opaque** (`line-opacity: 1`).  
+3. **Encode hierarchy with width and value, not hue**.  
+4. **Add a subtle halo / casing** that is darker than the fill, not a stark black outline.  
+
+### Example style snippet (OSM Bright → imagery)
+
+```json
+{
+  ""id"": ""road-fill"",
+  ""type"": ""line"",
+  ""source"": ""openmaptiles"",
+  ""source-layer"": ""transportation"",
+  ""filter"": [""all"", [""!="", ""class"", ""path""], [""!="", ""class"", ""track""]],
+  ""layout"": {
+    ""line-cap"": ""round"",
+    ""line-join"": ""round""
+  },
+  ""paint"": {
+    // Light‑gray fill that gets brighter as you zoom in
+    ""line-color"": [
+      ""interpolate"",
+      [""linear""],
+      [""zoom""],
+      5, ""#4e4e4e"",
+      10, ""#5a5a5a"",
+      14, ""#6e6e6e""
+    ],
+    ""line-width"": [
+      ""interpolate"",
+      [""linear""],
+      [""zoom""],
+      5, 0.5,
+      10, 2,
+      14, 6,
+      18, 12
+    ],
+    ""line-opacity"": 1
+  }
+},
+{
+  ""id"": ""road-casing"",
+  ""type"": ""line"",
+  ""source"": ""openmaptiles"",
+  ""source-layer"": ""transportation"",
+  ""filter"": [""all"", [""!="", ""class"", ""path""], [""!="", ""class"", ""track""]],
+  ""layout"": {
+    ""line-cap"": ""round"",
+    ""line-join"": ""round""
+  },
+  ""paint"": {
+    // Darker gray casing, slightly wider than the fill
+    ""line-color"": [
+      ""interpolate"",
+      [""linear""],
+      [""zoom""],
+      5, ""#2b2b2b"",
+      10, ""#333333"",
+      14, ""#404040""
+    ],
+    ""line-width"": [
+      ""interpolate"",
+      [""linear""],
+      [""zoom""],
+      5, 1,
+      10, 3,
+      14, 8,
+      18, 14
+    ],
+    ""line-opacity"": 1
+  }
+}
+```
+
+**What this does**
+
+| Layer | Role | Why it works on imagery |
+|-------|------|--------------------------|
+| `road-fill` | Main road body | Light‑gray is neutral; it reads on both bright fields and dark forests. |
+| `road-casing` | Edge definition | Darker‑gray “knock‑out” casing gives the road a crisp edge without the cartoon‑black outline that would dominate the photo. |
+| Width ramps | Hierarchy | Motorways get the thickest lines; residential streets stay thin. No hue needed. |
+| No opacity | Full contrast | The line is solid, so the halo‑casing contrast is guaranteed. |
+
+---
+
+## 3. Fine‑tuning the visual hierarchy
+
+| Road class | Suggested `line-width` (px) at zoom 14 | Suggested `line-color` (optional) |
+|------------|----------------------------------------|-----------------------------------|
+| `motorway` | 8–10 | Keep the fill as the light‑gray above; you can add a subtle amber tint (`#8a8a8a`) if you still want a hint of “importance”. |
+| `trunk`    | 6–8  | Same neutral fill. |
+| `primary`  | 4–6  | Same. |
+| `secondary`| 3–4  | Same. |
+| `tertiary` | 2–3  | Same. |
+| `residential` / `service` | 1–2 | Same. |
+| `path` / `track` | 0.5–1 (optional dashed) | Keep them a lighter gray or use a semi‑transparent dash (`line-dasharray`). |
+
+**Tip:** If you need a *visual cue* that a road is a highway *and* you still want a colour hint, use a **very low‑saturation hue shift** (e.g. `#6e6e6e` → `#6e7e8e`). The shift is perceptible at larger widths but stays muted enough not to clash with the imagery.
+
+---
+
+## 4. Keep the label legibility intact
+
+Road‑name labels sit on top of the road layers. After you change the road colours, verify that the label halo still provides enough contrast:
+
+```json
+{
+  ""id"": ""road-label"",
+  ""type"": ""symbol"",
+  ""source"": ""openmaptiles"",
+  ""source-layer"": ""transportation_name"",
+  ""layout"": {
+    ""text-field"": ""{ref}"",
+    ""text-font"": [""Noto Sans Bold""],
+    ""text-size"": [
+      ""interpolate"",
+      [""linear""],
+      [""zoom""],
+      10, 10,
+      14, 12,
+      18, 14
+    ],
+    ""symbol-placement"": ""line"",
+    ""text-allow-overlap"": false,
+    ""text-ignore-placement"": false
+  },
+  ""paint"": {
+    ""text-color"": ""#ffffff"",
+    ""text-halo-color"": ""rgba(0,0,0,0.75)"",
+    ""text-halo-width"": 1.2
+  }
+}
+```
+
+- **White text + dark semi‑transparent halo** works on any background (including the new gray roads).  
+- Keep the halo width modest (≈ 1 px) so it doesn’t become a “sticker” around the number.
+
+---
+
+## 5. Layer ordering – make sure your roads stay *under* the basemap labels
+
+When you inject your own road layers into an existing OSM Bright‑style that already contains satellite imagery, place them **before the first symbol layer** (the label layer). Example in JavaScript:
+
+```js
+// Find the first symbol layer (usually the label layer)
+const firstSymbolId = map.getStyle().layers.find(l => l.type === 'symbol').id;
+
+// Add road fill and casing under that layer
+map.addLayer(roadFillLayer, firstSymbolId);
+map.addLayer(roadCasingLayer, firstSymbolId);
+```
+
+If you add them *after* the label layer, the roads will cover the labels, which is the opposite of what you want.
+
+---
+
+## 6. Accessibility check
+
+1. **Contrast** – Use a tool (WebAIM Contrast Checker) to test the combined *text‑color + halo* against the *road fill + casing* at typical zooms.  
+   - White text (`#ffffff`) on a dark halo (`rgba(0,0,0,0.75)`) gives > 7:1 contrast on the gray road background.  
+2. **Avoid color‑only cues** – The hierarchy is already encoded by width and casing, so users who are color‑blind still perceive the difference.  
+3. **Minimum label size** – Keep road‑name text ≥ 10 px at the lowest zoom where it appears (zoom 10 in the snippet).  
+
+---
+
+## 7. Quick “cheat‑sheet” for fixing garish roads on imagery
+
+| Step | Action | Code snippet |
+|------|--------|--------------|
+| 1️⃣ | **Desaturate** – replace orange/yellow with neutral gray. | See `road-fill`/`road-casing` paint blocks above. |
+| 2️⃣ | **Keep opacity at 1** – no transparency. | `""line-opacity"": 1` |
+| 3️⃣ | **Encode hierarchy with width** (and optional subtle hue shift). | `line-width` interpolation. |
+| 4️⃣ | **Add a darker casing** (knock‑out style). | `road-casing` layer. |
+| 5️⃣ | **Verify label halo** – white text + dark semi‑transparent halo. | `road-label` paint block. |
+| 6️⃣ | **Insert layers before first symbol** (or reorder in style JSON). | `addLayer(..., firstSymbolId)`. |
+| 7️⃣ | **Run a contrast check** – WCAG AA ≥ 4.5:1 for normal text. | WebAIM tool. |
+
+---
+
+## 8. Optional enhancements
+
+| Feature | Why it helps | How to add |
+|---------|--------------|------------|
+| **Hillshade under imagery** | Gives terrain depth without affecting road contrast. | Add a raster hillshade source and a line‑style `raster-fade-duration: 0` layer below the road layers. |
+| **Road‑type icons** (e.g., motorway shield) | Gives a quick visual cue for major routes. | Use SDF sprites with `icon-halo-color`/`icon-halo-width` and set `icon-image` to `{class}_shield`. |
+| **Dynamic colour by zoom** | Lightens the road fill as you zoom in, preventing “thick‑gray blobs” at high zoom. | `""line-color"": [""interpolate"", [""linear""], [""zoom""], 10, ""#4e4e4e"", 14, ""#6e6e6e""]`. |
+| **Drop‑shadow for point symbols** | Anchors icons to the ground on imagery. | In the SVG, add `<filter id=""shadow""><feDropShadow dx=""0"" dy=""2"" stdDeviation=""2"" flood-color=""rgba(0,0,0,0.5)""/></filter>` and reference it. |
+
+---
+
+### TL;DR
+
+- **Do not lower opacity** – it makes roads look like translucent stickers.  
+- **Replace bright orange/yellow with neutral gray**, keep the lines opaque, and use a darker gray casing for edge definition.  
+- **Drive hierarchy with width (and optional low‑saturation hue shift)**, not hue.  
+- **Place your road layers under the first symbol layer** so labels stay on top.  
+- **Use white text + dark semi‑transparent halo for road names** to guarantee legibility on any background.  
+- **Check WCAG contrast** and avoid relying on colour alone.
+
+Apply the snippets above, re‑run your map, and you’ll get a clean, readable road overlay that *supports* the satellite imagery instead of fighting it. Happy styling!",PASS,1.00,,All assertions passed,
+negative — out-of-scope question about map camera animation,skills/maplibre-cartography/SKILL.md,How do I smoothly fly the camera to a new location in MapLibre GL JS after the user clicks a button?,"Below is a **complete, copy‑and‑paste ready** example that shows how to:
+
+1. **Add a button** to the page (you can also use an existing UI element).  
+2. **Listen for the click** and call `map.flyTo()` with a set of options that give a smooth, natural‑looking animation.  
+3. **Keep the map readable** while the camera moves (e.g., keep label halos on, avoid covering important basemap labels).  
+4. **Make the interaction accessible** (focus management, ARIA label, keyboard‑only fallback).
+
+---
+
+## 1️⃣ Minimal HTML
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"">
+  <title>MapLibre flyTo demo</title>
+  <link href=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.css"" rel=""stylesheet""/>
+  <style>
+    body, html { margin:0; height:100%; }
+    #map { position:absolute; top:0; bottom:0; left:0; right:0; }
+    /* Simple button styling – keep it on top of the map */
+    #flyBtn {
+      position: absolute;
+      top: 1rem;
+      left: 1rem;
+      padding: .5rem 1rem;
+      background: rgba(255,255,255,.9);
+      border: 1px solid #777;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: system-ui, sans-serif;
+    }
+    #flyBtn:focus { outline: 2px solid #0066ff; }
+  </style>
+</head>
+<body>
+
+<div id=""map""></div>
+<button id=""flyBtn"" aria-label=""Fly to San Francisco"">Fly to SF</button>
+
+<script src=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.js""></script>
+<script src=""fly-to.js""></script>
+</body>
+</html>
+```
+
+*The button has an `aria-label` so screen‑reader users know what will happen when they activate it.*
+
+---
+
+## 2️⃣ JavaScript (`fly-to.js`)
+
+```js
+// ---------------------------------------------------
+// 1️⃣ Initialise the map (satellite imagery + vector labels)
+// ---------------------------------------------------
+const map = new maplibregl.Map({
+  container: 'map',
+  style: 'https://demotiles.maplibre.org/style.json', // imagery + vector labels
+  center: [-122.447303, 37.753574], // start over San Francisco (lon, lat)
+  zoom: 12,
+  pitch: 45,          // a little 3‑D feel
+  bearing: -17,       // slight rotation
+  antialias: true
+});
+
+// ---------------------------------------------------
+// 2️⃣ Helper: a reusable “fly” function
+// ---------------------------------------------------
+/**
+ * Smoothly fly the camera to a new view.
+ *
+ * @param {Object} opts
+ *   @property {Array<number>} center   [lon, lat] in EPSG:4326
+ *   @property {number}        zoom     (optional) target zoom
+ *   @property {number}        bearing  (optional) target bearing (°)
+ *   @property {number}        pitch    (optional) target pitch (°)
+ *   @property {number}        duration (optional) ms, default 1000
+ *   @property {number}        curve    (optional) animation curvature, default 1.42
+ *   @property {boolean}       essential (optional) true → skip if user prefers reduced motion
+ */
+function smoothFly(opts) {
+  // Respect the OS “reduce‑motion” setting – MapLibre will skip the animation if true.
+  const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const flyOpts = {
+    center: opts.center,
+    zoom: opts.zoom,
+    bearing: opts.bearing,
+    pitch: opts.pitch,
+    duration: prefersReduced ? 0 : (opts.duration ?? 1000),
+    curve: opts.curve ?? 1.42,
+    essential: opts.essential ?? false   // true = ignore reduced‑motion if you *must* animate
+  };
+  map.flyTo(flyOpts);
+}
+
+// ---------------------------------------------------
+// 3️⃣ Wire the button click (and keyboard “Enter/Space”)
+// ---------------------------------------------------
+const btn = document.getElementById('flyBtn');
+
+btn.addEventListener('click', () => {
+  // Example target: Golden Gate Bridge, zoomed a bit closer, north‑east bearing
+  smoothFly({
+    center: [-122.478255, 37.819932],
+    zoom: 15,
+    bearing: 30,
+    pitch: 60,
+    duration: 1500   // 1.5 s feels natural
+  });
+});
+
+// Keyboard activation (Enter or Space) works automatically for <button>,
+// but we add a tiny focus‑ring style above for visual indication.
+
+// ---------------------------------------------------
+// 4️⃣ Optional: keep label readability while the camera moves
+// ---------------------------------------------------
+// The demo style already uses a dark halo on labels for imagery.
+// If you use a custom style, make sure the label layers have:
+//   ""text-halo-color"": ""rgba(0,0,0,0.75)"",
+//   ""text-halo-width"": 1.2
+// This guarantees the text stays legible no matter what background
+// the camera passes over during the animation.
+```
+
+### What the code does
+
+| Step | Why it matters (cartographic perspective) |
+|------|-------------------------------------------|
+| **Map init** – uses an imagery basemap (`style.json`) that already contains vector labels with a dark halo, which is the recommended halo for satellite imagery (see the *Basemap Type Determines Label Colors* table). |
+| **`smoothFly`** – wraps `map.flyTo()` so you can reuse the same animation parameters everywhere. The function respects the user’s **prefers‑reduced‑motion** setting, which is an accessibility requirement. |
+| **Button** – a native `<button>` gives keyboard focus, ARIA labeling, and automatic “Enter/Space” activation. |
+| **Label halo** – the comment reminds you to keep the halo (`rgba(0,0,0,0.75)`) on any custom label layers, otherwise the text may disappear against bright parts of the imagery while the camera moves. |
+
+---
+
+## 3️⃣ Tweaking the animation
+
+`map.flyTo()` accepts the same options you see in the helper above. Here are the most useful knobs for a *smooth* feel:
+
+| Option | Typical range | Effect |
+|--------|---------------|--------|
+| `duration` | 800 – 2000 ms (depends on distance) | Longer duration = slower, more cinematic. |
+| `curve` | 1.0 – 2.0 (default 1.42) | Controls how “curvy” the flight path is. Values > 1.5 give a more pronounced arc; < 1.0 makes it more linear. |
+| `speed` | 0.5 – 2.0 (default 1.2) | Pixels per millisecond; useful when you want a constant speed regardless of distance. |
+| `essential` | `true`/`false` | If `true`, the animation runs even when the user has “reduce motion” enabled. Usually keep `false` (the default) for accessibility. |
+| `easing` | `(t) => t` (linear) or custom easing functions | MapLibre ships with a default ease‑out‑cubic; you can supply your own for a different feel. |
+
+**Example of a slower, more dramatic flight:**
+
+```js
+smoothFly({
+  center: [-122.478255, 37.819932],
+  zoom: 15,
+  bearing: 30,
+  pitch: 60,
+  duration: 2500,
+  curve: 1.8,
+  speed: 0.8   // slower speed, longer distance → longer animation automatically
+});
+```
+
+---
+
+## 4️⃣ Common pitfalls & how to avoid them
+
+| Problem | Why it happens | Fix |
+|---------|----------------|-----|
+| **Labels disappear during the flight** | The style uses a light halo (or none) that only works on a light vector basemap. | Add a dark semi‑transparent halo (`rgba(0,0,0,0.75)`) to every `symbol` layer that contains text. |
+| **Icons look “stuck” to the background** | Using a full‑color raster sprite without an SDF halo on imagery. | Convert the icon to an **SDF sprite** (`sdf: true` when adding the image) and give it `icon-halo-color`/`icon-halo-width`. |
+| **Animation feels jerky on low‑end devices** | Very long `duration` + high `curve` → many frames. | Keep `duration` ≤ 2000 ms and `curve` ≤ 1.8; test on a low‑spec device. |
+| **Screen‑reader users don’t know the map moved** | No ARIA announcement. | After the animation finishes, you can fire a custom event or update an off‑screen `<div aria-live=""polite"">` with a short message like “Map moved to San Francisco”. |
+| **FlyTo runs before the map is ready** | `flyTo` called before the `load` event. | Either wait for `map.on('load', …)` or call `smoothFly` from a UI element that can only be clicked after the map is visible (as in the example). |
+
+---
+
+## 5️⃣ Full‑page example (copy‑paste)
+
+If you want a single file to test locally, just drop this into `index.html` and open it in a browser:
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"">
+  <title>MapLibre flyTo demo</title>
+  <link href=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.css"" rel=""stylesheet""/>
+  <style>
+    html,body{margin:0;height:100%;}
+    #map{position:absolute;top:0;bottom:0;left:0;right:0;}
+    #flyBtn{
+      position:absolute;top:1rem;left:1rem;
+      padding:.5rem 1rem;background:rgba(255,255,255,.9);
+      border:1px solid #777;border-radius:4px;cursor:pointer;
+      font-family:system-ui,sans-serif;
+    }
+    #flyBtn:focus{outline:2px solid #0066ff;}
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+<button id=""flyBtn"" aria-label=""Fly to Golden Gate Bridge"">Fly to Golden Gate</button>
+
+<script src=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.js""></script>
+<script>
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://demotiles.maplibre.org/style.json',
+    center: [-122.447303, 37.753574],
+    zoom: 12,
+    pitch: 45,
+    bearing: -17,
+    antialias: true
+  });
+
+  function smoothFly(opts) {
+    const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    map.flyTo({
+      center: opts.center,
+      zoom: opts.zoom,
+      bearing: opts.bearing,
+      pitch: opts.pitch,
+      duration: prefersReduced ? 0 : (opts.duration ?? 1000),
+      curve: opts.curve ?? 1.42,
+      essential: opts.essential ?? false
+    });
+  }
+
+  document.getElementById('flyBtn').addEventListener('click', () => {
+    smoothFly({
+      center: [-122.478255, 37.819932],
+      zoom: 15,
+      bearing: 30,
+      pitch: 60,
+      duration: 1500
+    });
+  });
+</script>
+</body>
+</html>
+```
+
+Open the file, click the button, and watch the camera glide smoothly to the Golden Gate Bridge while the map’s labels stay crisp thanks to the dark halo.
+
+---
+
+### TL;DR Checklist
+
+- ✅ Use `map.flyTo({center, zoom, bearing, pitch, duration, curve})`.  
+- ✅ Respect `prefers-reduced-motion` (set `duration: 0` or `essential: false`).  
+- ✅ Keep label halos dark (`rgba(0,0,0,0.75)`) for imagery basemaps.  
+- ✅ Use an SDF sprite with `icon-halo-*` for point symbols on imagery.  
+- ✅ Insert any custom data layers **below** the first `symbol` layer so they don’t cover basemap labels.  
+- ✅ Add ARIA labeling and a live region if you need to announce the move to screen‑reader users.  
+
+That’s all you need to give users a polished, accessible “fly‑to” experience in MapLibre GL JS. Happy mapping!",PASS,1.00,,All assertions passed,

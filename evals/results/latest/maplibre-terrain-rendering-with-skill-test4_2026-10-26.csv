@@ -1,0 +1,1489 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+implicit — nothing above the horizon once the camera is pitched,skills/maplibre-terrain-rendering/SKILL.md,"My MapLibre GL JS map has 3D terrain enabled and the camera pitched to 70 degrees. The relief looks right, but everything above the horizon line is the flat page background. I want an actual sky and some haze where the ground meets it. How do I set that up?
+","## TL;DR  
+
+```js
+// after the map has finished loading …
+map.setTerrain({source: 'terrain-dem', exaggeration: 1});   // you already have this
+map.setPitch(70);                                          // you already have this
+
+// Add a sky (the “horizon” you’re missing) and a little fog/haze
+map.setSky({
+  // a blue-sky that fades into white at the horizon
+  'sky-color': '#199EF3',          // deep-blue at the top
+  'horizon-color': '#ffffff',     // bright-white at the horizon
+  'sky-horizon-blend': 0.5,        // how quickly the blue turns to white
+
+  // fog that appears where the ground meets the sky
+  'fog-color': '#cce6ff',          // light-blue/white fog
+  'horizon-fog-blend': 0.3,        // fog starts a little below the horizon
+  'fog-ground-blend': 0.5,         // how far the fog reaches down the terrain
+  // (optional) you can also tweak the atmosphere-blend if you like
+  // 'atmosphere-blend': 0.25
+});
+```
+
+That’s all you need – the sky is **not a layer**, it’s a root-level style object that is drawn behind every layer once 3-D terrain is on and the camera is pitched.  
+
+Below is a step-by-step explanation, common pitfalls, and a complete runnable example.
+
+---
+
+## 1. Why the “blank page background” appears
+
+* **Terrain is on, camera is pitched** – good, the mesh is being drawn.  
+* **No sky object** – MapLibre draws the map’s background colour (the `background` layer or the CSS `body` colour) above the horizon because there is nothing else to render there.  
+* **Fog is also missing** – without a sky, there is no place for fog to blend into, so you just see a solid colour.
+
+The fix is to **add a `sky` object** (via `map.setSky()` or directly in the style JSON) and optionally configure fog colours/blends.
+
+---
+
+## 2. The `sky` object – what it does
+
+| Property | What it controls | Typical values |
+|----------|------------------|----------------|
+| `sky-color` | Colour of the sky at the zenith (top of the view) | Any CSS colour, e.g. `#199EF3` (deep blue) |
+| `horizon-color` | Colour exactly at the horizon line | Usually a lighter colour, often white (`#fff`) |
+| `sky-horizon-blend` | How quickly the sky colour fades into the horizon colour (0 = instant, 1 = very gradual) | `0.3 – 0.7` works well |
+| `fog-color` | Colour of the atmospheric fog that blends the terrain into the sky | Light blue/white, e.g. `#cce6ff` |
+| `horizon-fog-blend` | Where the fog starts relative to the horizon (0 = right at horizon, 1 = far below) | `0.2 – 0.5` |
+| `fog-ground-blend` | How far the fog reaches down the terrain (0 = no fog, 1 = fills the whole view) | `0.4 – 0.7` |
+| `atmosphere-blend` *(optional)* | Extra atmospheric scattering – only useful for artistic effects | `0 – 1` |
+
+> **Important:** The `sky` object is **root-level**, not a layer. You cannot add it with `map.addLayer()`. Use `map.setSky()` **after** the map has emitted its `load` event (or include it in the style JSON under a top-level `""sky""` key).
+
+---
+
+## 3. Adding the sky – two ways
+
+### 3.1. Dynamically with the API (`map.setSky()`)
+
+```js
+map.on('load', () => {
+  // …your terrain source & setTerrain call…
+
+  map.setSky({
+    'sky-color': '#199EF3',
+    'horizon-color': '#ffffff',
+    'sky-horizon-blend': 0.5,
+    'fog-color': '#cce6ff',
+    'horizon-fog-blend': 0.3,
+    'fog-ground-blend': 0.5
+  });
+});
+```
+
+### 3.2. Statically in the style JSON
+
+```json
+{
+  ""version"": 8,
+  ""sources"": {
+    ""terrain-dem"": {
+      ""type"": ""raster-dem"",
+      ""url"": ""https://tiles.mapterhorn.com/tilejson.json"",
+      ""tileSize"": 256,
+      ""maxzoom"": 12
+    }
+  },
+  ""terrain"": { ""source"": ""terrain-dem"", ""exaggeration"": 1 },
+
+  ""sky"": {
+    ""sky-color"": ""#199EF3"",
+    ""horizon-color"": ""#ffffff"",
+    ""sky-horizon-blend"": 0.5,
+    ""fog-color"": ""#cce6ff"",
+    ""horizon-fog-blend"": 0.3,
+    ""fog-ground-blend"": 0.5
+  },
+
+  ""layers"": [
+    // …your other layers (hillshade, raster, vector, etc.)…
+  ]
+}
+```
+
+Both approaches produce the same result; pick whichever fits your workflow.
+
+---
+
+## 4. Full Minimal Working Example
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>MapLibre – Terrain + Sky + Fog</title>
+  <script src=""https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body { margin:0; padding:0; }
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+<script>
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {
+        'terrain-dem': {
+          type: 'raster-dem',
+          url: 'https://tiles.mapterhorn.com/tilejson.json',
+          tileSize: 256,
+          maxzoom: 12
+        },
+        // an optional imagery source so you can see the terrain draped over something
+        'sat': {
+          type: 'raster',
+          url: 'https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png',
+          tileSize: 256,
+          maxzoom: 19
+        }
+      },
+      layers: [
+        { id: 'sat', type: 'raster', source: 'sat' }
+      ],
+      terrain: { source: 'terrain-dem', exaggeration: 1 }
+    },
+    center: [-122.447303, 37.753574],
+    zoom: 12,
+    pitch: 70,
+    bearing: 0,
+    antialias: true   // required for 3-D terrain
+  });
+
+  map.on('load', () => {
+    // Add the sky (and fog)
+    map.setSky({
+      'sky-color': '#199EF3',
+      'horizon-color': '#ffffff',
+      'sky-horizon-blend': 0.5,
+      'fog-color': '#cce6ff',
+      'horizon-fog-blend': 0.3,
+      'fog-ground-blend': 0.5
+    });
+
+    // (optional) a hillshade layer to see the relief better
+    map.addLayer({
+      id: 'hillshade',
+      type: 'hillshade',
+      source: 'terrain-dem',
+      paint: {
+        'hillshade-method': 'multidirectional',
+        'hillshade-exaggeration': 0.4,
+        'hillshade-illumination-anchor': 'map',
+        'hillshade-shadow-color': 'rgba(30,40,80,0.45)',
+        'hillshade-highlight-color': 'rgba(255,240,200,0.4)'
+      }
+    });
+  });
+</script>
+</body>
+</html>
+```
+
+Open the file in a browser (or paste it into a CodePen/JSFiddle) and you’ll see:
+
+* A blue-to-white sky that follows the horizon.
+* Light fog that gently blends the terrain into the sky.
+* The terrain itself (you can toggle the hillshade layer on/off).
+
+---
+
+## 5. Common Gotchas & How to Fix Them
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| **Sky never appears** (still just a solid colour) | `map.setSky()` called **before** the `load` event, or using a MapLibre version < 5.5. | Call `setSky` inside `map.on('load', …)` or upgrade to the latest MapLibre GL JS (≥ 5.5). |
+| **Fog looks like a solid colour covering the whole view** | `fog-ground-blend` set to `1` (or too high) or `fog-color` too opaque. | Lower `fog-ground-blend` (e.g., `0.4`) and/or add an alpha channel (`rgba(200,230,255,0.6)`). |
+| **Sky colour looks washed out** | `sky-horizon-blend` too high (the sky colour fades too quickly). | Reduce to `0.3-0.5`. |
+| **The horizon line is still the page background** | No `sky` object at all, or the map’s `background` layer is placed **above** the sky (rare, but possible if you manually added a background layer with a high `z-index`). | Ensure the sky is set via `setSky` or top-level `""sky""` key; background layers are always rendered **behind** the sky, so you don’t need to change their order. |
+| **Fog doesn’t appear at all** | `fog-color` is fully transparent or you’re using a style that disables the sky (e.g., `map.setFog()` – which does **not** exist in MapLibre). | Provide a non-transparent `fog-color` (e.g., `rgba(200,230,255,0.5)`). |
+| **Performance drops dramatically** | Too many high-resolution DEM tiles + heavy hillshade + sky + many draped raster layers. | Keep the DEM source at a reasonable `maxzoom` (12-13), use `hillshade-method: ""multidirectional""` (single pass), and limit the number of raster layers draped over terrain. |
+
+---
+
+## 6. Quick Checklist
+
+1. **MapLibre version** – ≥ 5.5 (sky added in 5.5, `color-relief` in 5.6).  
+2. **Terrain source** – `type: ""raster-dem""` and `map.setTerrain({source:…, exaggeration:…})`.  
+3. **Camera pitch** – > 0 (you already have 70°).  
+4. **Add sky** – `map.setSky({ … })` **after** `load`.  
+5. **Optional fog** – set `fog-color`, `horizon-fog-blend`, `fog-ground-blend`.  
+6. **Test** – pan/tilt; you should see the sky fade into the horizon and a subtle haze where the terrain meets it.
+
+---
+
+## 7. Further Reading (official docs)
+
+* **Sky spec** – <https://maplibre.org/maplibre-style-spec/sky/>  
+* **Terrain spec** – <https://maplibre.org/maplibre-style-spec/terrain/>  
+* **API reference** – `Map#setSky()` and `Map#setTerrain()` – <https://maplibre.org/maplibre-gl-js/docs/API/classes/Map/>  
+* **Examples** –  
+  * 3-D terrain with sky & fog: <https://maplibre.org/maplibre-gl-js/docs/examples/sky-fog-terrain/>  
+  * Multidirectional hillshade: <https://maplibre.org/maplibre-gl-js/docs/examples/add-a-multidirectional-hillshade-layer/>
+
+---
+
+### TL;DR Recap
+
+1. **Enable terrain** (`map.setTerrain`).  
+2. **Pitch the camera** (`map.easeTo({pitch:70})`).  
+3. **Add a sky** (root-level object) with `map.setSky({ … })`.  
+4. **Configure fog** inside the same `setSky` call if you want haze.  
+
+That’s all you need to replace the blank page background with a proper sky and atmospheric fog. Happy mapping!",PASS,1.00,,All assertions passed,
+implicit — nothing above the horizon once the camera is pitched,skills/maplibre-terrain-rendering/SKILL.md,"My MapLibre GL JS map has 3D terrain enabled and the camera pitched to 70 degrees. The relief looks right, but everything above the horizon line is the flat page background. I want an actual sky and some haze where the ground meets it. How do I set that up?
+","## TL;DR  
+Add a **root-level `sky` object** (or call `map.setSky()`) and give it a colour, a horizon colour and fog-related blends.  
+The fog is part of the sky, not a separate `fog` layer, and it only becomes visible when **3-D terrain** is on and the camera is pitched.
+
+```js
+// 1️⃣  Create the map (any style that already has a raster-dem source)
+const map = new maplibregl.Map({
+  container: 'map',
+  style: 'https://demotiles.maplibre.org/style.json',
+  center: [13.4, 52.5],
+  zoom: 12,
+  pitch: 70,               // look at the terrain from the side
+  bearing: 0,
+  antialias: true          // needed for smooth sky/terrain rendering
+});
+
+// 2️⃣  Wait until the style (and the DEM source) is ready
+map.on('load', () => {
+  // ---- 3-D terrain -------------------------------------------------
+  map.addSource('terrain-dem', {
+    type: 'raster-dem',
+    url: 'https://tiles.mapterhorn.com/tilejson.json', // your DEM source
+    tileSize: 256,
+    maxzoom: 12
+  });
+
+  // Exaggeration is optional – 1 = true scale
+  map.setTerrain({ source: 'terrain-dem', exaggeration: 1 });
+
+  // ---- SKY + HAZE --------------------------------------------------
+  // You can either put the object directly into the style JSON
+  // or call the API as shown here.
+  map.setSky({
+    // overall sky colour (looks like a clear-day blue)
+    'sky-color': '#80c0ff',
+
+    // colour of the horizon line – a little lighter than the sky
+    'horizon-color': '#ffffff',
+
+    // colour of the fog that appears where the ground meets the sky
+    // (usually a desaturated blue-gray)
+    'fog-color': '#c0d8ff',
+
+    // how quickly the sky colour blends into the horizon colour
+    // 0 = hard line, 1 = very smooth
+    'sky-horizon-blend': 0.5,
+
+    // how much the fog colour blends into the horizon colour
+    // 0 = no fog, 1 = fog covers the whole horizon
+    'horizon-fog-blend': 0.4,
+
+    // how far the fog reaches down onto the terrain
+    // 0 = fog only at the very top, 1 = fog reaches the ground
+    'fog-ground-blend': 0.5
+  });
+
+  // (optional) you can also add a background layer so the page colour
+  // never shows through when the camera looks straight up.
+  map.addLayer({
+    id: 'bg',
+    type: 'background',
+    paint: { 'background-color': '#80c0ff' }   // same as sky-color
+  });
+});
+```
+
+---
+
+## Why the page background appears
+
+* **`sky` is not a layer.** In MapLibre GL JS the sky lives at the *root* of the style, not in the `layers` array. If you try to add a `type: ""sky""` layer or use Mapbox-only properties (`sky-type`, `sky-atmosphere-sun`, …) nothing will happen and you’ll just see the page’s background colour above the horizon.
+
+* **Fog lives inside the sky object.** There is no `map.setFog()` or a `fog` layer type. The three fog-related properties (`fog-color`, `horizon-fog-blend`, `fog-ground-blend`) are part of the sky definition.
+
+* **Terrain must be on.** Fog is only rendered when a `raster-dem` source is active via `map.setTerrain()`. If terrain is disabled the sky will render, but the fog will never appear.
+
+---
+
+## Full list of sky properties (MapLibre GL JS ≥ 5.6)
+
+| Property                | Description | Typical values |
+|-------------------------|-------------|----------------|
+| `sky-color`             | Base colour of the sky (far from the horizon). | `#80c0ff`, `#199EF3` |
+| `horizon-color`         | Colour of the line where sky meets ground. | `#ffffff` |
+| `fog-color`             | Colour of the atmospheric haze that blends with the horizon. | `#c0d8ff` |
+| `sky-horizon-blend`     | 0-1 blend factor between `sky-color` and `horizon-color`. | `0.3-0.7` |
+| `horizon-fog-blend`     | 0-1 blend factor between `horizon-color` and `fog-color`. | `0.2-0.6` |
+| `fog-ground-blend`      | 0-1 blend factor that pushes the fog down onto the terrain. | `0.3-0.8` |
+
+> **Note:** `sky-type`, `sky-atmosphere-sun`, `sky-atmosphere-sun-intensity`, and any other “Mapbox-only” sky properties are ignored by MapLibre.
+
+---
+
+## Adding the sky via style JSON (alternative)
+
+If you prefer to keep everything in the style file, just add a top-level `sky` object:
+
+```json
+{
+  ""version"": 8,
+  ""sources"": { … },
+  ""layers"": [ … ],
+  ""terrain"": { ""source"": ""terrain-dem"", ""exaggeration"": 1 },
+
+  ""sky"": {
+    ""sky-color"": ""#80c0ff"",
+    ""horizon-color"": ""#ffffff"",
+    ""fog-color"": ""#c0d8ff"",
+    ""sky-horizon-blend"": 0.5,
+    ""horizon-fog-blend"": 0.4,
+    ""fog-ground-blend"": 0.5
+  }
+}
+```
+
+When the style loads, MapLibre will automatically render the sky and fog.
+
+---
+
+## Common pitfalls & how to avoid them
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| **Only a solid colour above the horizon** | No `sky` object (or you added a `type: ""sky""` layer). | Use `map.setSky()` or a top-level `sky` object. |
+| **Fog never appears** | Terrain not set, or `fog-color` is fully transparent. | Call `map.setTerrain()` first and give `fog-color` an opaque value (e.g., `rgba(200,216,255,0.8)`). |
+| **Sky looks too “flat” (hard line at horizon)** | `sky-horizon-blend` left at default `0`. | Raise `sky-horizon-blend` to ~0.5. |
+| **Fog looks too thick / covers the whole map** | `horizon-fog-blend` or `fog-ground-blend` set to 1. | Reduce those values (0.2-0.5 is usually enough). |
+| **Sky colour changes when you rotate the map** | `hillshade-illumination-anchor` set to `""map""` (only affects hillshade). | No impact on sky; just keep sky-related properties independent of bearing. |
+
+---
+
+## Quick checklist to get a proper sky & haze
+
+1. **MapLibre version** – ≥ 5.6 (sky support was added in 5.6).  
+2. **Terrain source** – a `raster-dem` source added and `map.setTerrain()` called.  
+3. **Pitch** – any pitch > 0 (you already have 70°).  
+4. **Sky definition** – either `map.setSky({ … })` *or* a top-level `""sky""` object in the style.  
+5. **Fog colours & blends** – set `fog-color`, `horizon-fog-blend`, `fog-ground-blend`.  
+6. **Background layer (optional)** – add a `background` layer with the same colour as `sky-color` to guarantee a colour when the camera looks straight up.
+
+That’s it! After these steps the area above the horizon will be a smooth blue sky with a gentle haze that meets the terrain, giving your 3-D map a realistic atmosphere. Happy mapping!",PASS,1.00,,All assertions passed,
+implicit — nothing above the horizon once the camera is pitched,skills/maplibre-terrain-rendering/SKILL.md,"My MapLibre GL JS map has 3D terrain enabled and the camera pitched to 70 degrees. The relief looks right, but everything above the horizon line is the flat page background. I want an actual sky and some haze where the ground meets it. How do I set that up?
+","Below is a **step-by-step recipe** that turns the empty “page-background” you see above the horizon into a real sky with a gentle haze that blends into the terrain.
+
+---
+
+## 1. Why the background is empty
+
+* `map.setTerrain()` creates the 3-D mesh, but **sky is not a layer** – it lives at the root of the style.
+* If you never add a `sky` object (or call `map.setSky()`), the renderer just draws the HTML page background behind the terrain.
+* Fog (the haze that makes the ground fade into the sky) is also part of the `sky` object, not a separate `fog` layer.
+
+So the fix is: **add a `sky` object** (or call `map.setSky()`) and configure its colors and blend factors.
+
+---
+
+## 2. Minimal working example
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>MapLibre – terrain + sky + fog</title>
+  <script src=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body, html { margin:0; height:100%; }
+    #map { width:100%; height:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script>
+  // -------------------------------------------------
+  // 1️⃣  Initialise the map (any style you like)
+  // -------------------------------------------------
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://demotiles.maplibre.org/style.json', // or your own style URL
+    center: [-122.447303, 37.753574], // lon, lat
+    zoom: 12,
+    pitch: 70,          // you already have this
+    bearing: 0,
+    antialias: true    // needed for smooth terrain shading
+  });
+
+  // -------------------------------------------------
+  // 2️⃣  Add the DEM source and enable terrain
+  // -------------------------------------------------
+  map.on('load', () => {
+    // DEM source – replace with your own URL if needed
+    map.addSource('terrain-dem', {
+      type: 'raster-dem',
+      url: 'https://tiles.mapterhorn.com/tilejson.json', // <-- your DEM TileJSON
+      tileSize: 256,
+      // optional: encoding: 'terrarium' | 'mapbox' (default is mapbox)
+    });
+
+    // Turn the DEM into 3-D terrain
+    map.setTerrain({ source: 'terrain-dem', exaggeration: 1 });
+
+    // -------------------------------------------------
+    // 3️⃣  Add a sky (this is the missing piece)
+    // -------------------------------------------------
+    map.setSky({
+      // The sky is a vertical gradient that blends into the horizon.
+      // You can tweak any of these values to get the look you want.
+      'sky-type': 'gradient',               // only “gradient” is supported in MapLibre
+      'sky-color': '#87CEEB',               // light-blue zenith (mid-day sky)
+      'sky-horizon-blend': 0.5,             // how quickly the zenith fades to horizon
+      'horizon-color': '#ffffff',           // near-white horizon line
+      // -------------------------------------------------
+      // 4️⃣  Add fog (the haze that meets the ground)
+      // -------------------------------------------------
+      'fog-color': '#cce0ff',               // same hue as sky, a bit lighter
+      'horizon-fog-blend': 0.3,             // how far the fog reaches up from the horizon
+      'fog-ground-blend': 0.5               // how quickly fog fades into the terrain
+    });
+
+    // -------------------------------------------------
+    // 5️⃣  (Optional) Remove or make transparent the background layer
+    // -------------------------------------------------
+    // If your style has a background layer with a solid color,
+    // set its paint to transparent so the sky shows through.
+    const bg = map.getStyle().layers.find(l => l.type === 'background');
+    if (bg) {
+      map.setPaintProperty(bg.id, 'background-color', 'rgba(0,0,0,0)');
+    }
+
+    // -------------------------------------------------
+    // 6️⃣  Add any other layers you need (hillshade, imagery, etc.)
+    // -------------------------------------------------
+    // Example hillshade layer (softened):
+    map.addLayer({
+      id: 'hillshade',
+      type: 'hillshade',
+      source: 'terrain-dem',
+      paint: {
+        'hillshade-method': 'multidirectional',
+        'hillshade-exaggeration': 0.4,
+        'hillshade-illumination-anchor': 'map',
+        'hillshade-shadow-color': 'rgba(30,40,80,0.45)',
+        'hillshade-highlight-color': 'rgba(255,240,200,0.4)'
+      }
+    });
+  });
+</script>
+</body>
+</html>
+```
+
+### What the code does
+
+| Step | What it adds | Why it matters |
+|------|--------------|----------------|
+| **`map.setTerrain()`** | 3-D mesh from your `raster-dem` source | Gives you the relief you already see |
+| **`map.setSky({ … })`** | A gradient sky + fog (haze) | Replaces the plain page background |
+| **`sky-type: ""gradient""`** | The only sky type MapLibre supports (no “atmosphere” or “sun” properties) |
+| **`sky-color` / `horizon-color`** | Controls the zenith and horizon hues | Pick any palette – e.g., sunrise, night, etc. |
+| **`sky-horizon-blend`** | How quickly the zenith fades into the horizon | 0 = hard line, 1 = very smooth |
+| **`fog-color`** | Colour of the haze that meets the ground | Usually a lighter version of the sky colour |
+| **`horizon-fog-blend`** | How far the fog extends upward from the horizon | 0 = no fog, 1 = fog reaches the zenith |
+| **`fog-ground-blend`** | How quickly fog fades into the terrain | 0 = fog stops at the ground, 1 = fog fully covers low terrain |
+| **Transparent background layer** | Guarantees the sky is visible behind everything | Some styles set a solid `background-color`; making it transparent avoids a “white box” behind the sky |
+
+---
+
+## 3. Fine-tuning the look
+
+| Parameter | Typical range | Visual effect |
+|-----------|---------------|---------------|
+| `sky-color` | `#87CEEB` (day) → `#001d3d` (dusk) | Overall sky hue |
+| `horizon-color` | Near-white for bright day, `#ffddaa` for sunrise, `#222222` for night | Colour of the line where sky meets terrain |
+| `sky-horizon-blend` | **0.2 – 0.7** | Small values give a crisp horizon; larger values make a soft gradient |
+| `fog-color` | Same hue as `sky-color` but lighter (`rgba(255,255,255,0.2)` for mist) | Colour of the haze |
+| `horizon-fog-blend` | **0.1 – 0.5** | Low values → thin mist just above the horizon; higher values → thick fog that climbs up |
+| `fog-ground-blend` | **0.3 – 0.8** | Low values → fog stops at the base of hills; high values → low valleys get completely shrouded |
+
+**Tip:** Start with the defaults shown in the example, then adjust one property at a time while watching the map. Small changes (≈0.05) can make a big visual difference.
+
+---
+
+## 4. Common pitfalls & how to avoid them
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| **Sky never appears** | `map.setSky()` called **before** the map is loaded, or the style already contains a `sky` object that is later overwritten. | Call `map.setSky()` inside `map.on('load', …)` **after** terrain is set, or edit the style JSON to include a `sky` object at the root. |
+| **Fog stays black / invisible** | `fog-color` is fully transparent or the same as `sky-color` with `horizon-fog-blend` = 0. | Give `fog-color` an alpha (`rgba(200,220,255,0.6)`) and set `horizon-fog-blend` > 0. |
+| **Background still shows** | A `background` layer with an opaque color sits on top of the sky. | Set its `background-color` to `rgba(0,0,0,0)` (transparent) or remove the layer. |
+| **Terrain looks flat even with pitch** | Camera pitch is still `0` or the map is rendered in a container that forces a 2-D view (e.g., CSS `transform: rotateX(0deg)`). | Ensure `pitch` is set (e.g., `map.easeTo({pitch:70})`) and the container has no CSS that resets 3-D transforms. |
+| **Performance drops dramatically** | Too many high-resolution DEM tiles + heavy hillshade + sky + many draped raster layers. | Reduce DEM `maxzoom` (or use lower-resolution tiles at far zoom), keep only one hillshade layer, and consider `hillshade-exaggeration` < 0.5. |
+
+---
+
+## 5. Full-style JSON alternative (if you prefer editing the style file)
+
+If you manage your map via a static style JSON (e.g., hosted on a CDN), you can embed the sky directly:
+
+```json
+{
+  ""version"": 8,
+  ""sources"": {
+    ""terrain-dem"": {
+      ""type"": ""raster-dem"",
+      ""url"": ""https://tiles.mapterhorn.com/tilejson.json"",
+      ""tileSize"": 256
+    },
+    ""..."": { ""..."": ""..."" }
+  },
+  ""terrain"": {
+    ""source"": ""terrain-dem"",
+    ""exaggeration"": 1
+  },
+  ""sky"": {
+    ""sky-type"": ""gradient"",
+    ""sky-color"": ""#87CEEB"",
+    ""sky-horizon-blend"": 0.5,
+    ""horizon-color"": ""#ffffff"",
+    ""fog-color"": ""#cce0ff"",
+    ""horizon-fog-blend"": 0.3,
+    ""fog-ground-blend"": 0.5
+  },
+  ""layers"": [
+    {
+      ""id"": ""background"",
+      ""type"": ""background"",
+      ""paint"": { ""background-color"": ""rgba(0,0,0,0)"" }
+    },
+    {
+      ""id"": ""hillshade"",
+      ""type"": ""hillshade"",
+      ""source"": ""terrain-dem"",
+      ""paint"": {
+        ""hillshade-method"": ""multidirectional"",
+        ""hillshade-exaggeration"": 0.4,
+        ""hillshade-illumination-anchor"": ""map"",
+        ""hillshade-shadow-color"": ""rgba(30,40,80,0.45)"",
+        ""hillshade-highlight-color"": ""rgba(255,240,200,0.4)""
+      }
+    },
+    ""... other layers ...""
+  ]
+}
+```
+
+Load this style with `new maplibregl.Map({style: 'my-style.json', …})`. The sky will appear automatically; you no longer need `map.setSky()` in JavaScript.
+
+---
+
+## 6. Quick checklist to verify everything works
+
+1. **Terrain is on** – `map.getTerrain()` returns an object with `source: ""terrain-dem""`.
+2. **Pitch > 0** – `map.getPitch()` shows a value (e.g., 70).
+3. **Sky object exists** – `map.getStyle().sky` is defined and contains the properties you set.
+4. **Background layer is transparent** – `map.getPaintProperty('background', 'background-color')` returns `rgba(0,0,0,0)`.
+5. **Fog is visible** – you should see a subtle gradient that starts at the horizon and fades into the terrain. Adjust `horizon-fog-blend` / `fog-ground-blend` if it looks too thin or too thick.
+
+---
+
+### TL;DR
+
+```js
+map.setTerrain({source: 'terrain-dem', exaggeration: 1});   // you already have this
+map.setSky({
+  'sky-type': 'gradient',
+  'sky-color': '#87CEEB',
+  'sky-horizon-blend': 0.5,
+  'horizon-color': '#ffffff',
+  'fog-color': '#cce0ff',
+  'horizon-fog-blend': 0.3,
+  'fog-ground-blend': 0.5
+});
+```
+
+Add the call **after** the map has loaded (or edit the style JSON to include a `sky` object).  
+Make sure any background layer is transparent, and you’ll get a proper sky with a",FAIL,0.67,,"Expected output to not match regex ""[""']sky-(type|atmosphere-sun(-intensity)?)[""']\s*:""",
+implicit — nothing above the horizon once the camera is pitched,skills/maplibre-terrain-rendering/SKILL.md,"My MapLibre GL JS map has 3D terrain enabled and the camera pitched to 70 degrees. The relief looks right, but everything above the horizon line is the flat page background. I want an actual sky and some haze where the ground meets it. How do I set that up?
+","Below is a **step-by-step recipe** for turning the empty “page-background” you see above the horizon into a real sky with a gentle haze (fog) that blends into the terrain.  
+All of the pieces are native to **MapLibre GL JS** – no extra plugins are required.
+
+---
+
+## 1️⃣  Why the sky is missing
+
+* The map already has **terrain** (`map.setTerrain(...)`) and a **pitch** (`70°`).  
+* The sky is **not a layer** – it lives at the *root* of the style, just like `terrain`.  
+* If you never add a `sky` object (or call `map.setSky()`), the renderer falls back to the page’s CSS background, which looks like a flat white/gray rectangle.
+
+So the fix is simply: **add a sky object** (or call `map.setSky()`) and give it the fog parameters you want.
+
+---
+
+## 2️⃣  Minimal working example
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>MapLibre – terrain + sky + fog</title>
+  <script src=""https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body, html { margin:0; height:100%; }
+    #map { width:100%; height:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script>
+  // -------------------------------------------------
+  // 1️⃣  Initialise the map
+  // -------------------------------------------------
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {
+        // ---- DEM source (raster-dem) ---------------------------------
+        'terrain-dem': {
+          type: 'raster-dem',
+          // Example DEM – replace with your own
+          url: 'https://tiles.mapterhorn.com/tilejson.json',
+          tileSize: 256,
+          maxzoom: 12
+        },
+        // ---- Imagery source (optional) -------------------------------
+        'sat': {
+          type: 'raster',
+          url: 'https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}.png',
+          tileSize: 256,
+          maxzoom: 19
+        }
+      },
+      // -------------------------------------------------
+      // 2️⃣  Add the background (optional) – keep it *below* sky
+      // -------------------------------------------------
+      layers: [
+        {
+          id: 'background',
+          type: 'background',
+          paint: { 'background-color': '#e0e0e0' }   // just a neutral ground colour
+        },
+        {
+          id: 'satellite',
+          type: 'raster',
+          source: 'sat'
+        }
+      ]
+    },
+    center: [ -122.447303, 37.753574 ], // San Francisco (lon,lat)
+    zoom: 12,
+    pitch: 70,          // <-- you already have this
+    bearing: 0,
+    antialias: true    // required for terrain + sky
+  });
+
+  // -------------------------------------------------
+  // 3️⃣  Wait for the style to load before adding terrain / sky
+  // -------------------------------------------------
+  map.on('load', () => {
+    // ---- 3a️⃣  Enable terrain ---------------------------------
+    map.setTerrain({
+      source: 'terrain-dem',
+      exaggeration: 1.0          // tweak if you want more “relief”
+    });
+
+    // ---- 3b️⃣  Add the sky (the missing piece) ----------------
+    map.setSky({
+      // ---- Sky colour (the “atmosphere”) --------------------
+      'sky-color': '#87CEEB',          // light blue – you can use any CSS colour
+      // ---- Horizon colour (where sky meets ground) ---------
+      'horizon-color': '#ffffff',      // pure white works well
+      // ---- How the sky blends into the horizon -------------
+      'sky-horizon-blend': 0.5,        // 0 = hard line, 1 = fully blended
+      // ---- Fog (haze) – this is what gives the “ground-meets-sky” effect
+      'fog-color': '#c0d8ff',         // a slightly desaturated blue
+      'horizon-fog-blend': 0.3,       // how quickly fog fades near the horizon
+      'fog-ground-blend': 0.5         // how far the fog reaches down onto the terrain
+    });
+
+    // -------------------------------------------------
+    // 4️⃣  (Optional) Add a hillshade or color-relief layer
+    // -------------------------------------------------
+    // Example hillshade – you can skip this if you already have one
+    map.addLayer({
+      id: 'hillshade',
+      type: 'hillshade',
+      source: 'terrain-dem',
+      paint: {
+        'hillshade-method': 'multidirectional',
+        'hillshade-exaggeration': 0.4,
+        'hillshade-illumination-anchor': 'map',
+        'hillshade-shadow-color': 'rgba(30,40,80,0.45)',
+        'hillshade-highlight-color': 'rgba(255,240,200,0.4)'
+      }
+    });
+  });
+</script>
+</body>
+</html>
+```
+
+### What the code does
+
+| Step | What it adds | Why it matters |
+|------|--------------|----------------|
+| **`map.setTerrain()`** | 3-D mesh from the `raster-dem` source | Gives you the relief you already see |
+| **`map.setSky({ … })`** | Root-level sky object | Replaces the plain page background with a sky gradient |
+| **`sky-color`** | Base colour of the sky (high up) | Light blue, but any colour works |
+| **`horizon-color`** | Colour exactly at the horizon line | Usually a lighter version of `sky-color` or white |
+| **`sky-horizon-blend`** | Controls how smoothly the two colours merge | 0 = hard line, 1 = fully blended |
+| **`fog-color`** | Colour of the atmospheric haze (the “fog”) | A slightly desaturated blue gives a natural look |
+| **`horizon-fog-blend`** | How quickly the fog fades near the horizon | Small values keep a crisp horizon, larger values give a soft glow |
+| **`fog-ground-blend`** | How far the fog reaches down onto the terrain | 0 = no fog on ground, 1 = fog covers the whole terrain |
+
+> **Tip:** The sky only becomes visible when the map is **pitched** (your `70°` is perfect) **and** terrain is active. If you ever set `pitch: 0` you’ll see the sky disappear again – that’s expected.
+
+---
+
+## 3️⃣  Adding the sky directly in the **style JSON** (alternative)
+
+If you prefer to keep everything in the style object (e.g. when you load a style from a URL), you can embed the sky under the top-level `""sky""` key instead of calling `map.setSky()`:
+
+```json
+{
+  ""version"": 8,
+  ""sources"": { … },
+  ""layers"": [ … ],
+  ""sky"": {
+    ""sky-color"": ""#87CEEB"",
+    ""horizon-color"": ""#ffffff"",
+    ""sky-horizon-blend"": 0.5,
+    ""fog-color"": ""#c0d8ff"",
+    ""horizon-fog-blend"": 0.3,
+    ""fog-ground-blend"": 0.5
+  }
+}
+```
+
+When the style loads, MapLibre will automatically render the sky. The JavaScript `map.setSky()` call does the same thing at runtime, which is handy if you want to toggle or recolour the sky on the fly.
+
+---
+
+## 4️⃣  Common pitfalls & how to fix them
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| **Sky still missing** | `map.setSky()` called **before** the `load` event, or before terrain is set. | Call `setSky` **inside** `map.on('load', …)` **after** `setTerrain`. |
+| **Background colour still shows** | A `background` layer placed **above** the sky (layers are drawn on top of the sky). | Keep the `background` layer **first** in the `layers` array, or remove it. |
+| **Fog looks too strong / too weak** | Wrong blend values. | Adjust `horizon-fog-blend` (near-horizon softness) and `fog-ground-blend` (how far down the fog reaches). |
+| **Sky colour looks washed out** | Using a very light `sky-color` together with a white `horizon-color`. | Choose a slightly deeper sky colour (e.g. `#87CEEB` or `#6fa8dc`) and keep the horizon lighter. |
+| **No change after editing the style** | Browser cache – the style JSON is cached. | Append a query string (`?v=2`) to the style URL or clear the cache. |
+| **MapLibre version older than 5.5** | `sky` and `color-relief` were introduced in 5.5/5.6. | Upgrade to at least **5.6** (the latest stable release). |
+
+---
+
+## 5️⃣  Quick “tweak-the-sky” UI (optional)
+
+If you want to let users play with the sky colours or fog intensity, you can expose the same properties via `map.setSky()` at any time:
+
+```js
+// Example: a simple slider that changes fog intensity
+document.getElementById('fogBlend').addEventListener('input', e => {
+  const val = Number(e.target.value); // 0 … 1
+  const current = map.getSky();        // returns the current sky object
+  map.setSky({
+    ...current,
+    'fog-ground-blend': val
+  });
+});
+```
+
+All sky properties are **reactive** – the map redraws instantly.
+
+---
+
+## 6️⃣  Recap – What you need to do
+
+1. **Enable terrain** (`map.setTerrain({source:'terrain-dem', exaggeration:1})`).  
+2. **Pitch the map** (you already have `70°`).  
+3. **Add a sky object** – either via `map.setSky({ … })` *after* the map loads, **or** embed a `""sky""` block in your style JSON.  
+4. **Configure fog** (`fog-color`, `horizon-fog-blend`, `fog-ground-blend`) to get the desired haze.  
+5. Ensure no layer sits **above** the sky (background layers should be first).  
+
+That’s it – the empty page background will be replaced by a realistic sky that fades into a gentle fog, giving your 3-D terrain a proper horizon. 🎈
+
+Happy mapping! 🚀",PASS,1.00,,All assertions passed,
+implicit — nothing above the horizon once the camera is pitched,skills/maplibre-terrain-rendering/SKILL.md,"My MapLibre GL JS map has 3D terrain enabled and the camera pitched to 70 degrees. The relief looks right, but everything above the horizon line is the flat page background. I want an actual sky and some haze where the ground meets it. How do I set that up?
+","Below is a **step-by-step recipe** that turns the blank “page background” you see above the horizon into a real sky with a gentle haze that blends into the terrain.  
+All of the pieces are native to **MapLibre GL JS** – no extra plugins are required.
+
+---
+
+## 1️⃣ Why the blank horizon appears
+
+* The map already has **3-D terrain** (`map.setTerrain(...)`) and a **pitched camera** – that’s why the ground looks three-dimensional.  
+* **Sky** in MapLibre is **not a layer**; it is a **root-level style object** (or set via `map.setSky()`).  
+* If you never add a sky object, the renderer simply draws the HTML page background (usually white or whatever your page’s CSS sets) above the terrain’s horizon.
+
+So the fix is: **add a sky object** (or call `map.setSky()`) and configure its fog/haze parameters.
+
+---
+
+## 2️⃣ Minimal working example
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>MapLibre – terrain + sky + haze</title>
+  <script src=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body, html { margin:0; padding:0; height:100%; }
+    #map { width:100%; height:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script>
+  // -------------------------------------------------
+  // 1️⃣  Initialise the map (any style you like)
+  // -------------------------------------------------
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://demotiles.maplibre.org/style.json', // base style (you can use your own)
+    center: [-122.447303, 37.753574], // San Francisco, for example
+    zoom: 12,
+    pitch: 70,          // you already have this
+    bearing: 0,
+    antialias: true     // needed for smooth terrain rendering
+  });
+
+  // -------------------------------------------------
+  // 2️⃣  Add the DEM source (raster-dem) and enable terrain
+  // -------------------------------------------------
+  map.on('load', () => {
+    // DEM source – replace the URL with your own tiles if you have them
+    map.addSource('terrain-dem', {
+      type: 'raster-dem',
+      url: 'https://demotiles.maplibre.org/terrain-tiles/tiles.json',
+      tileSize: 256,
+      // optional: if your DEM uses a non-default encoding, set it here
+      // encoding: 'terrarium'
+    });
+
+    // Turn the DEM into 3-D terrain
+    map.setTerrain({ source: 'terrain-dem', exaggeration: 1.0 });
+
+    // -------------------------------------------------
+    // 3️⃣  Add a sky object (the “real sky”)
+    // -------------------------------------------------
+    map.setSky({
+      // Overall sky colour – a light blue works well for a clear day
+      'sky-color': '#87CEEB',          // #87CEEB = sky-blue
+
+      // Colour of the horizon line (where sky meets ground)
+      'horizon-color': '#ffffff',      // pure white gives a crisp horizon
+
+      // How quickly the sky colour blends into the horizon colour
+      // 0 = abrupt line, 1 = very gradual gradient
+      'sky-horizon-blend': 0.5,
+
+      // -------------------------------------------------
+      // 4️⃣  Fog / haze – this is what gives the “ground-meets-sky” glow
+      // -------------------------------------------------
+      // Colour of the fog (usually a desaturated version of the sky colour)
+      'fog-color': '#c0d8ff',          // a soft, slightly paler blue
+
+      // How much the fog colour blends into the horizon colour
+      // 0 = no fog at the horizon, 1 = horizon fully fogged
+      'horizon-fog-blend': 0.4,
+
+      // How much the fog colour blends into the ground (terrain)
+      // 0 = fog only in the sky, 1 = fog reaches the ground
+      'fog-ground-blend': 0.3
+    });
+
+    // -------------------------------------------------
+    // 5️⃣  (Optional) Add a hillshade or colour-relief layer
+    // -------------------------------------------------
+    // Example hillshade – you can keep or remove it
+    map.addLayer({
+      id: 'hillshade',
+      type: 'hillshade',
+      source: 'terrain-dem',
+      paint: {
+        'hillshade-exaggeration': 0.4,
+        'hillshade-illumination-anchor': 'map',
+        'hillshade-method': 'multidirectional',
+        'hillshade-shadow-color': 'rgba(30,40,80,0.45)',
+        'hillshade-highlight-color': 'rgba(255,240,200,0.4)'
+      }
+    });
+  });
+</script>
+</body>
+</html>
+```
+
+### What the code does
+
+| Step | What happens |
+|------|--------------|
+| **1** | Loads a base style (any style works). |
+| **2** | Adds a `raster-dem` source and calls `map.setTerrain()`. This creates the 3-D mesh. |
+| **3** | Calls `map.setSky()` – this injects a **root-level `sky` object** into the style. |
+| **4** | The three fog properties (`fog-color`, `horizon-fog-blend`, `fog-ground-blend`) create the haze that smoothly blends the terrain into the sky. |
+| **5** | (Optional) Adds a hillshade layer so you can see the terrain relief under the sky. |
+
+> **Important:** The sky will **only appear** when **terrain is active** *and* the camera **pitch is > 0**. If you set `pitch: 0` you’ll see a flat map again, even with a sky object.
+
+---
+
+## 3️⃣ Understanding the sky & fog properties
+
+| Property | Description | Typical values |
+|----------|-------------|----------------|
+| `sky-color` | Base colour of the sky dome (high up). | Light blue `#87CEEB`, sunset orange `#ffb347`, night `#0b1d2e` |
+| `horizon-color` | Colour exactly at the horizon line. | Usually white or a very pale version of `sky-color`. |
+| `sky-horizon-blend` | Gradient strength between `sky-color` and `horizon-color`. | `0.3-0.7` works well; higher = smoother transition. |
+| `fog-color` | Colour of the atmospheric fog that sits between sky and ground. | Slightly desaturated version of `sky-color`. |
+| `horizon-fog-blend` | How much fog is mixed into the horizon colour. | `0-0.5` – larger values give a “misty” horizon. |
+| `fog-ground-blend` | How far the fog reaches down onto the terrain. | `0-0.5` – larger values make the ground look hazier. |
+
+Play with these numbers until you get the look you want. A quick tip: start with the sky-blue palette above, then **increase** `horizon-fog-blend` and `fog-ground-blend` together to make the fog thicker, or **decrease** them for a crisp, clear day.
+
+---
+
+## 4️⃣ Common pitfalls & how to avoid them
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| **Sky never appears** (still page background) | • `map.setTerrain()` not called *or* terrain source failed to load.<br>• Camera pitch is `0`.<br>• Using a MapLibre version older than **v2.0** (sky was added in v2). | Verify the DEM source loads (check the network tab). Set `pitch` > 0. Upgrade to the latest MapLibre GL JS (`npm i maplibre-gl@latest` or CDN). |
+| **Fog looks like a solid band at the horizon** | `horizon-fog-blend` set to `1` (or too high) and `sky-horizon-blend` low. | Reduce `horizon-fog-blend` to ≤ 0.4 and increase `sky-horizon-blend`. |
+| **Terrain looks flat even with pitch** | Terrain source is a **raster** (image) instead of **raster-dem**, or `map.setTerrain(null)` was called later. | Ensure the source type is `""raster-dem""` and that you never call `map.setTerrain(null)` after enabling it. |
+| **Sky colour is wrong (e.g., black)** | Using a `sky-type` property (Mapbox-only) or a typo in the property name. | Remove any `sky-type` or `sky-atmosphere-*` properties – they are ignored. Use only the six properties listed above. |
+| **Performance drops dramatically** | Stacking many hillshade layers *and* a dense colour-relief layer on top of terrain. | Keep only one hillshade (use `hillshade-method: ""multidirectional""` to soften). Use colour-relief only if you need hypsometric tint; otherwise, keep the layer count low. |
+
+---
+
+## 5️⃣ Quick “add-sky-to-an-existing-map” snippet
+
+If you already have a map with terrain and just need to drop in a sky, you can do it in **one line** after the map has loaded:
+
+```js
+map.on('load', () => {
+  // make sure terrain is already on
+  map.setTerrain({ source: 'terrain-dem', exaggeration: 1 });
+
+  // add sky (you can tweak the colours later)
+  map.setSky({
+    'sky-color': '#87CEEB',
+    'horizon-color': '#ffffff',
+    'sky-horizon-blend': 0.5,
+    'fog-color': '#c0d8ff',
+    'horizon-fog-blend': 0.4,
+    'fog-ground-blend': 0.3
+  });
+});
+```
+
+That’s it – the blank background disappears and you get a realistic sky with a gentle haze.
+
+---
+
+## 6️⃣ Further reading & resources
+
+| Topic | Link |
+|-------|------|
+| **MapLibre style spec – sky** | <https://maplibre.org/maplibre-style-spec/sky/> |
+| **Terrain API docs** | <https://maplibre.org/maplibre-gl-js/docs/API/classes/Map/#setterrain> |
+| **3-D terrain example (includes sky)** | <https://maplibre.org/maplibre-gl-js/docs/examples/sky-fog-terrain/> |
+| **Hillshade & colour-relief docs** | <https://maplibre.org/maplibre-style-spec/layers/> |
+| **Version history (sky added in v2.0)** | <https://github.com/maplibre/maplibre-gl-js/releases> |
+
+---
+
+### TL;DR
+
+1. **Enable terrain** (`map.setTerrain({source:'your-dem',exaggeration:1})`).  
+2. **Add a sky object** (or call `map.setSky()`) with `sky-color`, `horizon-color`, `sky-horizon-blend`.  
+3. **Add fog/haze** via `fog-color`, `horizon-fog-blend`, `fog-ground-blend`.  
+4. Ensure the camera pitch is > 0 and you’re using a recent MapLibre version.
+
+Follow the code snippet above, tweak the colour/fog values to your taste, and the blank page background will be replaced by a beautiful sky that fades into a soft haze at the horizon. Happy mapping!",PASS,1.00,,All assertions passed,
+implicit — nothing above the horizon once the camera is pitched,skills/maplibre-terrain-rendering/SKILL.md,"My MapLibre GL JS map has 3D terrain enabled and the camera pitched to 70 degrees. The relief looks right, but everything above the horizon line is the flat page background. I want an actual sky and some haze where the ground meets it. How do I set that up?
+","Below is a **step-by-step recipe** for turning that blank “page-background” above the horizon into a real sky with a gentle haze that meets the terrain.  
+All of the pieces are native to **MapLibre GL JS** – no extra plugins are needed.
+
+---
+
+## 1️⃣  What you need to have already
+
+| ✅ | Requirement |
+|---|--------------|
+| **Terrain** | `map.setTerrain({ source: 'terrain-dem', exaggeration: 1 })` (or the same object in the style) |
+| **Pitch**   | `map.easeTo({ pitch: 70 })` (or any value > 0) |
+| **MapLibre GL JS version** | **≥ 5.5** – sky was added in 5.5, fog-related sky properties in 5.6+. If you’re on an older version, upgrade first. |
+
+If those are true, you’re ready for the sky.
+
+---
+
+## 2️⃣  Add a **root-level `sky` object** (or call `map.setSky()`)
+
+The sky is **not a layer** – it lives at the top of the style JSON, alongside `sources`, `layers`, `terrain`, etc.  
+You can either:
+
+* **Declare it in the style JSON** when you create the map, **or**
+* **Add it later with `map.setSky()`** (the same thing, just an API call).
+
+### 2-a️⃣  Declaring it in the style JSON (most common)
+
+```json
+{
+  ""version"": 8,
+  ""sources"": {
+    ""terrain-dem"": {
+      ""type"": ""raster-dem"",
+      ""url"": ""https://tiles.mapterhorn.com/tilejson.json"",
+      ""tileSize"": 256,
+      ""maxzoom"": 12
+    },
+    ""satellite"": {
+      ""type"": ""raster"",
+      ""url"": ""https://tiles.example.com/sat/{z}/{x}/{y}.png"",
+      ""tileSize"": 256
+    }
+  },
+
+  ""layers"": [
+    {
+      ""id"": ""satellite"",
+      ""type"": ""raster"",
+      ""source"": ""satellite""
+    }
+    // …your other layers (hillshade, labels, etc.)
+  ],
+
+  ""terrain"": {
+    ""source"": ""terrain-dem"",
+    ""exaggeration"": 1
+  },
+
+  ""sky"": {
+    /*  🎈  SKY + HAZE (FOG) SETTINGS  🎈  */
+    ""sky-color"": ""#80c0ff"",          // deep-blue at zenith
+    ""horizon-color"": ""#ffffff"",      // bright horizon line
+    ""fog-color"": ""#c0d8ff"",          // light-blue haze that meets the ground
+    ""sky-horizon-blend"": 0.5,        // how quickly the blue turns to the horizon colour
+    ""horizon-fog-blend"": 0.5,        // where the horizon colour mixes into the fog colour
+    ""fog-ground-blend"": 0.5          // how far the fog reaches down onto the terrain
+  }
+}
+```
+
+### 2-b️⃣  Adding it after the map has loaded
+
+```js
+// after `map` is created and the style is loaded
+map.on('load', () => {
+  // 1️⃣  Enable terrain (if you haven’t already)
+  map.setTerrain({ source: 'terrain-dem', exaggeration: 1 });
+
+  // 2️⃣  Pitch the camera (optional – you probably already did this)
+  map.easeTo({ pitch: 70, bearing: 0 });
+
+  // 3️⃣  Install the sky
+  map.setSky({
+    'sky-color': '#80c0ff',
+    'horizon-color': '#ffffff',
+    'fog-color': '#c0d8ff',
+    'sky-horizon-blend': 0.5,
+    'horizon-fog-blend': 0.5,
+    'fog-ground-blend': 0.5
+  });
+});
+```
+
+Both approaches produce the same result – pick whichever fits your workflow.
+
+---
+
+## 3️⃣  What each sky property does
+
+| Property | Typical range | Visual effect |
+|----------|---------------|---------------|
+| **`sky-color`** | any CSS colour | Colour of the sky at the zenith (top of the view). |
+| **`horizon-color`** | any CSS colour | Colour of the line where sky meets the terrain. |
+| **`fog-color`** | any CSS colour | Colour of the haze that “sticks” to the ground. |
+| **`sky-horizon-blend`** | `0 … 1` | 0 = abrupt jump from sky-color to horizon-color; 1 = very gradual gradient. |
+| **`horizon-fog-blend`** | `0 … 1` | Controls how quickly the horizon colour fades into the fog colour. |
+| **`fog-ground-blend`** | `0 … 1` | 0 = fog starts right at the horizon; 1 = fog climbs higher up the slopes (more “mist”). |
+
+Tweak the numbers until the haze looks natural for your scene. A good starting point is the values shown above (`0.5` for all blends).
+
+---
+
+## 4️⃣  Common pitfalls & how to fix them
+
+| Symptom | Why it happens | Fix |
+|---------|----------------|-----|
+| **Sky still missing** | • `map.setSky()` called **before** the map’s `load` event.<br>• Using a MapLibre version < 5.5.<br>• The style’s `background` layer is placed **above** the sky (rare, but possible if you manually reorder layers). | • Call `setSky` **inside** `map.on('load', …)`.<br>• Upgrade MapLibre.<br>• Ensure the background layer is *below* the sky (the sky is drawn after the background automatically, but a custom `background` layer with a higher `z-index` can hide it). |
+| **Fog never appears** | • No terrain (`setTerrain` missing or terrain source invalid).<br>• `fog-color` is fully transparent (`rgba(0,0,0,0)`). | • Verify terrain is on and the DEM loads (check the network tab).<br>• Use an opaque colour for `fog-color` (e.g., `#c0d8ff`). |
+| **Horizon line is a hard edge** | `sky-horizon-blend` set to `0`. | Increase `sky-horizon-blend` (e.g., `0.5`). |
+| **Sky looks washed-out** | `sky-color` too light or `horizon-fog-blend` too high. | Darken `sky-color` or lower the blend values. |
+| **Page background still visible** | The map container (or its parent) has a CSS `background` that shows through because the map canvas is not covering the whole viewport (e.g., `height: 100%` missing). | Ensure the map container fills the screen: `html, body, #map { height: 100%; margin: 0; }`. |
+
+---
+
+## 5️⃣  Full working example (copy-paste)
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>MapLibre – Terrain + Sky + Fog</title>
+  <script src=""https://unpkg.com/maplibre-gl@5.6.2/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@5.6.2/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    html, body, #map { height: 100%; margin: 0; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script>
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {
+        'terrain-dem': {
+          type: 'raster-dem',
+          url: 'https://tiles.mapterhorn.com/tilejson.json',
+          tileSize: 256,
+          maxzoom: 12
+        },
+        'satellite': {
+          type: 'raster',
+          url: 'https://tiles.example.com/sat/{z}/{x}/{y}.png',
+          tileSize: 256
+        }
+      },
+      layers: [
+        { id: 'satellite', type: 'raster', source: 'satellite' }
+        // …any other layers you need
+      ],
+      terrain: { source: 'terrain-dem', exaggeration: 1 },
+      sky: {
+        'sky-color': '#80c0ff',
+        'horizon-color': '#ffffff',
+        'fog-color': '#c0d8ff',
+        'sky-horizon-blend': 0.5,
+        'horizon-fog-blend': 0.5,
+        'fog-ground-blend': 0.5
+      }
+    },
+    center: [ -122.447303, 37.753574 ], // San Francisco
+    zoom: 12,
+    pitch: 70,
+    bearing: 0,
+    antialias: true               // required for terrain & sky
+  });
+
+  // Optional: if you prefer to add the sky later
+  // map.on('load', () => map.setSky({ …same object as above… }));
+</script>
+</body>
+</html>
+```
+
+Open the page, tilt the map, and you should see:
+
+* A **blue sky** that fades into a **white horizon**.  
+* A **soft blue haze** that clings to the terrain and gradually disappears with altitude.  
+* The terrain mesh still looks exactly as before, but now the “blank” area above the horizon is a proper sky.
+
+---
+
+## 6️⃣  Quick checklist (copy-paste)
+
+```text
+[ ] MapLibre version ≥ 5.5
+[ ] Terrain source (`raster-dem`) is added and `setTerrain` is called
+[ ] Camera pitch > 0 (e.g., 70°)
+[ ] `sky` object present in style **or** `map.setSky()` called after `load`
+[ ] `sky-color`, `horizon-color`, `fog-color` are opaque (no transparent alpha)
+[ ] Blend values (sky-horizon-blend, horizon-fog-blend, fog-ground-blend) are > 0
+[ ] Map container fills the viewport (no CSS background leaking through)
+```
+
+If you tick all the boxes, the sky and haze will appear automatically.
+
+---
+
+### 🎉  You’re done!
+
+Now your 3-D map has a **real sky** and a **natural haze** that meets the terrain, instead of the plain page background. Feel free to experiment with the colour palette and blend factors to match the mood of your application (sun",PASS,1.00,,All assertions passed,
+implicit — nothing above the horizon once the camera is pitched,skills/maplibre-terrain-rendering/SKILL.md,"My MapLibre GL JS map has 3D terrain enabled and the camera pitched to 70 degrees. The relief looks right, but everything above the horizon line is the flat page background. I want an actual sky and some haze where the ground meets it. How do I set that up?
+","Below is a **step-by-step recipe** that turns the empty “page background” you see above the horizon into a proper sky with a gentle haze (fog) that blends into the terrain.  
+All of the pieces are native to **MapLibre GL JS** – no extra plugins are required.
+
+---
+
+## 1️⃣  What you need first
+
+| Requirement | Why it matters |
+|-------------|----------------|
+| **MapLibre GL JS ≥ 2.4** (or any version that ships the `sky` object) | The `sky` root-level object was added after the early 2.x releases. |
+| **A `raster-dem` source** and `map.setTerrain({source:…,exaggeration:…})` | The sky only renders when a 3-D terrain mesh exists. |
+| **Pitch > 0** (you already have 70°) | The sky is drawn only when the camera is tilted away from nadir. |
+| **A style that either (a) already contains a `sky` object or (b) you call `map.setSky()` after the map is loaded** | The sky is not a layer – it lives at the root of the style. |
+
+If any of those are missing, the sky will never appear.
+
+---
+
+## 2️⃣  Add the terrain source (if you haven’t already)
+
+```js
+// 1️⃣  Add the DEM source (replace the URL with your own)
+map.addSource('terrain-dem', {
+  type: 'raster-dem',
+  url: 'https://tiles.mapterhorn.com/tilejson.json', // <-- your DEM TileJSON
+  tileSize: 256,
+  // optional: encoding: 'terrarium' | 'mapbox' (match your DEM)
+});
+
+// 2️⃣  Turn the DEM into a 3-D mesh
+map.setTerrain({
+  source: 'terrain-dem',
+  exaggeration: 1.0          // tweak later if you want more “vertical” relief
+});
+```
+
+> **Tip:** Call `setTerrain` **after** the source is added and **before** you add the sky (otherwise the sky will be ignored).
+
+---
+
+## 3️⃣  Create the sky (the “horizon” + haze)
+
+You have two ways to inject the sky:
+
+| Method | When to use |
+|--------|-------------|
+| **`map.setSky({...})`** – programmatic, works on any map that is already loaded. | You want to add the sky after the map is created, or you are building the style dynamically. |
+| **`sky` object inside the style JSON** – static, part of the initial style. | You ship a complete style file (e.g. `style.json`) and want the sky to be baked in. |
+
+Below we show the **programmatic** approach because it works even if you are loading a style from a URL.
+
+### 3.1  Minimal sky (just a blue gradient)
+
+```js
+map.on('load', () => {
+  // 3️⃣  Add a sky with a simple blue-to-white gradient
+  map.setSky({
+    // The colour of the sky *above* the horizon
+    'sky-color': '#199EF3',          // a calm daytime blue
+
+    // The colour exactly at the horizon line
+    'horizon-color': '#ffffff',      // bright white
+
+    // How quickly the sky colour blends into the horizon colour
+    // 0 = abrupt line, 1 = very smooth gradient
+    'sky-horizon-blend': 0.5
+  });
+});
+```
+
+That alone will replace the white page background with a blue sky that fades into the horizon.
+
+### 3.2  Adding fog (haze) that meets the ground
+
+Fog is **part of the sky object** – there is no separate `setFog` method.  
+You control three parameters:
+
+| Property | Effect |
+|----------|--------|
+| `fog-color` | Colour of the haze (usually a desaturated version of the sky colour). |
+| `horizon-fog-blend` | How quickly the fog appears as you approach the horizon (0 = no fog, 1 = fog starts right at the horizon). |
+| `fog-ground-blend` | How far the fog reaches down onto the terrain (0 = fog stays high, 1 = fog reaches the ground). |
+
+A common “ground-meeting-haze” setup looks like this:
+
+```js
+map.on('load', () => {
+  map.setSky({
+    'sky-color': '#199EF3',          // deep daytime blue
+    'horizon-color': '#ffffff',      // bright horizon
+    'sky-horizon-blend': 0.5,
+
+    // ---- Fog (haze) ----
+    'fog-color': '#c0d8ff',          // a very light, slightly desaturated blue
+    'horizon-fog-blend': 0.3,        // fog starts a little before the horizon
+    'fog-ground-blend': 0.6          // fog reaches down onto the terrain
+  });
+});
+```
+
+**Result:**  
+* The sky fades from blue to white at the horizon.  
+* A soft, semi-transparent haze begins a short distance before the horizon and gently drapes over the terrain, giving the impression of atmospheric depth.
+
+---
+
+## 4️⃣  Full example (everything together)
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>MapLibre – 3D terrain with sky & fog</title>
+  <script src=""https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body, html { margin:0; padding:0; height:100%; }
+    #map { width:100%; height:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script>
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://demotiles.maplibre.org/style.json', // any base style you like
+    center: [-122.447303, 37.753574], // San Francisco (example)
+    zoom: 12,
+    pitch: 70,          // you already have this
+    bearing: 0,
+    antialias: true    // needed for smooth terrain rendering
+  });
+
+  map.on('load', () => {
+    // ---- 1️⃣  Add DEM source ----
+    map.addSource('terrain-dem', {
+      type: 'raster-dem',
+      url: 'https://tiles.mapterhorn.com/tilejson.json', // <-- your DEM TileJSON
+      tileSize: 256,
+      // encoding: 'terrarium'   // uncomment if your DEM uses Terrarium encoding
+    });
+
+    // ---- 2️⃣  Enable terrain ----
+    map.setTerrain({
+      source: 'terrain-dem',
+      exaggeration: 1.0
+    });
+
+    // ---- 3️⃣  Add sky + fog ----
+    map.setSky({
+      'sky-color': '#199EF3',
+      'horizon-color': '#ffffff',
+      'sky-horizon-blend': 0.5,
+
+      // Fog (haze) settings
+      'fog-color': '#c0d8ff',
+      'horizon-fog-blend': 0.3,
+      'fog-ground-blend': 0.6
+    });
+
+    // (Optional) make the background transparent so the sky is visible even where no tiles exist
+    map.setPaintProperty('background', 'background-color', 'rgba(0,0,0,0)');
+  });
+</script>
+</body>
+</html>
+```
+
+### What each part does
+
+| Code line | Purpose |
+|-----------|---------|
+| `map.setTerrain({...})` | Builds the 3-D mesh from the DEM. |
+| `map.setSky({...})` | Inserts the sky object (gradient + fog). |
+| `sky-color` / `horizon-color` | Define the colour of the sky and the line where it meets the ground. |
+| `sky-horizon-blend` | Controls how smooth that colour transition is. |
+| `fog-color` | Colour of the atmospheric haze. |
+| `horizon-fog-blend` | How early the haze appears before the horizon. |
+| `fog-ground-blend` | How far the haze reaches down onto the terrain. |
+| `map.setPaintProperty('background', …)` (optional) | Makes the map’s background transparent so the sky shows even in empty corners. |
+
+---
+
+## 5️⃣  Common pitfalls & how to fix them
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| **Sky never appears (still white page)** | *`map.setSky` called before the map is fully loaded* or *MapLibre version < 2.4* | Call `setSky` inside `map.on('load', …)` and verify you are using a recent MapLibre build. |
+| **Fog looks like a solid colour covering the whole view** | `horizon-fog-blend` set to `0` or `fog-ground-blend` set to `1` | Increase `horizon-fog-blend` (e.g., `0.3`) and lower `fog-ground-blend` (e.g., `0.6`). |
+| **Sky disappears when I change the style** | The new style does not contain a `sky` object and you didn’t re-call `setSky` | After `map.setStyle(...)` wait for the `styledata` event, then call `setSky` again. |
+| **Terrain looks flat even with pitch** | `map.setTerrain` not called *or* `exaggeration` set to `0` | Ensure `setTerrain` runs after the DEM source is added, and use a non-zero `exaggeration`. |
+| **Horizon line is too sharp** | `sky-horizon-blend` is `0` | Raise it to `0.4–0.7` for a smoother gradient. |
+
+---
+
+## 6️⃣  Tweaking for different moods
+
+| Desired look | Suggested changes |
+|--------------|-------------------|
+| **Sunset / dusk** | `sky-color: '#ff9e80'`, `horizon-color: '#ffcc80'`, lower `sky-horizon-blend` (0.3) and add a deeper `fog-color: '#ffb380'`. |
+| **Night sky** | `sky-color: '#0b1d3c'`, `horizon-color: '#1e3a8a'`, `fog-color: '#0b1d3c'` (very dark), increase `horizon-fog-blend` for a thin mist. |
+| **Heavy mountain haze** | Keep `sky-color` bright, but set `fog-color` to a desaturated gray (`#c0c0c0`) and raise `fog-ground-blend` to `0.8`. |
+| **Clear alpine** | Very low fog: `horizon-fog-blend: 0.05`, `fog-ground-blend: 0.2`. |
+
+Feel free to experiment – the sky and fog are cheap to render, so you can animate them (e.g., change `sky-color` over time) without hurting performance.
+
+---
+
+## 7️⃣  Quick checklist (copy-paste into your code)
+
+```js
+// After map is loaded
+map.on('load', () => {
+  // 1️⃣ DEM source
+  map.addSource('terrain-dem', {
+    type: 'raster-dem',
+    url: 'YOUR_DEM_TILEJSON_URL',
+    tileSize: 256
+  });
+
+  // 2️⃣ Enable terrain
+  map.setTerrain({ source: 'terrain-dem', exaggeration: 1 });
+
+  // 3️⃣ Add sky + fog
+  map.setSky({
+    'sky-color': '#199EF3',
+    'horizon-color': '#ffffff',
+    'sky-horizon-blend': 0.5,
+    'fog-color': '#c0d8ff',
+    'horizon-fog-blend': 0.3,
+    'fog-ground-blend': 0.6
+  });
+});
+```
+
+That’s all you need. Once the sky object is present, the area above the horizon will no longer be the plain page background – you’ll see a proper sky with a gentle haze that meets the terrain.
+
+Happy mapping! 🌄🚀",PASS,1.00,,All assertions passed,

@@ -1,0 +1,1356 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+explicit — loading a PMTiles file in MapLibre,skills/maplibre-pmtiles-patterns/SKILL.md,How do I load a .pmtiles file as a source in MapLibre GL JS?,"Below is a **complete, copy‑and‑paste ready** recipe for loading a `.pmtiles` archive into a MapLibre GL JS map.  
+It works with the current MapLibre GL JS ≥ 4 (the same code also runs on v3‑v6 because the `pmtiles` library ships a compatibility shim).
+
+---
+
+## 1️⃣ Install the PMTiles helper library
+
+```bash
+# From your project root
+npm i pmtiles   # or yarn add pmtiles
+```
+
+`pmtiles` provides a **protocol handler** (`pmtiles://`) that makes a `.pmtiles` file behave like a normal TileJSON source.
+
+---
+
+## 2️⃣ Register the protocol **once** (before any map is created)
+
+```js
+// src/pmtiles-setup.js  (or any module that runs at app start)
+import * as pmtiles from 'pmtiles';
+import * as maplibregl from 'maplibre-gl';
+
+// Create the handler
+const protocol = new pmtiles.Protocol();
+
+// Register it with MapLibre
+//   - the first argument is the scheme name you will use in the style (`pmtiles`)
+//   - the second argument is the handler function (`protocol.tile` already knows how to deal with
+//     both the old callback API and the newer promise‑based API)
+maplibregl.addProtocol('pmtiles', protocol.tile);
+
+// Optional clean‑up (e.g. in a React useEffect return)
+// maplibregl.removeProtocol('pmtiles');
+```
+
+> **Why a separate file?**  
+> Registering the protocol repeatedly (e.g. inside a component’s render) creates a new handler each time and can leak memory. Load it once at app start or in a top‑level `useEffect`.
+
+---
+
+## 3️⃣ Add a source that points at the archive
+
+You have **two choices** for the source type:
+
+| Archive content | `type` in the style | Example |
+|-----------------|---------------------|---------|
+| Vector tiles (e.g. OSM, custom layers) | `'vector'` | `type: 'vector'` |
+| Raster imagery (PNG/JPEG) | `'raster'` | `type: 'raster'` |
+| Raster DEM (Terrarium / Mapbox encoding) | `'raster-dem'` | `type: 'raster-dem'` |
+
+### 3‑a️⃣ Vector‑tile example
+
+```js
+const map = new maplibregl.Map({
+  container: 'map',               // id of the <div>
+  style: {
+    version: 8,
+    sources: {
+      // <-- the PMTiles source
+      world: {
+        type: 'vector',
+        // The `pmtiles://` prefix tells the protocol handler to fetch the file via range requests
+        url: 'pmtiles://https://my-cdn.example.com/planet-earth.pmtiles'
+        // No need to set minzoom / maxzoom – the handler reads them from the archive header
+      }
+    },
+    layers: [
+      // Example: draw water polygons from the `water` layer inside the archive
+      {
+        id: 'water',
+        type: 'fill',
+        source: 'world',
+        'source-layer': 'water',   // exact layer name inside the .pmtiles file
+        paint: { 'fill-color': '#a0c8f0' }
+      },
+      // Example: draw roads
+      {
+        id: 'roads',
+        type: 'line',
+        source: 'world',
+        'source-layer': 'road',
+        paint: {
+          'line-color': '#777',
+          'line-width': 1
+        }
+      }
+      // …add as many layers as you need, each with its own `source-layer`
+    ]
+  },
+  center: [0, 0],
+  zoom: 2
+});
+```
+
+### 3‑b️⃣ Raster‑imagery example
+
+```js
+const map = new maplibregl.Map({
+  container: 'map',
+  style: {
+    version: 8,
+    sources: {
+      satellite: {
+        type: 'raster',
+        url: 'pmtiles://https://my-cdn.example.com/satellite.pmtiles',
+        tileSize: 256          // optional, defaults to 256
+      }
+    },
+    layers: [
+      {
+        id: 'sat',
+        type: 'raster',
+        source: 'satellite',
+        paint: {}
+      }
+    ]
+  },
+  center: [-122.4, 37.8],
+  zoom: 12
+});
+```
+
+### 3‑c️⃣ Raster‑DEM (terrain) example
+
+```js
+const map = new maplibregl.Map({
+  container: 'map',
+  style: {
+    version: 8,
+    sources: {
+      terrain: {
+        type: 'raster-dem',
+        url: 'pmtiles://https://my-cdn.example.com/elevation.pmtiles',
+        encoding: 'terrarium'   // or ""mapbox""
+      }
+    },
+    terrain: {
+      source: 'terrain',
+      exaggeration: 1.5
+    },
+    layers: [
+      // any other layers (e.g. vector roads) go here
+    ]
+  },
+  center: [13.4, 52.5],
+  zoom: 10,
+  pitch: 45,
+  bearing: -17
+});
+```
+
+---
+
+## 4️⃣ Host the `.pmtiles` file where it can be fetched with **HTTP Range** requests
+
+| Provider | How to enable |
+|----------|---------------|
+| **AWS S3** | Upload the file, make it public (or use signed URLs). S3 natively supports `Range`. Set `Cache‑Control: public, max-age=31536000` and `Access‑Control‑Allow-Origin: *`. |
+| **Cloudflare R2** | Same as S3 (R2 is S3‑compatible). Put behind Cloudflare CDN for extra caching. |
+| **GitHub Pages** | Works for files ≤ 100 MiB. Ensure the repo is public or use a personal‑access‑token URL. |
+| **Netlify / Vercel / any static host** | Verify that the host returns `Accept-Ranges: bytes`. Most static hosts do. |
+| **Local dev** | `python -m http.server 8000` works; it supports range requests out of the box. |
+
+**CORS** – The host must send `Access-Control-Allow-Origin: *` (or your domain) **and** `Access-Control-Allow-Headers: Range`. Without it the browser will block the range request and you’ll see “Failed to load resource: the server responded with a status of 403 (Forbidden)”.
+
+---
+
+## 5️⃣ Common pitfalls & how to fix them
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| **Blank vector tiles** (no features) | You used `tiles: ['pmtiles://…/{z}/{x}/{y}']` instead of `url:`. | Switch to `url:` – the protocol reads the archive header and returns a proper TileJSON. |
+| **MapLibre keeps requesting zoom levels that don’t exist** | Same as above – missing `minzoom`/`maxzoom` because `tiles:` bypasses the header. | Use `url:`. |
+| **`addProtocol` throws “callback is not a function”** | Using MapLibre ≥ 4 with a handler written for v3 (callback style). | Use `pmtiles.Protocol().tile` (it contains a v3‑compat shim) **or** write an async handler that returns `{data}`. |
+| **Range request fails (404 or 416)** | Host does not support `Range` or CORS headers are missing. | Verify the host returns `Accept-Ranges: bytes` and proper CORS. |
+| **Large file never loads** | The file is > 100 MiB on GitHub Pages (or exceeds the host’s size limit). | Move the file to S3/R2 or split it with `pmtiles extract`. |
+| **Tile data is corrupted** | The archive was created incorrectly (e.g., MBTiles → PMTiles conversion with an old CLI). | Run `pmtiles verify myfile.pmtiles`. If it fails, regenerate with a recent CLI (`pmtiles` ≥ 3). |
+
+---
+
+## 6️⃣ Quick “copy‑paste” starter (plain HTML)
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>PMTiles demo</title>
+  <link href=""https://unpkg.com/maplibre-gl@4.2.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>#map {position:absolute; top:0; bottom:0; width:100%;}</style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script type=""module"">
+  import * as maplibregl from 'https://unpkg.com/maplibre-gl@4.2.0/dist/maplibre-gl.js';
+  import * as pmtiles from 'https://cdn.jsdelivr.net/npm/pmtiles@3.2.0/+esm';
+
+  // 1️⃣ Register protocol
+  const protocol = new pmtiles.Protocol();
+  maplibregl.addProtocol('pmtiles', protocol.tile);
+
+  // 2️⃣ Build map
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {
+        world: {
+          type: 'vector',
+          url: 'pmtiles://https://YOUR_HOST/planet-earth.pmtiles'
+        }
+      },
+      layers: [
+        {
+          id: 'water',
+          type: 'fill',
+          source: 'world',
+          'source-layer': 'water',
+          paint: { 'fill-color': '#a0c8f0' }
+        }
+      ]
+    },
+    center: [0, 0],
+    zoom: 2
+  });
+</script>
+</body>
+</html>
+```
+
+Replace `https://YOUR_HOST/planet-earth.pmtiles` with the public URL of your archive.
+
+---
+
+## 7️⃣ TL;DR checklist
+
+1. `npm i pmtiles`
+2. Register once: `maplibregl.addProtocol('pmtiles', new pmtiles.Protocol().tile)`
+3. In the style, use a **single source** with `type: 'vector' | 'raster' | 'raster-dem'` and `url: 'pmtiles://<https‑url-to‑file>'`
+4. Add layers that reference that source via `source-layer` (vector) or just the source (raster).
+5. Host the `.pmtiles` file on any static host that supports **Range** and **CORS**.
+6. (Optional) Set long‑term cache headers on the file for CDN efficiency.
+
+That’s it – your MapLibre map now reads tiles directly from a single, static `.pmtiles` archive without any tile server! Happy mapping.",PASS,1.00,,All assertions passed,
+implicit — serverless tile hosting on GitHub Pages,skills/maplibre-pmtiles-patterns/SKILL.md,"I want to host map tiles on GitHub Pages without running any backend. Is that possible with MapLibre GL JS?
+","## Yes – you can serve PMTiles directly from GitHub Pages and use them with MapLibre GL JS without any backend.
+
+Below is a **complete, step‑by‑step recipe** that covers:
+
+1. **Creating a PMTiles archive** (vector or raster) that fits the GitHub Pages limits.  
+2. **Putting the file in a GitHub repo** and publishing it with GitHub Pages.  
+3. **Configuring MapLibre GL JS** (registering the `pmtiles://` protocol, writing the style, handling CORS/Range).  
+4. **Common pitfalls & troubleshooting** (file‑size limits, CORS, over‑zoom, cache headers, React usage, etc.).  
+
+---
+
+## 1️⃣ Create a PMTiles file that can be hosted on GitHub Pages
+
+| Requirement | Why it matters | How to satisfy it |
+|-------------|----------------|-------------------|
+| **Single‑file archive** | GitHub Pages only serves static files; the PMTiles format is a single file that contains the whole tile pyramid. | Use any of the tools below (tippecanoe, Planetiler, GDAL, or the PMTiles CLI) to produce a `.pmtiles` file. |
+| **File size ≤ 100 MiB** (the hard limit for a single file on GitHub Pages) | Larger files are rejected by the GitHub Pages build. | • Keep the zoom range small (e.g. `z = 0‑12` for a country). <br>• Use `tippecanoe`‑options like `--drop-densest-as-needed`, `--simplify-only-low-zoom`, `--maximum-zoom=12`. <br>• If you really need > 100 MiB, use **Git Large File Storage (LFS)** – but note that LFS files are *not* served by GitHub Pages, only by the raw GitHub usercontent domain, which breaks the same‑origin assumption (see “CORS” below). |
+| **Range‑request support** | MapLibre reads only the byte ranges it needs. | GitHub Pages already supports `Accept‑Ranges: bytes`. No extra work required. |
+| **CORS** | The browser will request the file from the same origin (your GitHub Pages site) → no CORS headers needed. | Host the map page **and** the `.pmtiles` file under the same GitHub Pages domain (e.g. `https://username.github.io/repo/`). |
+
+### Quick example: generate a tiny vector PMTiles from GeoJSON with tippecanoe
+
+```bash
+# Install tippecanoe (v2.17+ supports PMTiles directly)
+# macOS: brew install tippecanoe
+# Linux: see https://github.com/felt/tippecanoe#installation
+
+# Assume you have a GeoJSON file `data.geojson` (e.g. a city boundary)
+tippecanoe \
+  -zg                     # auto‑choose max zoom based on density
+  -o data.pmtiles         # output PMTiles directly
+  data.geojson
+```
+
+If you need raster tiles (e.g. PNG tiles from a satellite image), generate them with GDAL or a raster‑tile pipeline, then convert the resulting MBTiles to PMTiles:
+
+```bash
+# GDAL 3.8+ can write MBTiles directly:
+gdal_translate -of MBTILES input.tif tiles.mbtiles
+
+# Convert to PMTiles:
+pmtiles convert tiles.mbtiles tiles.pmtiles
+```
+
+> **Tip:** Run `pmtiles show tiles.pmtiles` to verify the header (bounds, minzoom, maxzoom, tile count) before you upload.
+
+---
+
+## 2️⃣ Put the PMTiles file in a GitHub repo and enable GitHub Pages
+
+1. **Create a repo** (public or private – Pages works for both).  
+2. **Add the PMTiles file** (e.g. `data.pmtiles`) to the repo.  
+   ```bash
+   git add data.pmtiles
+   git commit -m ""Add PMTiles for map""
+   git push origin main
+   ```
+3. **Enable GitHub Pages**  
+   * Settings → Pages → Source → *Branch*: `main` (or `gh-pages`) → *Folder*: `/ (root)` → **Save**.  
+   GitHub will publish the repo at `https://<username>.github.io/<repo>/`.  
+4. **Verify the file is reachable**  
+   Open `https://<username>.github.io/<repo>/data.pmtiles` in the browser.  
+   - You should see a *download* prompt (or a blank page).  
+   - Open DevTools → Network → request → confirm the response header includes `Accept‑Ranges: bytes`.  
+
+> **Important:** The URL you will use in MapLibre is exactly the URL above (no extra query string).  
+
+---
+
+## 3️⃣ Wire the PMTiles file into MapLibre GL JS
+
+### 3.1 Install the `pmtiles` library
+
+```bash
+npm install pmtiles   # or yarn add pmtiles
+```
+
+### 3.2 Register the protocol **once** (before any map is created)
+
+```js
+import * as pmtiles from 'pmtiles';
+import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+
+// Create a protocol instance (the library handles v3/v4+ MapLibre signatures)
+const protocol = new pmtiles.Protocol();
+
+// Register the `pmtiles://` scheme globally
+maplibregl.addProtocol('pmtiles', protocol.tile);
+```
+
+> **Why `pmtiles://`?**  
+> The handler expects a URL that starts with `pmtiles://`. The part after the scheme can be any absolute URL (HTTPS, HTTP, or even a relative path). The library will perform the range requests for you.
+
+### 3.3 Define a style that points to the archive
+
+```js
+const map = new maplibregl.Map({
+  container: 'map',               // <div id=""map""></div>
+  style: {
+    version: 8,
+    sources: {
+      // One source per PMTiles file
+      myData: {
+        type: 'vector',           // or 'raster' / 'raster-dem'
+        // NOTE: use `url:` (not `tiles:`) so the protocol can read the header
+        url: 'pmtiles://https://<username>.github.io/<repo>/data.pmtiles'
+      }
+    },
+    layers: [
+      {
+        id: 'water',
+        type: 'fill',
+        source: 'myData',
+        'source-layer': 'water',   // exact layer name inside the PMTiles file
+        paint: { 'fill-color': '#a0c8f0' }
+      },
+      {
+        id: 'roads',
+        type: 'line',
+        source: 'myData',
+        'source-layer': 'road',
+        paint: { 'line-color': '#777', 'line-width': 1 }
+      }
+      // …add more layers as needed
+    ]
+  },
+  center: [0, 0],
+  zoom: 2
+});
+```
+
+#### Raster example (imagery)
+
+```json
+""satellite"": {
+  ""type"": ""raster"",
+  ""url"": ""pmtiles://https://username.github.io/repo/sat.pmtiles"",
+  ""tileSize"": 256
+}
+```
+
+#### Terrain (raster‑dem) example
+
+```json
+""terrain"": {
+  ""type"": ""raster-dem"",
+  ""url"": ""pmtiles://https://username.github.io/repo/elev.pmtiles"",
+  ""encoding"": ""terrarium""
+}
+```
+
+Then enable terrain in the map:
+
+```js
+map.setTerrain({ source: 'terrain', exaggeration: 1.5 });
+```
+
+### 3.4 React (or any SPA) tip
+
+Register the protocol **once** at the top level of your app (e.g. in `index.js` or a custom hook that runs only on the first render). Do **not** register it inside a component that mounts/unmounts repeatedly.
+
+```js
+// src/pmtilesSetup.js
+import * as pmtiles from 'pmtiles';
+import maplibregl from 'maplibre-gl';
+
+export const initPmtiles = () => {
+  const protocol = new pmtiles.Protocol();
+  maplibregl.addProtocol('pmtiles', protocol.tile);
+};
+```
+
+```js
+// src/index.js
+import React from 'react';
+import ReactDOM from 'react-dom';
+import { initPmtiles } from './pmtilesSetup';
+import App from './App';
+
+initPmtiles();               // <-- run once
+ReactDOM.render(<App />, document.getElementById('root'));
+```
+
+When the last map is destroyed you can optionally call `maplibregl.removeProtocol('pmtiles')` to avoid memory leaks.
+
+---
+
+## 4️⃣ Common Pitfalls & How to Fix Them
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| **Map shows a blank background, no layers** | The source URL is wrong (e.g. using `tiles:` instead of `url:`) or the protocol isn’t registered before the map is created. | Use `url:` and call `maplibregl.addProtocol('pmtiles', ...)` **before** `new maplibregl.Map()`. |
+| **Console error: “Range not satisfiable”** | The host does not support HTTP range requests. | GitHub Pages does support them; double‑check you are loading the file from the *Pages* domain (`username.github.io`), not from the raw `githubusercontent.com` domain (which is a different origin and may not expose range headers). |
+| **CORS error** | You are loading the PMTiles file from a different origin (e.g. a separate domain or raw GitHub URL). | Keep the map page **and** the `.pmtiles` file under the same GitHub Pages domain, or add `Access-Control-Allow-Origin: *` via a CDN edge function (Cloudflare Workers, Netlify Edge). |
+| **Zoom levels above the archive’s max return empty tiles** | You used a `tiles:` template, so MapLibre assumed `maxzoom: 22`. | Use `url:` (as shown) – the protocol reads the archive header and supplies the correct `maxzoom`. Over‑zoom will be handled automatically by MapLibre. |
+| **File > 100 MiB is rejected by GitHub** | GitHub Pages refuses to publish the repo. | Reduce zoom levels, simplify data, or split the dataset into multiple PMTiles files (e.g. one per country/region) and load them conditionally with `source` bounds. |
+| **MapLibre v4+ throws “handler must resolve to {data}”** | You wrote a custom protocol handler that returns a raw `ArrayBuffer`. | Use the `pmtiles.Protocol().tile` shim (it already implements the new contract) or, if you write your own, return `{data: buffer}`. |
+| **Sprites / glyphs missing** | PMTiles only provides tiles; you still need a sprite sheet and glyphs for text/icons. | Host a sprite (`sprite.png`, `sprite.json`) and a glyphs URL (e.g. `https://fonts.openmaptiles.org/{fontstack}/{range}.pbf`) in the same repo or via a CDN, and reference them in the style (`sprite`, `glyphs`). |
+| **Performance feels slow** | The single PMTiles file is large and the CDN edge isn’t caching range requests. | Put the repo behind a CDN (Cloudflare, Fastly) that respects `Cache‑Control`. Set a long `Cache‑Control: public, max-age=31536000` on the `.pmtiles` file (GitHub Pages automatically serves immutable files with a long max‑age). |
+
+---
+
+## 5️⃣ Full Minimal Example (HTML + JS)
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""utf-8"">
+  <title>PMTiles on GitHub Pages</title>
+  <link href=""https://unpkg.com/maplibre-gl@4.2.0/dist/maplibre-gl.css"" rel=""stylesheet""/>
+  <style>
+    body, html { margin:0; height:100%; }
+    #map { width:100%; height:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script type=""module"">
+  import maplibregl from 'https://unpkg.com/maplibre-gl@4.2.0/dist/maplibre-gl.js';
+  import * as pmtiles from 'https://cdn.jsdelivr.net/npm/pmtiles@3.0.0/dist/index.min.js';
+
+  // 1️⃣ Register protocol
+  const protocol = new pmtiles.Protocol();
+  maplibregl.addProtocol('pmtiles', protocol.tile);
+
+  // 2️⃣ Create map",PASS,1.00,,All assertions passed,
+anti-pattern — addProtocol broke after upgrading to v4,skills/maplibre-pmtiles-patterns/SKILL.md,"My code uses addProtocol with a callback function to serve custom tiles, but after upgrading from MapLibre GL JS v3 to v4 it stopped working. How do I fix it?
+","### What changed in MapLibre GL JS v4?
+
+In v3 `addProtocol(name, handler)` expected a **callback‑style** handler:
+
+```js
+// v3 signature
+maplibregl.addProtocol('my', (params, callback) => {
+  fetch(params.url)
+    .then(r => r.arrayBuffer())
+    .then(buf => callback(null, buf))
+    .catch(err => callback(err));
+});
+```
+
+Starting with **v4** the API became **promise‑based** and the handler must return an object that contains a `data` property:
+
+```js
+// v4+ signature
+maplibregl.addProtocol('my', async (params, abortController) => {
+  const resp = await fetch(params.url, { signal: abortController.signal });
+  if (!resp.ok) throw new Error(`Tile fetch error ${resp.status}`);
+  const buf = await resp.arrayBuffer();
+  return { data: buf };               // ← required wrapper
+});
+```
+
+If you keep the old callback version, MapLibre receives a *bare* `ArrayBuffer` (or `Blob`) and treats it as “no data”, so the tile is rendered blank (or you get a silent error).
+
+---
+
+## How to fix your custom protocol
+
+Below is a step‑by‑step migration guide.  
+Copy‑paste the final version at the end of the answer if you just need a quick fix.
+
+---
+
+### 1️⃣ Change the handler signature
+
+| v3 (old) | v4+ (new) |
+|----------|-----------|
+| `(params, callback)` | `(params, abortController)` |
+| Must call `callback(err, data)` | Must **return** a promise that resolves to `{ data, cacheControl?, expires? }` |
+| No built‑in cancellation | Use `abortController.signal` in `fetch` (or any other async work) so the request can be aborted when the map discards the tile. |
+
+### 2️⃣ Wrap the tile data in a `{data}` object
+
+The return value **must** be an object with a `data` key.  
+Optional keys:
+
+| Key | Meaning |
+|-----|---------|
+| `data` | `ArrayBuffer`, `Uint8Array`, `Blob`, or a `Response` object containing the tile bytes. |
+| `cacheControl` | String that will be used for the tile’s `Cache‑Control` header (rarely needed). |
+| `expires` | `Date` or epoch‑ms for the tile’s `Expires` header (rarely needed). |
+
+If you return just the raw buffer, MapLibre thinks the tile has no payload and you get an empty tile.
+
+### 3️⃣ Use the AbortController for cancellation
+
+When the map no longer needs a tile (e.g., you pan/zoom away), MapLibre will call `abortController.abort()`.  
+If you ignore the signal, the request will still finish, but you waste bandwidth.  
+A minimal example:
+
+```js
+async function myTileHandler(params, abortController) {
+  const response = await fetch(params.url, { signal: abortController.signal });
+  if (!response.ok) {
+    throw new Error(`Tile fetch failed: ${response.status}`);
+  }
+  const arrayBuffer = await response.arrayBuffer();
+  return { data: arrayBuffer };
+}
+```
+
+### 4️⃣ Register the protocol **once**, before any map is created
+
+The protocol registry is global. Registering it inside a component that mounts/unmounts can lead to duplicate registrations or “handler already exists” errors.
+
+```js
+import * as maplibregl from 'maplibre-gl';
+
+// Register at app start (e.g. in index.js, a root‑level useEffect, or a module that runs once)
+maplibregl.addProtocol('my', myTileHandler);
+```
+
+### 5️⃣ (Optional) Remove the protocol on teardown
+
+If you ever need to clean up (e.g., hot‑module‑replacement in dev, or a single‑page app that completely unloads the map), call:
+
+```js
+maplibregl.removeProtocol('my');
+```
+
+---
+
+## Full working example
+
+Below is a minimal, self‑contained example that replaces a callback‑style handler with the new promise‑based one. It works for **vector**, **raster**, or **raster‑dem** PMTiles as well as any custom tile service you host yourself.
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"">
+  <title>MapLibre v4 custom protocol demo</title>
+  <link href=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.css"" rel=""stylesheet""/>
+  <style>#map {position:absolute;top:0;bottom:0;width:100%;}</style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script type=""module"">
+  import * as maplibregl from 'https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.js';
+
+  // -------------------------------------------------
+  // 1️⃣  Custom protocol handler (promise‑based)
+  // -------------------------------------------------
+  async function myPmtilesHandler(params, abortController) {
+    // `params.url` is the full URL to the .pmtiles file (or any other tile source)
+    // The PMTiles library can also be used here – see the note at the end.
+    const response = await fetch(params.url, { signal: abortController.signal });
+
+    if (!response.ok) {
+      // Throwing aborts the tile request and surfaces the error in the console.
+      throw new Error(`Tile fetch error ${response.status}: ${response.statusText}`);
+    }
+
+    // For vector tiles you usually want the raw ArrayBuffer.
+    // For raster you could also return a Blob or a Response directly.
+    const buffer = await response.arrayBuffer();
+
+    // Return the wrapper object required by MapLibre v4+.
+    return { data: buffer };
+  }
+
+  // -------------------------------------------------
+  // 2️⃣  Register the protocol (once, before any map)
+  // -------------------------------------------------
+  maplibregl.addProtocol('pmtiles', myPmtilesHandler);
+
+  // -------------------------------------------------
+  // 3️⃣  Create the map – use a `url:` source, not `tiles:`
+  // -------------------------------------------------
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {
+        // Example: a vector PMTiles file hosted on S3 (or any static host)
+        world: {
+          type: 'vector',
+          // The `pmtiles://` prefix tells the library to use the protocol we just added.
+          // You could also use a plain HTTPS URL if you register a generic handler.
+          url: 'pmtiles://https://my-bucket.s3.amazonaws.com/world.pmtiles'
+        }
+      },
+      layers: [
+        {
+          id: 'water',
+          type: 'fill',
+          source: 'world',
+          'source-layer': 'water',
+          paint: { 'fill-color': '#a0c8f0' }
+        },
+        {
+          id: 'roads',
+          type: 'line',
+          source: 'world',
+          'source-layer': 'road',
+          paint: { 'line-color': '#777', 'line-width': 1 }
+        }
+        // add more layers as needed …
+      ]
+    },
+    center: [0, 0],
+    zoom: 2
+  });
+
+  // -------------------------------------------------
+  // 4️⃣  (Optional) Clean up on page unload
+  // -------------------------------------------------
+  window.addEventListener('unload', () => {
+    maplibregl.removeProtocol('pmtiles');
+  });
+</script>
+</body>
+</html>
+```
+
+### What the example does
+
+1. **Defines** `myPmtilesHandler` with the new async signature.  
+2. **Registers** it under the name `pmtiles`.  
+3. **Creates** a MapLibre map that references a PMTiles file via `url: 'pmtiles://…'`.  
+4. **Uses** `source-layer` names (`water`, `road`) that exist inside the PMTiles archive.  
+5. **Cleans up** the protocol on page unload (optional but tidy).
+
+---
+
+## If you already use the **official `pmtiles` library**, you don’t need to rewrite anything
+
+The `pmtiles` NPM package ships a **v3‑compat shim** that automatically adapts to the new MapLibre signature:
+
+```js
+import * as pmtiles from 'pmtiles';
+import * as maplibregl from 'maplibre-gl';
+
+const protocol = new pmtiles.Protocol();   // creates the handler
+maplibregl.addProtocol('pmtiles', protocol.tile); // works on v3, v4, v5, v6
+```
+
+*Why does this work?*  
+`protocol.tile` checks whether the second argument is an `AbortController`.  
+If it is (MapLibre v4+), it returns a promise that resolves to `{data, cacheControl?, expires?}`.  
+If it isn’t (MapLibre v3), it falls back to the old callback style.  
+
+**So the only thing you need to change** when you have a *custom* handler (i.e. you’re not using the `pmtiles` library) is the signature and the `{data}` wrapper as shown above.
+
+---
+
+## Common pitfalls & how to debug them
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| Tiles appear **blank** (vector) or **transparent** (raster) | Handler returns raw `ArrayBuffer` / `Blob` instead of `{data: …}` | Wrap the payload in `{data: buffer}`. |
+| Console shows `Error: Tile fetch error: 404` | URL is wrong, or the host does not allow **Range** requests / CORS. | Verify the URL, ensure `Accept-Ranges: bytes` and `Access-Control-Allow-Origin:*` (or your domain) are present. |
+| “AbortError: The user aborted a request.” printed repeatedly | Your handler ignores the `abortController.signal`. | Pass `signal: abortController.signal` to `fetch` (or your own XHR) so the request can be cancelled. |
+| “Protocol already registered” warning | You call `addProtocol` inside a component that mounts multiple times. | Move the registration to a module that runs once (e.g., top‑level of `index.js` or a root‑level `useEffect` with empty dependency array). |
+| Tiles load **slowly** even though the file is on a CDN | The CDN is compressing the whole `.pmtiles` file (e.g., gzip) which breaks byte‑range requests. | Disable whole‑file compression for `.pmtiles` on the CDN, or serve it with `Content-Encoding: identity`. |
+| `maxzoom` in the style is wrong (MapLibre keeps requesting zoom levels that don’t exist) | You used `tiles: ['pmtiles://…/{z}/{x}/{y}']` instead of `url:`. | Switch to `url:`; the PMTiles protocol reads the archive header and supplies the correct `minzoom`/`maxzoom`. |
+
+---
+
+## Quick checklist for a smooth migration
+
+1. **Update MapLibre** to `^4.0.0` (or later).  
+2. **Search** your codebase for `addProtocol(` and locate any callbacks.  
+3. For each callback handler:  
+   - Change the signature to `(params, abortController)`.  
+   - Use `await fetch(params.url, { signal: abortController.signal })`.  
+   - Return `{ data: await response.arrayBuffer() }`.  
+4. **Test** a single tile request in the browser devtools → Network → look for a `Range` request and verify the response body is non‑empty.  
+5. **Verify CORS & Range** support on the host (S3, R2, GitHub Pages, etc.).  
+6. **Confirm** that the style uses `url:` (not `tiles:`) for PMTiles sources.  
+7. **Deploy** the `.pmtiles` file to a static host with long `Cache‑Control` headers.  
+8. **Optional**: If you still want the convenience of the `pmtiles` library, keep the one‑liner `maplibregl.addProtocol('pmtiles', new pmtiles.Protocol().tile);` – it works on all supported MapLibre versions.
+
+---
+
+## TL;DR – Minimal code change
+
+```js
+// BEFORE (v3, callback style)
+maplibregl.addProtocol('my', (params, callback) => {
+  fetch(params.url)
+    .then(r => r.arrayBuffer())
+    .then(buf => callback(null, buf))
+    .catch(err => callback(err));
+});
+
+// AFTER (v4+, promise style)
+maplibregl.addProtocol('my', async (params, abortController) => {
+  const resp = await fetch(params.url, { signal: abortController.signal });
+  if (!resp.ok) throw new Error(`Tile fetch error ${resp.status}`);
+  const buf = await resp.arrayBuffer();
+  return { data: buf };               // <-- required wrapper
+});
+```
+
+That single edit (plus moving the registration out of any repeatedly‑mounted component) restores tile loading after the v3→v4 upgrade.
+
+---
+
+### Need more help?
+
+* **If you’re using the `pmtiles` NPM package** – keep the one‑liner registration; no changes needed.  
+* **If you have multiple custom protocols** – apply the same async‑wrapper pattern to each.  
+* **If you run into CORS or Range‑header issues** – check the host’s response headers (`Accept-Ranges`, `Access-Control-Allow-Origin`, `Cache-Control`).  
+
+Feel free to paste the exact snippet that broke, and I can show the exact before/",PASS,1.00,,All assertions passed,
+explicit — inspect a PMTiles file before deploying,skills/maplibre-pmtiles-patterns/SKILL.md,"I generated a PMTiles file and want to check what layers it contains and verify it is valid before uploading. How?
+","Below is a quick, repeat‑able workflow you can run locally to **(1) make sure the file is not corrupted**, **(2) see the metadata that the archive advertises**, and **(3) list the vector (or raster) layers that are actually inside**.  
+All of the commands use the official **PMTiles CLI** – a single binary with no extra runtime dependencies – and a tiny Node‑JS snippet if you prefer a programmatic view.
+
+---
+
+## 1️⃣ Install the CLI (once)
+
+| OS | Command |
+|----|---------|
+| macOS (brew) | `brew install protomaps/tap/pmtiles` |
+| Linux/macOS (curl) | `curl -L https://github.com/protomaps/go-pmtiles/releases/download/v2.5.0/pmtiles-linux-amd64 -o pmtiles && chmod +x pmtiles && sudo mv pmtiles /usr/local/bin/` |
+| Windows | Download `pmtiles-windows-amd64.exe` from the [GitHub releases page](https://github.com/protomaps/go-pmtiles/releases) and add it to your `PATH`. |
+
+> **Tip:** The binary is tiny (~2 MB) and works without Java, Node, or Docker. If you already have Docker you can also run `docker run --rm -v $(pwd):/data protomaps/go-pmtiles <subcommand>`.
+
+---
+
+## 2️⃣ Verify the archive is structurally sound
+
+```bash
+pmtiles verify mydata.pmtiles
+```
+
+*What you’ll see*
+
+```
+✔︎  Header checksum OK
+✔︎  Tile index checksum OK
+✔︎  Tile data checksum OK
+✔︎  No overlapping tile ranges
+✔︎  File size matches header
+```
+
+If anything fails you’ll get an error line (e.g. “Tile index checksum mismatch”). In that case re‑run the generation step or re‑convert from MBTiles.
+
+---
+
+## 3️⃣ Inspect the header & TileJSON
+
+```bash
+pmtiles show mydata.pmtiles
+```
+
+Typical output (truncated for brevity):
+
+```
+--- Header -------------------------------------------------
+version:          2
+root_dir_offset:  123456
+root_dir_length:  7890
+metadata_offset:  987654
+metadata_length:  321
+tile_data_offset: 102030
+tile_data_length: 404040
+--- Metadata (TileJSON) -----------------------------------
+{
+  ""name"": ""my‑region‑basemap"",
+  ""bounds"": [-123.5, 37.0, -122.0, 38.5],
+  ""minzoom"": 0,
+  ""maxzoom"": 14,
+  ""center"": [-122.75, 37.75, 10],
+  ""format"": ""pbf"",
+  ""vector_layers"": [
+    {""id"":""water"",""description"":""Water bodies""},
+    {""id"":""roads"",""description"":""Road network""},
+    {""id"":""buildings"",""description"":""Building footprints""},
+    {""id"":""landuse"",""description"":""Land use polygons""}
+  ]
+}
+```
+
+*Why this matters*
+
+* **`minzoom` / `maxzoom`** – the zoom range the archive actually contains.  
+* **`bounds`** – the geographic envelope; useful for CDN edge‑caching or for splitting large archives.  
+* **`vector_layers`** – the exact list of `source-layer` names you can reference in a MapLibre style. (If the file is raster, you’ll see `""format"":""png""` or `""jpeg""` and no `vector_layers`.)
+
+If the `vector_layers` array is missing, the file is **raster** (or the TileJSON metadata was never written). You can still use it, but you won’t have layer names to reference.
+
+---
+
+## 4️⃣ (Optional) List layers programmatically
+
+Sometimes you want the list in JavaScript/TypeScript, for example to auto‑populate a UI. The `pmtiles` NPM package ships a tiny helper that reads the TileJSON from a local file.
+
+```bash
+npm install pmtiles   # or yarn add pmtiles
+```
+
+```js
+// list-layers.mjs
+import { PMTiles } from ""pmtiles"";
+import { readFile } from ""fs/promises"";
+
+async function listLayers(path) {
+  const data = await readFile(path);
+  const archive = await PMTiles.fromArrayBuffer(data.buffer);
+  const tilejson = await archive.getMetadata(); // returns the TileJSON object
+  if (tilejson.vector_layers) {
+    console.log(""Vector layers:"");
+    tilejson.vector_layers.forEach(l => console.log(` • ${l.id}`));
+  } else {
+    console.log(""Raster archive – no vector layers."");
+    console.log(`Format: ${tilejson.format}`);
+  }
+}
+
+listLayers(""mydata.pmtiles"");
+```
+
+Run it:
+
+```bash
+node list-layers.mjs
+```
+
+Output will be the same list you saw in `pmtiles show`.
+
+> **Note:** The `PMTiles.fromArrayBuffer` call works with any Uint8Array, so you can also feed it a remote fetch (`await fetch(url).then(r=>r.arrayBuffer())`) if you want to inspect a file that’s already on S3 without downloading the whole thing (the library only reads the header).
+
+---
+
+## 5️⃣ Quick sanity‑check with a local server (optional)
+
+If you want to see the tiles in a browser before you upload, spin up the built‑in tiny HTTP server that the CLI provides:
+
+```bash
+pmtiles serve mydata.pmtiles --port 8080
+```
+
+Then point a MapLibre map at it:
+
+```js
+import * as pmtiles from ""pmtiles"";
+import maplibregl from ""maplibre-gl"";
+
+const protocol = new pmtiles.Protocol();
+maplibregl.addProtocol(""pmtiles"", protocol.tile);
+
+new maplibregl.Map({
+  container: ""map"",
+  style: {
+    version: 8,
+    sources: {
+      mytiles: {
+        type: ""vector"",
+        url: ""pmtiles://http://localhost:8080/mydata.pmtiles""
+      }
+    },
+    layers: [
+      { id: ""water"", type: ""fill"", source: ""mytiles"", ""source-layer"": ""water"", paint: { ""fill-color"": ""#a0c8f0"" } },
+      { id: ""roads"", type: ""line"", source: ""mytiles"", ""source-layer"": ""roads"", paint: { ""line-color"": ""#555"", ""line-width"": 1 } }
+    ]
+  },
+  center: [-122.75, 37.75],
+  zoom: 10
+});
+```
+
+If the map renders correctly you have a **working** PMTiles file; if you get blank tiles, double‑check the `minzoom`/`maxzoom` values from `pmtiles show` and make sure you used `url:` (not `tiles:`) in the source definition.
+
+---
+
+## 📋 Checklist before you upload
+
+| ✅ Item | How to verify |
+|--------|----------------|
+| **File integrity** | `pmtiles verify mydata.pmtiles` |
+| **Correct zoom range** | `pmtiles show` → `minzoom` / `maxzoom` |
+| **Geographic bounds** | `pmtiles show` → `bounds` |
+| **Layer names** (vector) | `pmtiles show` → `vector_layers` or the Node script |
+| **Raster format** (if applicable) | `pmtiles show` → `""format"":""png""` / `""jpeg""` |
+| **CORS & Range support on target host** | After upload, `curl -I -H ""Range: bytes=0-0"" https://…/mydata.pmtiles` should return `Accept-Ranges: bytes` and `Access-Control-Allow-Origin: *` (or your domain). |
+| **Cache‑control** | Set a long `Cache‑Control` header (e.g. `public, max-age=31536000`) on the object. |
+
+Once all the rows are ticked, you can safely push the file to S3, Cloudflare R2, GitHub Pages, Netlify, etc.
+
+---
+
+### TL;DR Command list
+
+```bash
+# 1️⃣ Verify
+pmtiles verify mydata.pmtiles
+
+# 2️⃣ Show header & TileJSON (includes layer list)
+pmtiles show mydata.pmtiles
+
+# 3️⃣ (Optional) List layers in JS
+npm i pmtiles
+node list-layers.mjs   # see script above
+
+# 4️⃣ (Optional) Run a quick local server to preview
+pmtiles serve mydata.pmtiles --port 8080
+```
+
+That’s all you need to be confident the PMTiles archive is valid and you know exactly which `source-layer` names to use in your MapLibre style before you upload it to a static host. Happy mapping! 🚀",PASS,1.00,,All assertions passed,
+negative — wrong tool for live PostGIS data,skills/maplibre-pmtiles-patterns/SKILL.md,"I'm building a map that shows bus positions updating every 30 seconds from a PostGIS database. Should I use PMTiles?
+","**Short answer:** No – PMTiles is a *static* archive. It’s perfect for basemap data that never (or rarely) changes, but it can’t serve live‑updating features like bus positions that you need to refresh every 30 seconds from PostGIS.
+
+Below is a quick decision matrix, the reasoning behind it, and a few practical patterns you can combine with a static PMTiles basemap if you still want to use one for the background layers.
+
+---
+
+## 1️⃣ Why PMTiles isn’t the right fit for live bus data
+
+| Characteristic | PMTiles | Live bus feed (PostGIS → MapLibre) |
+|----------------|---------|-----------------------------------|
+| **Data mutability** | Immutable after the file is written. To change anything you must rebuild and re‑upload the whole archive (or a sub‑archive via `pmtiles extract`). | Changes every 30 s. You need a source that can be queried on‑demand. |
+| **Delivery model** | Single file served via HTTP range requests. No server‑side logic, no query parameters. | Needs a server (or function) that can run a SQL query, filter by time, and return the current positions. |
+| **Cache‑ability** | Long‑term caching is a benefit (the file never changes). | You want *short* cache times (or no cache) so the client always sees the latest positions. |
+| **Client‑side handling** | MapLibre reads the file once, extracts tiles from the byte ranges, and never asks for “new” data. | The client must request fresh data repeatedly (polling, WebSocket, SSE, etc.). |
+
+Because PMTiles cannot be “incrementally updated” without rewriting the archive, it would force you to rebuild the whole file every 30 seconds – which defeats the purpose of a static, server‑less solution and would be wildly inefficient.
+
+---
+
+## 2️⃣ Recommended approaches for a 30‑second bus‑position layer
+
+### A. **GeoJSON (or TopoJSON) source with periodic polling**
+
+```js
+// 1️⃣ Register a source that will be replaced each poll
+map.addSource('buses', {
+  type: 'geojson',
+  data: { type: 'FeatureCollection', features: [] } // empty placeholder
+});
+
+// 2️⃣ Render it (e.g. circles)
+map.addLayer({
+  id: 'bus-points',
+  type: 'circle',
+  source: 'buses',
+  paint: {
+    'circle-radius': 6,
+    'circle-color': '#ff6600',
+    'circle-stroke-width': 1,
+    'circle-stroke-color': '#fff'
+  }
+});
+
+// 3️⃣ Poll every 30 s
+async function refreshBuses() {
+  const resp = await fetch('/api/bus-positions'); // endpoint that queries PostGIS
+  const geojson = await resp.json();
+  map.getSource('buses').setData(geojson);
+}
+refreshBuses();               // initial load
+setInterval(refreshBuses, 30_000);
+```
+
+*Pros*  
+- Very simple to implement.  
+- No extra tile server needed; just a tiny HTTP endpoint that runs a `SELECT … FROM bus_positions WHERE updated_at > now() - interval '30 seconds'`.  
+
+*Cons*  
+- Not ideal for very large numbers of points (tens of thousands) because the whole GeoJSON payload is sent each poll.  
+
+### B. **Vector‑tile endpoint (dynamic TileJSON) backed by PostGIS**
+
+1. **Set up a lightweight tile server** that can read from PostGIS on each request. Popular choices:  
+
+   - **[Martin](https://github.com/maplibre/martin)** – a Go server that can serve vector tiles directly from a PostGIS query (`SELECT ST_AsMVT(...)`).  
+   - **[tileserver-gl](https://github.com/maptiler/tileserver-gl)** with a custom `tileset.json` that points to a `pg` source.  
+   - **[t-rex](https://github.com/t-rex-tileserver/t-rex)** – Rust‑based, fast, supports MVT from PostGIS.  
+
+2. **Expose a TileJSON URL** (e.g. `https://example.com/tiles/bus/{z}/{x}/{y}.pbf`).  
+
+3. **Add it to the style**:
+
+```json
+{
+  ""sources"": {
+    ""busTiles"": {
+      ""type"": ""vector"",
+      ""tiles"": [""https://example.com/tiles/bus/{z}/{x}/{y}.pbf""],
+      ""minzoom"": 0,
+      ""maxzoom"": 14
+    }
+  },
+  ""layers"": [
+    {
+      ""id"": ""bus-points"",
+      ""type"": ""circle"",
+      ""source"": ""busTiles"",
+      ""source-layer"": ""buses"",   // whatever you name the layer in the MVT
+      ""paint"": {
+        ""circle-radius"": 5,
+        ""circle-color"": ""#ff6600""
+      }
+    }
+  ]
+}
+```
+
+*Pros*  
+- Scales to many points because only the tiles intersecting the viewport are sent.  
+- Works exactly like any other vector‑tile source, so you can style with `filter`, `layout`, etc.  
+
+*Cons*  
+- Requires a running server (but it can be serverless‑friendly: e.g., a Cloudflare Worker or AWS Lambda that runs the MVT query).  
+
+### C. **WebSocket / Server‑Sent Events (SSE) + client‑side rendering**
+
+If you need *real‑time* (sub‑30 s) updates, push the positions from the backend instead of polling:
+
+```js
+const ws = new WebSocket('wss://example.com/bus-updates');
+ws.onmessage = e => {
+  const geojson = JSON.parse(e.data);
+  map.getSource('buses').setData(geojson);
+};
+```
+
+You still need a static source (GeoJSON) on the client, but the data arrives as soon as the server pushes it. This pattern pairs nicely with a static PMTiles basemap (see next section).
+
+---
+
+## 3️⃣ Hybrid pattern – static PMTiles basemap + dynamic overlay
+
+You *can* keep a **PMTiles basemap** (roads, landuse, labels) and overlay the live bus layer using one of the dynamic methods above. This gives you the best of both worlds:
+
+```
++---------------------------+---------------------------+
+|  Static basemap (PMTiles) |  Dynamic bus layer (GeoJSON / MVT) |
++---------------------------+---------------------------+
+```
+
+**Why this works well**
+
+| Aspect | Basemap (PMTiles) | Bus layer (dynamic) |
+|--------|-------------------|---------------------|
+| **Update frequency** | Rare (once per year or when you want a new style) | Every 30 s |
+| **Hosting cost** | Simple static host (S3, Cloudflare R2, GitHub Pages) | Small API endpoint or tile server |
+| **Performance** | Range‑request caching, CDN‑friendly | Only the moving points need to be refreshed |
+| **Complexity** | Zero server logic | Minimal server (SQL query) or client‑side polling |
+
+**Implementation steps**
+
+1. **Create / obtain a PMTiles basemap** (e.g., from Protomaps, or generate your own with tippecanoe/Planetiler).  
+2. **Host it** on a static bucket with `Range` support and CORS (`Access‑Control‑Allow-Origin: *`).  
+3. **Register the PMTiles protocol** once in your app (see the skill’s code snippet).  
+4. **Add the dynamic source** (GeoJSON or vector‑tile endpoint) as a second source in the same style.  
+5. **Style the bus layer** on top of the basemap.
+
+```js
+import * as pmtiles from 'pmtiles';
+import maplibregl from 'maplibre-gl';
+
+const protocol = new pmtiles.Protocol();
+maplibregl.addProtocol('pmtiles', protocol.tile); // global registration
+
+const map = new maplibregl.Map({
+  container: 'map',
+  style: {
+    version: 8,
+    sources: {
+      // 1️⃣ Static basemap
+      basemap: {
+        type: 'vector',
+        url: 'pmtiles://https://my-bucket.s3.amazonaws.com/europe-basemap.pmtiles'
+      },
+      // 2️⃣ Dynamic bus positions (GeoJSON example)
+      buses: {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] } // placeholder
+      }
+    },
+    layers: [
+      // basemap layers (water, roads, labels…) …
+      {
+        id: 'water',
+        type: 'fill',
+        source: 'basemap',
+        'source-layer': 'water',
+        paint: { 'fill-color': '#a0c8f0' }
+      },
+      // bus overlay
+      {
+        id: 'bus-points',
+        type: 'circle',
+        source: 'buses',
+        paint: {
+          'circle-radius': 5,
+          'circle-color': '#ff6600',
+          'circle-stroke-width': 1,
+          'circle-stroke-color': '#fff'
+        }
+      }
+    ]
+  },
+  center: [-73.985, 40.748],
+  zoom: 12
+});
+
+// Polling logic (same as in section 2A)
+async function refreshBuses() {
+  const resp = await fetch('/api/bus-positions');
+  const geojson = await resp.json();
+  map.getSource('buses').setData(geojson);
+}
+refreshBuses();
+setInterval(refreshBuses, 30_000);
+```
+
+---
+
+## 4️⃣ Quick checklist before you decide
+
+| ✅ | Question | ✅ Answer (use PMTiles) | ❌ Answer (don’t use PMTiles) |
+|----|----------|------------------------|------------------------------|
+| 1 | Is the data **static** (basemap, historic layers) or **changing frequently**? | Static → PMTiles is great. | Changing → Use a live source. |
+| 2 | Do you need **sub‑second** or **30‑second** updates? | 30 s is still “dynamic”. | Use a server‑side tile endpoint or GeoJSON polling. |
+| 3 | Do you have **a server‑less static host** ready (S3, R2, GitHub Pages)? | Yes → PMTiles works for basemap. | No → You’ll need a server anyway for the bus data. |
+| 4 | Are you comfortable **re‑building the archive** each time data changes? | No → Not feasible for bus positions. |
+| 5 | Do you want **low‑ops** for the basemap but **real‑time overlay**? | Yes → Hybrid approach (static PMTiles + dynamic overlay). |
+
+If you answered “No” to #1 or #4, stick with a dynamic source for the bus layer.
+
+---
+
+## 5️⃣ TL;DR
+
+- **Do NOT use PMTiles for the bus positions** – they change every 30 seconds and PMTiles is immutable.
+- **Use a dynamic source**:  
+  - Simple GeoJSON polling (good for a few hundred buses).  
+  - A vector‑tile server (Martin, t‑rex, tileserver‑gl) that queries PostGIS on each tile request (scales to thousands).  
+  - WebSocket/SSE push if you need near‑real‑time updates.
+- **Keep PMTiles for the static basemap** if you like the zero‑ops deployment model; just add the live bus source on top.
+
+Feel free to ask if you need a concrete example of setting up a Martin tile server or a minimal Node/Express endpoint that returns GeoJSON from PostGIS – happy to walk you through the code!",PASS,1.00,,All assertions passed,
+anti-pattern — tiles array template bypasses PMTiles header zoom range,skills/maplibre-pmtiles-patterns/SKILL.md,"I wired my PMTiles source with a tiles array (pmtiles://.../{z}/{x}/{y}) instead of url, and past a certain zoom the tiles go blank. The file is fine in pmtiles show. Why?
+","### TL;DR  
+You used a **`tiles:`** array (`pmtiles://…/{z}/{x}/{y}`) instead of a **`url:`** property.  
+When MapLibre reads a source that has a `tiles:` array it **does not look inside the PMTiles header** for the archive’s `minzoom` / `maxzoom`.  
+Because the style does not declare its own `maxzoom`, MapLibre falls back to the default **`maxzoom: 22`** and keeps requesting tiles that simply do not exist in the file. The PMTiles protocol returns an empty response, so the map shows blank tiles once you go past the real max‑zoom of the archive.
+
+---
+
+## What actually happens
+
+| Step | With `url:` (the correct way) | With `tiles:` (your current way) |
+|------|--------------------------------|-----------------------------------|
+| 1️⃣ MapLibre creates the source | Calls the PMTiles protocol handler with the **archive URL** only. | Calls the protocol handler for each tile URL it builds from the template (`…/{z}/{x}/{y}`). |
+| 2️⃣ Protocol reads the archive header | The header contains `minzoom`, `maxzoom`, `bounds`, `center`, etc. The handler returns a **TileJSON** that includes those values. | The handler never sees the header because it is called *per‑tile*. It therefore cannot supply the correct `maxzoom`. |
+| 3️⃣ MapLibre decides which zoom levels to request | Uses the `maxzoom` from the TileJSON (or the one you set manually). Over‑zooming beyond that is handled automatically (the client re‑uses the highest‑available tiles). | No `maxzoom` is known → defaults to `22`. MapLibre keeps requesting zoom levels that the archive does **not** contain. |
+| 4️⃣ Tile fetch | The protocol does a range request for the exact tile that exists → you get data. | For zoom levels > real‑max, the range request lands in a part of the file that has no tile → the protocol returns an empty `ArrayBuffer`. MapLibre draws a blank tile. |
+
+That is why `pmtiles show` tells you the file is fine (the header says, e.g., `maxzoom: 14`), but the map goes blank at zoom 15+.
+
+---
+
+## How to fix it
+
+### 1. Use the `url:` property (recommended)
+
+```json
+{
+  ""type"": ""vector"",
+  ""url"": ""pmtiles://https://example.com/data.pmtiles""
+}
+```
+
+* The PMTiles library will read the header once, return a proper TileJSON, and MapLibre will automatically respect the archive’s zoom limits.
+* Over‑zooming works out‑of‑the‑box (MapLibre will reuse the highest‑available tiles).
+
+### 2. If you *must* use a `tiles:` array, set the zoom limits yourself
+
+```json
+{
+  ""type"": ""vector"",
+  ""tiles"": [
+    ""pmtiles://https://example.com/data.pmtiles/{z}/{x}/{y}""
+  ],
+  ""minzoom"": 0,
+  ""maxzoom"": 14   // <-- match the archive’s maxzoom
+}
+```
+
+* You have to copy the `maxzoom` (and optionally `minzoom`) from `pmtiles show <file>` into the style.
+* This works, but you lose the convenience of the protocol‑generated TileJSON (bounds, center, attribution, etc.).
+
+### 3. Verify the source after the change
+
+```bash
+# In the browser console (or a small script)
+map.getSource('myPmtiles').getTileJSON((err, tilejson) => {
+  console.log(err, tilejson);
+});
+```
+
+You should see something like:
+
+```json
+{
+  ""tiles"": [""pmtiles://https://example.com/data.pmtiles/{z}/{x}/{y}""],
+  ""minzoom"": 0,
+  ""maxzoom"": 14,
+  ""bounds"": [-180,-85,180,85],
+  ""type"": ""vector""
+}
+```
+
+If `maxzoom` matches the header, the blank‑tile problem disappears.
+
+---
+
+## Why the `tiles:` form is discouraged for PMTiles
+
+* **Protocol design** – The PMTiles protocol is built around a *single‑file* URL. The handler knows how to translate a generic tile request (`{z}/{x}/{y}`) into a **byte‑range request** against that file. When you give it a full template, the handler still works, but it never gets a chance to read the archive’s metadata.
+* **Future‑proofing** – Newer versions of the PMTiles library (≥ 3.0) add features like **metadata caching**, **etag handling**, and **automatic over‑zoom** that rely on the TileJSON returned from the header. Bypassing the header means you miss those improvements.
+* **Simplicity** – One line (`url: …`) is less error‑prone than remembering to copy `minzoom`/`maxzoom` manually.
+
+---
+
+## Quick checklist to avoid the blank‑tile bug
+
+| ✅ Check | How to verify |
+|--------|----------------|
+| **Source uses `url:`** | Open your style JSON and confirm the source has `""url"": ""pmtiles://…""` and **no** `""tiles""` array. |
+| **Protocol is registered** | In your app startup: `const protocol = new pmtiles.Protocol(); maplibregl.addProtocol('pmtiles', protocol.tile);` |
+| **CORS & Range support** | `curl -I -H ""Range: bytes=0-0"" https://example.com/data.pmtiles` → should return `Accept-Ranges: bytes`. |
+| **Cache headers** (optional but recommended) | `Cache-Control: public, max-age=31536000` on the `.pmtiles` file. |
+| **Zoom limits match** | Run `pmtiles show data.pmtiles` → note `maxzoom`. If you ever use `tiles:` make sure you set `""maxzoom"": <that number>` in the source. |
+| **No double‑compression** | Ensure the host does **not** gzip the whole `.pmtiles` file (range requests would break). |
+
+---
+
+## Example – Full minimal setup
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>PMTiles with MapLibre</title>
+  <link href=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>#map {position:absolute;top:0;bottom:0;width:100%;}</style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script type=""module"">
+import maplibregl from 'https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.js';
+import * as pmtiles from 'https://cdn.jsdelivr.net/npm/pmtiles@3.2.0/+esm';
+
+// Register the protocol **once** before any map is created
+const protocol = new pmtiles.Protocol();
+maplibregl.addProtocol('pmtiles', protocol.tile);
+
+const map = new maplibregl.Map({
+  container: 'map',
+  style: {
+    version: 8,
+    sources: {
+      osm: {
+        type: 'vector',
+        // ✅ Correct way – let the protocol read the header
+        url: 'pmtiles://https://my-bucket.s3.amazonaws.com/monaco.pmtiles'
+      }
+    },
+    layers: [
+      {
+        id: 'water',
+        type: 'fill',
+        source: 'osm',
+        'source-layer': 'water',
+        paint: { 'fill-color': '#a0c8f0' }
+      },
+      {
+        id: 'roads',
+        type: 'line',
+        source: 'osm',
+        'source-layer': 'road',
+        paint: { 'line-color': '#777', 'line-width': 1 }
+      }
+    ]
+  },
+  center: [7.42, 43.73],
+  zoom: 12
+});
+</script>
+</body>
+</html>
+```
+
+*If you ever need to debug a problematic source, open the dev‑tools Network tab, look at the requests for `…/0/0/0` etc., and you’ll see the `Range` header and a `206 Partial Content` response for zooms that exist. When you go past the archive’s max‑zoom you’ll see a `206` with an empty body – that’s the blank‑tile symptom.*
+
+---
+
+### Bottom line
+
+* **Use `url:`** – it lets the PMTiles protocol read the archive header and supply the correct `maxzoom`.  
+* If you keep `tiles:` you must **manually set `maxzoom`** (and `minzoom`) to match the archive, otherwise MapLibre will request zoom levels that aren’t there and you’ll get blank tiles.
+
+Fix the source definition, redeploy (or just refresh if you’re serving the style from a static file), and the map will render correctly at all zoom levels supported by your PMTiles file. Happy mapping!",PASS,1.00,,All assertions passed,

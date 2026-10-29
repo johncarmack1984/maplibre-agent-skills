@@ -1,0 +1,703 @@
+Description,skillFile,injectSkill,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+implicit — nothing above the horizon once the camera is pitched,skills/maplibre-terrain-rendering/SKILL.md,false,"My MapLibre GL JS map has 3D terrain enabled and the camera pitched to 70 degrees. The relief looks right, but everything above the horizon line is the flat page background. I want an actual sky and some haze where the ground meets it. How do I set that up?
+","Below is a step-by-step recipe for turning the “blank page” you see above the horizon into a proper sky with atmospheric haze.  
+It works with **MapLibre GL JS ≥ 2.4** (the first versions that ship the `sky` layer type and the `fog` property). If you are on an older version, upgrade first.
+
+---
+
+## 1. What you already have
+
+```js
+// terrain source (example)
+map.addSource('dem', {
+  type: 'raster-dem',
+  url: 'https://dem-api.maptiler.com/tiles/terrain-tiles.json?key=YOUR_KEY',
+  tileSize: 512,
+  maxzoom: 14
+});
+
+map.setTerrain({ source: 'dem', exaggeration: 1.5 });
+map.setPitch(70);
+```
+
+That gives you 3-D relief, but the area above the horizon is just the page’s CSS background.
+
+---
+
+## 2. Add a **sky layer**
+
+A sky layer is a special layer type that draws a full-screen sky *behind* all other layers (except the background).  
+You can choose between two styles:
+
+| `sky-type` | What you get |
+|------------|--------------|
+| `gradient` | Simple vertical gradient (good for a cartoon-ish look). |
+| `atmosphere` | Realistic atmosphere with sun, horizon-blend, and optional haze. |
+
+For a natural look we’ll use `atmosphere`.
+
+```js
+map.on('load', () => {
+  // 1️⃣  Add the sky layer *after* you have added your terrain source.
+  map.addLayer({
+    id: 'sky',
+    type: 'sky',
+    paint: {
+      // ------------------------------
+      // 2️⃣  Choose the atmosphere model
+      // ------------------------------
+      'sky-type': 'atmosphere',
+
+      // Sun direction – [lon, lat] in degrees.
+      // (0,0) points to the north-east horizon; tweak to get the lighting you want.
+      'sky-atmosphere-sun': [0, 0],
+
+      // Brightness of the sun (default 15). Larger → sharper shadows.
+      'sky-atmosphere-sun-intensity': 15,
+
+      // Base colour of the atmosphere (usually a light blue).
+      // You can also use a CSS colour string or an rgba array.
+      'sky-atmosphere-color': '#88ccee',
+
+      // How quickly the colour fades into the horizon.
+      // 0 = hard line, 1 = very soft transition.
+      'sky-atmosphere-horizon-blend': 0.2
+    }
+  });
+});
+```
+
+### Quick visual guide
+
+| Parameter | Effect | Typical values |
+|-----------|--------|----------------|
+| `sky-atmosphere-sun` | Moves the “sun” around the sky dome. | `[0,0]` (east-north), `[180,0]` (west-south), etc. |
+| `sky-atmosphere-sun-intensity` | Controls the contrast of the sky and the strength of shadows on terrain. | `5–30` (lower = softer, higher = harsher). |
+| `sky-atmosphere-color` | Overall tint of the sky. | Light blue `#88ccee`, sunset orange `#ffb380`, night `#001d3d`. |
+| `sky-atmosphere-horizon-blend` | How “fuzzy” the horizon looks. | `0.1–0.4` (higher = more haze). |
+
+---
+
+## 3. Add **fog** for ground-level haze
+
+The sky layer gives you a background, but you may also want a subtle “ground-fog” that makes distant terrain fade into the horizon. MapLibre supports this via the **style-level `fog` property** (or `map.setFog()` at runtime).
+
+```js
+map.setFog({
+  // Distance (in map units) over which the fog ramps up.
+  // The first value is where fog starts, the second where it becomes opaque.
+  range: [0.5, 12],
+
+  // Base colour of the fog – usually matches the sky colour.
+  color: 'rgba(255,255,255,0.8)',   // light, almost white
+
+  // How strongly the fog blends into the horizon.
+  // 0 = hard line, 1 = fully blended.
+  ""horizon-blend"": 0.2
+});
+```
+
+**Result:** Distant hills and mountains will gradually lose contrast and merge into the sky, giving you that classic “mountain-haze” effect.
+
+---
+
+## 4. Full minimal example
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>MapLibre – 3D terrain + sky + fog</title>
+  <script src=""https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body { margin:0; padding:0; }
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+<script>
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {},
+      layers: []   // we’ll add everything programmatically
+    },
+    center: [13.4, 52.5], // Berlin
+    zoom: 12,
+    pitch: 70,
+    bearing: 0,
+    antialias: true // needed for smooth sky rendering
+  });
+
+  map.on('load', () => {
+    // ---- DEM source -------------------------------------------------
+    map.addSource('dem', {
+      type: 'raster-dem',
+      url: 'https://dem-api.maptiler.com/tiles/terrain-tiles.json?key=YOUR_KEY',
+      tileSize: 512,
+      maxzoom: 14
+    });
+
+    // ---- Enable terrain ---------------------------------------------
+    map.setTerrain({ source: 'dem', exaggeration: 1.5 });
+
+    // ---- Sky layer --------------------------------------------------
+    map.addLayer({
+      id: 'sky',
+      type: 'sky',
+      paint: {
+        'sky-type': 'atmosphere',
+        'sky-atmosphere-sun': [0, 0],
+        'sky-atmosphere-sun-intensity': 15,
+        'sky-atmosphere-color': '#88ccee',
+        'sky-atmosphere-horizon-blend': 0.2
+      }
+    });
+
+    // ---- Fog (ground haze) -----------------------------------------
+    map.setFog({
+      range: [0.5, 12],
+      color: 'rgba(255,255,255,0.8)',
+      ""horizon-blend"": 0.2
+    });
+  });
+</script>
+</body>
+</html>
+```
+
+*Replace `YOUR_KEY` with a valid DEM provider key (MapTiler, OpenTopo, etc.).*  
+
+Open the page, tilt the map, and you’ll see a blue-gradient sky that fades into a soft haze at the horizon.
+
+---
+
+## 5. Tweaking tips
+
+| Goal | What to adjust |
+|------|----------------|
+| **Sunset / sunrise colours** | Change `'sky-atmosphere-color'` to a warm orange (`#ffb380`) and lower `'sky-atmosphere-sun-intensity'` to ~8. |
+| **Night sky** | Use `'sky-type': 'gradient'` with `['sky-gradient', ['rgba(10,10,30,1)', 'rgba(0,0,0,0)']]` and set a dark background colour. |
+| **More dramatic haze** | Increase `range[1]` (makes fog start farther away) **or** raise `'horizon-blend'` to 0.4+. |
+| **Clearer distant terrain** | Reduce `range[0]` (fog starts closer) **or** lower the fog `color` opacity. |
+| **Add stars** (night mode) | Use `sky-type: 'gradient'` and add a separate `background` layer with a star texture, or overlay a custom raster layer. |
+
+---
+
+## 6. Common pitfalls
+
+| Symptom | Fix |
+|---------|-----|
+| **Sky never appears** | Make sure you are using MapLibre GL JS ≥ 2.4 and that `antialias: true` is set on the map constructor (required for the sky shader). |
+| **Fog looks like a solid white overlay** | Reduce the fog `color` opacity (`rgba(...,0.5)`), or lower the `range[0]` value so the fog starts farther away. |
+| **Terrain disappears when you add the sky layer** | The sky layer must be **added after** you call `map.setTerrain()`. The sky is drawn *behind* all other layers, but if you add it before the terrain source is ready the renderer may skip it. |
+| **Sun direction seems wrong** | `sky-atmosphere-sun` expects **[longitude, latitude]** in degrees *relative to the map centre*, not screen coordinates. Try `[0, 0]` for east-north, `[180, 0]` for west-south, etc. |
+| **Performance drop on low-end devices** | Turn off `antialias` (you lose the smooth sky) or lower the terrain `exaggeration`. The sky shader is cheap, but high-resolution DEM tiles can be heavy. |
+
+---
+
+## 7. Where to read more
+
+* **MapLibre GL JS style spec – sky layer**: <https://maplibre.org/maplibre-gl-js-docs/api/style-spec/layers/#sky>
+* **Fog (atmospheric) property**: <https://maplibre.org/maplibre-gl-js-docs/api/map/#mapsetfog>
+* **Examples** (official repo): `examples/sky.html` and `examples/fog.html`.
+
+---
+
+### TL;DR
+
+1. Upgrade to MapLibre GL JS ≥ 2.4.  
+2. Add a `sky` layer of type `atmosphere` (or `gradient`).  
+3. Optionally call `map.setFog()` to get ground-level haze.  
+4. Tweak sun position, intensity, colour, and horizon-blend until the look matches your design.
+
+That’s all you need to replace the blank page background with",FAIL,0.00,,"The output incorrectly states that the sky layer is added using `map.addLayer` with `type: 'sky'` and that fog is configured with `map.setFog()`. The rubric requires that the sky be configured as a style-level object or using `map.setSky()`, and that fog properties should be part of this configuration, not set separately via `map.setFog()`.",
+implicit — nothing above the horizon once the camera is pitched,skills/maplibre-terrain-rendering/SKILL.md,false,"My MapLibre GL JS map has 3D terrain enabled and the camera pitched to 70 degrees. The relief looks right, but everything above the horizon line is the flat page background. I want an actual sky and some haze where the ground meets it. How do I set that up?
+","Below is a **complete, copy-and-paste ready recipe** that turns the “blank page” you see above the horizon into a proper sky with atmospheric haze.  
+It works with any MapLibre GL JS map that already has:
+
+* a **terrain source** (`map.addSource('terrain', …)`) and `map.setTerrain({source: 'terrain'})`
+* a camera pitch of ~70 ° (or any other pitch you like)
+
+The only extra things you need are:
+
+1. **A “sky” layer** (type `sky`) – this draws the actual sky.
+2. **Fog** (optional but highly recommended) – this gives you the soft haze where the ground meets the sky.
+3. A recent version of MapLibre GL JS (≥ 2.4.0). Older builds simply don’t know the `sky` layer type.
+
+---
+
+## 1️⃣ Make sure you’re on a recent MapLibre version
+
+```html
+<script src=""https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js""></script>
+<link href=""https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+```
+
+If you already load MapLibre from a CDN or bundle, check `maplibregl.version`. Anything **2.4.0 or newer** has both `sky` and `fog` support.
+
+---
+
+## 2️⃣ Add the sky layer
+
+You can choose between two sky “styles”:
+
+| Sky type | What it looks like | When to use it |
+|----------|-------------------|----------------|
+| **gradient** | Simple vertical colour gradient (e.g. sunrise-to-sunset). | Fast, works everywhere, no sun positioning needed. |
+| **atmosphere** | Realistic atmospheric scattering with a sun, horizon glow, and a subtle colour shift. | When you want a more 3-D-ish look (recommended for pitched terrain). |
+
+Below is the **atmosphere** version because it gives you the classic “haze-at-the-horizon” effect automatically.
+
+```js
+// Assuming `map` is already created and terrain is enabled
+map.on('load', () => {
+  // 1️⃣ Add the sky layer – it must be the **topmost** layer
+  map.addLayer({
+    id: 'sky',
+    type: 'sky',
+    paint: {
+      // Choose ""atmosphere"" for a realistic sky, or ""gradient"" for a simple colour ramp
+      'sky-type': 'atmosphere',
+
+      // Sun position – [azimuth, altitude] in radians.
+      // 0, 0 points to the north-east horizon. Adjust to match your map orientation.
+      // Example: sun at 45° azimuth, 45° altitude
+      'sky-atmosphere-sun': [Math.PI / 4, Math.PI / 4],
+
+      // Sun intensity – higher = brighter, more contrast
+      'sky-atmosphere-sun-intensity': 15,
+
+      // Optional: tweak the colour of the atmosphere (default is a nice blue)
+      // 'sky-atmosphere-color': '#88ccee',
+
+      // How quickly the horizon blends into the sky (0 = hard line, 1 = very soft)
+      'sky-atmosphere-horizon-blend': 0.3
+    }
+  });
+
+  // 2️⃣ Add fog – this is the “haze” that makes distant terrain fade into the sky
+  //    Fog works on the whole map, not just the sky layer.
+  map.setFog({
+    // The colour of the fog at the camera (near) – usually matches the sky colour
+    ""color"": ""rgba(255,255,255,0.0)"",
+
+    // The colour of the fog at the horizon (far) – a slightly desaturated version of the sky
+    ""high-color"": ""rgba(255,255,255,0.5)"",
+
+    // Distance (in metres) where the fog starts and ends.
+    // Adjust these numbers to control how quickly terrain fades.
+    // For a typical globe-scale map, 0.5–10 works well.
+    ""range"": [0.5, 10],
+
+    // Optional: make the fog blend more smoothly into the horizon
+    ""horizon-blend"": 0.2
+  });
+});
+```
+
+### Why the order matters
+
+* `sky` **must be the last layer** (i.e. highest `z-index`).  
+  If you add any other layer after it, that layer will cover the sky again.
+* `fog` is a **global effect** – you only call `map.setFog` once, and it will affect everything that is rendered *behind* the fog (terrain, buildings, etc.).
+
+---
+
+## 3️⃣ (Optional) Use a gradient sky instead of atmosphere
+
+If you prefer a simple sunrise-to-sunset gradient, replace the `paint` block with:
+
+```js
+paint: {
+  'sky-type': 'gradient',
+  // Bottom colour (near the horizon)
+  'sky-gradient': [
+    'interpolate',
+    ['linear'],
+    ['zoom'],
+    0, 'rgba(255, 200, 150, 1)',   // low zoom – warm
+    5, 'rgba(135, 206, 235, 1)'    // higher zoom – sky-blue
+  ],
+  // Optional: how quickly the gradient fades to the top colour
+  'sky-gradient-radial-center': [0, 0],
+  'sky-gradient-radial-inner-radius': 0,
+  'sky-gradient-radial-outer-radius': 1
+}
+```
+
+You can still keep the fog call – it works with both sky types.
+
+---
+
+## 4️⃣ Full minimal example (HTML)
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>MapLibre 3D terrain + sky + fog</title>
+  <script src=""https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body { margin:0; padding:0; }
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+<script>
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {
+        // ---- Base map (you can use any raster/vector source you like) ----
+        osm: {
+          type: 'raster',
+          tiles: ['https://a.tile.openstreetmap.org/{z}/{x}/{y}.png'],
+          tileSize: 256,
+          attribution: '&copy; OpenStreetMap contributors'
+        },
+        // ---- Terrain DEM (MapLibre needs a raster-DEM source) ----
+        terrain: {
+          type: 'raster-dem',
+          url: 'https://demotiles.maplibre.org/terrain/tiles/{z}/{x}/{y}.png',
+          tileSize: 256,
+          maxzoom: 12
+        }
+      },
+      layers: [
+        { id: 'osm', type: 'raster', source: 'osm' }
+      ]
+    },
+    center: [13.4, 52.5],
+    zoom: 12,
+    pitch: 70,
+    bearing: 0,
+    antialias: true               // important for smooth terrain shading
+  });
+
+  map.on('load', () => {
+    // Enable terrain
+    map.setTerrain({ source: 'terrain', exaggeration: 1.5 });
+
+    // Add sky (atmosphere)
+    map.addLayer({
+      id: 'sky',
+      type: 'sky',
+      paint: {
+        'sky-type': 'atmosphere',
+        'sky-atmosphere-sun': [Math.PI / 4, Math.PI / 4],
+        'sky-atmosphere-sun-intensity': 15,
+        'sky-atmosphere-horizon-blend': 0.3
+      }
+    });
+
+    // Add fog (haze)
+    map.setFog({
+      ""color"": ""rgba(255,255,255,0)"",
+      ""high-color"": ""rgba(255,255,255,0.5)"",
+      ""range"": [0.5, 10],
+      ""horizon-blend"": 0.2
+    });
+  });
+</script>
+</body>
+</html>
+```
+
+Open that file in a browser, tilt the map, and you’ll see:
+
+* **Terrain** rising up from the ground.
+* A **real sky** that follows the sun direction.
+* A **soft haze** that makes distant hills blend into the horizon.
+
+---
+
+## 5️⃣ Tweaking tips
+
+| What you want to change | Property | Typical values / tips |
+|------------------------|----------|-----------------------|
+| **Sun moves across the sky** | `'sky-atmosphere-sun'` | `[azimuth, altitude]` in radians. 0 rad azimuth = east, π rad = west. 0 rad altitude = horizon, π/2 rad = zenith. |
+| **Brighter / darker sky** | `'sky-atmosphere-sun-intensity'` | 5 – 30. Higher = more contrast, lower = dusk-like. |
+| **Harder horizon line** | `'sky-atmosphere-horizon-blend'` | 0 – 1. 0 = crisp line, 1 = very soft. |
+| **More fog (more haze)** | `map.setFog({ range: [near, far] })` | Decrease `far` (e.g. `[0.5, 5]`) → fog starts earlier. Increase `near` → fog starts farther away. |
+| **Fog colour matching sunset** | `high-color` & `color` | Use a warm rgba, e.g. `rgba(255,180,120,0.6)`. |
+| **Gradient sky** | `'sky-type': 'gradient'` + `'sky-gradient'` | Provide an interpolated colour ramp. Good for stylised maps. |
+| **Remove the default background layer** | Add a `background` layer with `paint: { ""background-color"": ""transparent"" }` **before** the sky layer, or just let the sky layer cover it. | Not strictly needed; the sky layer already overwrites the background. |
+
+---
+
+## 6️⃣ Common pitfalls & how to fix them
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| **The sky stays black** | Using a MapLibre version < 2.4 (no `sky` support). | Upgrade to ≥ 2.4. |
+| **Fog looks like a solid white overlay** | `range` is too small (far value < near value) or `color`/`high-color` are opaque. | Use a semi-transparent colour (`rgba(...,0.x)`) and ensure `range[0] < range[1]`. |
+| **Terrain disappears when you tilt** | `antialias: true` not set on map creation (terrain shading needs it). | Add `antialias: true` to the map options. |
+| **Sky disappears after adding a custom style JSON** | The style JSON does not contain a `sky` layer, and you added it *before* the style finished loading.",FAIL,0.00,,"The rubric states that the output must not instruct the developer to call `map.addLayer` with `type: ""sky""`. The provided output includes instructions for `map.addLayer({ id: 'sky', type: 'sky', ... })` in multiple sections. Additionally, the rubric requires that the output must not present `sky-type`, `sky-atmosphere-sun`, or `sky-atmosphere-sun-intensity` as MapLibre properties, but the output explicitly uses these in the `paint` object for the sky layer.",
+implicit — nothing above the horizon once the camera is pitched,skills/maplibre-terrain-rendering/SKILL.md,false,"My MapLibre GL JS map has 3D terrain enabled and the camera pitched to 70 degrees. The relief looks right, but everything above the horizon line is the flat page background. I want an actual sky and some haze where the ground meets it. How do I set that up?
+","Below is a **complete recipe** for turning the “flat page background” you see above the horizon into a proper sky with atmospheric haze in a MapLibre GL JS map that already has 3-D terrain.
+
+---
+
+## 1. What you need
+
+| Feature | How it’s provided in MapLibre |
+|---------|------------------------------|
+| **Sky** | Built-in *sky* layer (`type: ""sky""`). It draws a procedural atmosphere (or a simple gradient) that always stays behind the terrain. |
+| **Haze / Fog** | Built-in *fog* object (`map.setFog()` or a `fog` entry in the style). It blends the terrain into the sky and gives you that “ground-meets-sky” glow. |
+| **Background colour** | Optional `background` layer (or CSS) for the part of the canvas that is not covered by the sky (e.g., when you zoom out far enough to see the “outside” of the map). |
+
+All three are **client-side only** – you don’t need any extra tiles or services.
+
+> **Version note** – Sky and fog were added in MapLibre GL JS v2.0.0. If you are on an older version, upgrade first.
+
+---
+
+## 2. Minimal working example
+
+```html
+<!doctype html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>MapLibre – 3D terrain + sky + fog</title>
+  <style>
+    body, html { margin:0; padding:0; height:100%; }
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+  </style>
+  <!-- MapLibre GL JS -->
+  <script src=""https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.css"" rel=""stylesheet"" />
+</head>
+<body>
+<div id=""map""></div>
+
+<script>
+  // -------------------------------------------------
+  // 1️⃣  Initialise the map
+  // -------------------------------------------------
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      // A very small style – we’ll add the rest programmatically
+      sources: {
+        // DEM source for terrain (MapLibre ships with a sample DEM)
+        ""mapbox-dem"": {
+          type: ""raster-dem"",
+          url: ""https://demotiles.maplibre.org/terrain/tiles.json"",
+          tileSize: 512,
+          maxzoom: 14
+        },
+        // Base map – you can replace this with any vector source you like
+        ""osm"": {
+          type: ""vector"",
+          url: ""https://demotiles.maplibre.org/tiles/tiles.json""
+        }
+      },
+      layers: [
+        // Simple background – will be hidden by the sky later
+        {
+          id: ""bg"",
+          type: ""background"",
+          paint: { ""background-color"": ""#e0e0ff"" }
+        },
+        // Base map (streets, water, etc.)
+        {
+          id: ""osm"",
+          type: ""fill"",
+          source: ""osm"",
+          ""source-layer"": ""landcover"",
+          paint: { ""fill-color"": ""#c8c8c8"" }
+        }
+      ]
+    },
+    center: [13.4, 52.5], // Berlin
+    zoom: 12,
+    pitch: 70,
+    bearing: 0,
+    antialias: true // important for smooth terrain
+  });
+
+  // -------------------------------------------------
+  // 2️⃣  Enable 3-D terrain
+  // -------------------------------------------------
+  map.on('load', () => {
+    map.setTerrain({ source: 'mapbox-dem', exaggeration: 1.5 });
+
+    // -------------------------------------------------
+    // 3️⃣  Add the sky layer (type: ""sky"")
+    // -------------------------------------------------
+    map.addLayer({
+      id: 'sky',
+      type: 'sky',
+      paint: {
+        // Choose the atmosphere model (the other option is ""gradient"")
+        'sky-type': 'atmosphere',
+        // Sun position – [lon, lat] in degrees. 0° = north, 90° = east.
+        // You can animate this later if you want a moving sun.
+        'sky-sun': [0, 45],
+        // Sun intensity (0-1). 0 = night, 1 = full daylight.
+        'sky-sun-intensity': 0.9,
+        // Colour of the atmosphere (default works fine)
+        // 'sky-atmosphere-color': '#88c0d0',
+        // Optional halo colour around the sun
+        // 'sky-atmosphere-halo-color': '#ffddaa'
+      }
+    }, 'bg'); // insert *under* the background layer so it stays behind everything
+
+    // -------------------------------------------------
+    // 4️⃣  Add fog (haze) – this blends terrain into the sky
+    // -------------------------------------------------
+    // The newer API: map.setFog()
+    map.setFog({
+      // The distance (in metres) where fog starts and ends.
+      // These numbers are *relative* to the camera altitude.
+      ""range"": [0.5, 12],
+      // Fog colour – usually matches the sky colour at the horizon.
+      ""color"": ""white"",
+      // How strongly the fog blends with the horizon (0-1)
+      ""horizon-blend"": 0.2
+    });
+
+    // -------------------------------------------------
+    // 5️⃣  (Optional) Tweak the background colour
+    // -------------------------------------------------
+    // If you ever zoom out far enough to see the canvas outside the map,
+    // you’ll still see the background layer.  Set it to a colour that
+    // matches the sky for a seamless look.
+    map.setPaintProperty('bg', 'background-color', '#e0f7ff');
+  });
+</script>
+</body>
+</html>
+```
+
+### What each part does
+
+| Step | Code | Effect |
+|------|------|--------|
+| **1️⃣ Initialise** | `new maplibregl.Map({ … })` | Creates the map with a tiny style that we’ll extend. |
+| **2️⃣ Terrain** | `map.setTerrain({ source: 'mapbox-dem', exaggeration: 1.5 })` | Turns the DEM into 3-D terrain. |
+| **3️⃣ Sky layer** | `type: ""sky""` + `sky-type: ""atmosphere""` | Draws a procedural sky that automatically follows the camera pitch/rotation. |
+| **4️⃣ Fog** | `map.setFog({ range, color, horizon-blend })` | Adds a smooth haze that starts close to the camera and thickens toward the horizon, giving that “ground meets sky” glow. |
+| **5️⃣ Background** | `background-color` | Guarantees the canvas outside the map matches the sky colour (useful for very low zoom levels). |
+
+---
+
+## 3. Customising the sky & fog
+
+### 3.1 Sky types
+
+| `sky-type` | Description |
+|------------|-------------|
+| `""atmosphere""` | Real-world-like atmosphere with sun, scattering, and a subtle gradient. |
+| `""gradient""` | Simple two-color gradient (good for stylised maps). Use `sky-gradient` and `sky-gradient-center` to control it. |
+
+**Example – gradient sky**
+
+```js
+map.addLayer({
+  id: 'sky',
+  type: 'sky',
+  paint: {
+    'sky-type': 'gradient',
+    'sky-gradient': ['interpolate', ['linear'], ['zoom'],
+                     0, '#001d4a',
+                     5, '#004e92',
+                     10, '#87ceeb'],
+    'sky-gradient-center': [0, 0],
+    'sky-gradient-radius': 90
+  }
+});
+```
+
+### 3.2 Sun position & intensity
+
+- **Sun azimuth** (`sky-sun[0]`): 0 ° = north, 90 ° = east, 180 ° = south, 270 ° = west.
+- **Sun elevation** (`sky-sun[1]`): 0 ° = horizon, 90 ° = zenith.
+- **Intensity** (`sky-sun-intensity`): 0 = night, 1 = full daylight.
+
+You can animate the sun by updating the paint property on each frame:
+
+```js
+let az = 0;
+function animateSun() {
+  az = (az + 0.1) % 360;
+  map.setPaintProperty('sky', 'sky-sun', [az, 45]);
+  requestAnimationFrame(animateSun);
+}
+animateSun();
+```
+
+### 3.3 Fog parameters
+
+| Property | Meaning |
+|----------|---------|
+| `range` | `[near, far]` – distance (in *camera-relative* units) where fog starts and becomes opaque. Smaller `near` makes fog appear close to the camera. |
+| `color` | Fog colour. Usually a light version of the sky colour. |
+| `horizon-blend` | How quickly the fog colour blends into the horizon (0 = hard line, 1 = fully blended). |
+| `high-color` (v2.5+) | Colour of fog at high altitude (useful for “mountain-top” haze). |
+| `space-color` (v2.5+) | Colour of fog when the map is in globe projection. |
+
+**Typical “mountain haze” setup**
+
+```js
+map.setFog({
+  range: [0.5, 8],
+  color: ""rgba(255,255,255,0.8)"",
+  ""high-color"": ""rgba(255,255,255,0.6)"",
+  ""horizon-blend"": 0.3
+});
+```
+
+---
+
+## 4. Full-style JSON alternative
+
+If you prefer to keep everything in a static style file (e.g., `style.json`), just add the sky and fog objects there:
+
+```json
+{
+  ""version"": 8,
+  ""sources"": { … },
+  ""layers"": [
+    { ""id"": ""background"", ""type"": ""background"", ""paint"": { ""background-color"": ""#e0f7ff"" } },
+    { ""id"": ""terrain"", ""type"": ""fill"", ""source"": ""osm"", ""source-layer"": ""landcover"", ""paint"": { ""fill-color"": ""#c8c8c8"" } },
+    {
+      ""id"": ""sky"",
+      ""type"": ""sky"",
+      ""paint"": {
+        ""sky-type"": ""atmosphere"",
+        ""sky-sun"": [0, 45],
+        ""sky-sun-intensity"": 0.9
+      }
+    }
+  ],
+  ""fog"": {
+    ""range"": [0.5, 12],
+    ""color"": ""white"",
+    ""horizon-blend"": 0.2
+  }
+}
+```
+
+Then initialise the map with `style: 'style.json'`. The result is identical to the programmatic version.
+
+---
+
+## 5. Gotchas & performance tips
+
+| Issue | Fix / Tip |
+|-------|-----------|
+| **Sky disappears after a style change** | The sky layer must be **after** any background layer but **before** any raster/vector layers that you want to appear *in front* of the sky. Re-add it after `setStyle()` if you replace the whole style. |
+| **Fog looks too strong / too weak** | Adjust `range` and `horizon-blend`. Remember that the numbers are *relative to the camera altitude*, not metres on the ground. |
+| **Map",FAIL,0.00,,"The output incorrectly states that the sky is configured at the root level of the style JSON (`""sky"": { ... }`) or via `map.setSky()`. It also lists incorrect fog properties like `sky-color`, `horizon-color`, `fog-color`, `sky-horizon-blend`, `horizon-fog-blend`, and `fog-ground-blend`, and incorrectly implies that `sky-type`, `sky-atmosphere-sun`, and `sky-atmosphere-sun-intensity` are valid MapLibre properties. The provided output correctly details how to add a sky layer using `type: ""sky""` and `map.setFog()`, which contradicts the rubric's requirements.",

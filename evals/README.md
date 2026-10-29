@@ -25,9 +25,10 @@ then the user prompt.
 Passing `--var injectSkill=false` on the CLI omits the system message, leaving the model
 to answer from training data alone. This is used for the baseline check.
 
-Two assertion types are used:
+Three assertion types are used:
 
 - **`icontains`** — deterministic substring check for a required term (an API name, CLI command, or config key) whose absence makes the response wrong. Pair with `llm-rubric` for the broader correctness check.
+- **`not-icontains`** — tripwire for a term only a wrong answer contains, such as a property MapLibre does not define. Never one the skill itself uses; see [Writing eval prompts](#writing-eval-prompts).
 - **`llm-rubric`** — qualitative check evaluated by a judge model; the `value` field
   describes what a correct answer must include — keep items specific and checkable,
   not "gives good advice"
@@ -39,11 +40,10 @@ Run `npm install` once before running evals locally.
 
 Current models:
 
-| Role          | When                        | Provider                                      | Model ID                       |
-| ------------- | --------------------------- | --------------------------------------------- | ------------------------------ |
-| Generator     | All runs                    | [Groq](https://console.groq.com/)             | `groq:openai/gpt-oss-120b`     |
-| Judge (CI)    | CI only                     | [Google Gemini](https://aistudio.google.com/) | `google:gemini-2.5-flash-lite` |
-| Judge (local) | Optional — stronger quality | [Google Gemini](https://aistudio.google.com/) | `google:gemini-2.5-flash-lite` |
+| Role      | When                          | Provider                                      | Model ID                       |
+| --------- | ----------------------------- | --------------------------------------------- | ------------------------------ |
+| Generator | All runs                      | [Groq](https://console.groq.com/)             | `groq:openai/gpt-oss-120b`     |
+| Judge     | All graded runs, local and CI | [Google Gemini](https://aistudio.google.com/) | `google:gemini-3.1-flash-lite` |
 
 Update `providers.yaml` and this table together when the model changes; see [CI](#ci) for how the pin is enforced.
 
@@ -59,11 +59,11 @@ export GROQ_API_KEY=your_key_here
 echo 'export GROQ_API_KEY=your_key_here' >> ~/.zshrc
 ```
 
-**Google Gemini** (optional — recommended for baseline validation):
+**Google Gemini** (required for graded runs):
 
-Gemini is a stricter judge, better at catching responses that satisfy a rubric's
-letter without the required reasoning — use it when validating that new tests
-discriminate.
+The judge grades every `llm-rubric` assertion. It must be a different model from the
+generator — a model grading its own answers shares their blind spots — and the pinned
+judge is the `--grader` in `eval:graded`, which every recorded run goes through.
 
 1. Get a free API key at [aistudio.google.com](https://aistudio.google.com/).
 2. Add it to your shell:
@@ -75,21 +75,20 @@ echo 'export GOOGLE_API_KEY=your_key_here' >> ~/.zshrc
 
 ## Running evals
 
-Run the eval for the skill you are working on:
+Run the eval for the skill you are working on, one config per command:
 
 ```bash
-# Groq judge (default — uses GROQ_API_KEY only):
-npm run eval -- \
-  --config evals/prompts/<skill-name>.yaml \
-  --no-cache -j 1
-
-# Gemini judge (optional — stronger; requires GOOGLE_API_KEY):
 npm run eval:graded -- --config evals/prompts/<skill-name>.yaml
 ```
 
-`eval:graded` (see `package.json`) is the one place the grader, `--delay`, and
+`eval:graded` (see `package.json`) is the one place the judge (`--grader`), `--delay`, and
 concurrency are pinned — CI calls the same script. Don't hand-roll those flags in a
-second location; a value copied here would drift the moment `package.json` changes.
+second location; a value copied here would drift the moment `package.json` changes. CI adds one flag, a `--delay` per config that it computes from the measured per-minute limit (see [CI](#ci)).
+
+A bare `npm run eval` is not a Groq-judged run. With no `--grader`, Promptfoo picks a
+default judge from whichever credentials it finds in the environment — `GROQ_API_KEY` is
+not one it checks — so the judge is unpinned and goes unrecorded. Use `eval:graded` for
+anything you will read, record, or cite.
 
 All assertions must pass before pushing.
 
@@ -99,13 +98,38 @@ To view results interactively after any run:
 npx promptfoo view
 ```
 
-Local results are ephemeral — terminal output and `promptfoo view` are sufficient.
+Without `--output`, a local run is saved only to Promptfoo's local database, which `npx promptfoo view` reads. Pass a CSV path and a JSON path to get files (`evals/results/local/` is gitignored):
+
+```bash
+npm run eval:graded -- --config evals/prompts/<skill-name>.yaml \
+  --output evals/results/local/<skill-name>-<baseline|with-skill>.csv evals/results/local/<skill-name>-<baseline|with-skill>.json
+```
+
+The CSV has one row per test: the answer, the verdict, and one overall grader reason. The JSON also has each assertion's own verdict and reason, and the error message behind an ERROR row, which the CSV does not carry. Read the JSON when a row errors or a verdict looks wrong, and pass it to `--filter-failing` to re-run only the tests that did not pass.
+
+To cite a run, commit its CSV as `evals/results/latest/<skill-name>-<baseline|with-skill>_<YYYY-MM-DD>.csv` and write the results doc described in [CONTRIBUTING.md](../CONTRIBUTING.md). For CI runs you pass no paths: `scripts/run-evals.js` passes both for every config, and the weekly run commits its dated CSVs to `evals/results/`.
+
+### Using a different judge
+
+The hard rule is that the generator and the judge are different models; the pin is the
+default, not the only legitimate judge. Reasons to swap: the pinned judge's provider is
+rate-limiting or down for your account, you want a second opinion on a verdict that looks
+wrong, or the generator pin has moved into the judge's model family. Pick a model at least
+as capable as the pinned judge and append the flag after the script's own — the last
+`--grader` wins:
+
+```bash
+npm run eval:graded -- --config evals/prompts/<skill-name>.yaml --grader <provider>:<model>
+```
+
+Name the judge you used in the results doc's `Run:` line, so the record says which model
+graded it. The scheduled CI run re-grades every config with the pinned pair.
 
 ## Proving tests fail without the skill
 
 Before writing skill content, verify your eval prompts have discriminating power —
 they should fail without the skill and pass with it. Add `--var injectSkill=false`
-to the [Gemini-judge command above](#running-evals) to omit the skill from the
+to the [command above](#running-evals) to omit the skill from the
 system prompt and run the baseline check.
 
 Explicit, implicit, and anti-pattern tests must all fail without the skill — if any of
@@ -130,7 +154,13 @@ match your skill directory. Each eval config contains four tests, one of each ty
 
 Write each `llm-rubric` assertion's `value` as a checklist of what a correct answer
 must include (specific enough for a judge to evaluate, e.g. "mentions `addProtocol`
-by name" rather than "explains the API").
+by name" rather than "explains the API"). State a prohibition as `Must NOT …`, naming the
+artifact, in its own clause: "must do X rather than Y" is satisfied by an answer that does both.
+
+Describe only the symptom in the prompt. A prompt that names the API, property, or value the
+rubric wants grades the harness, not the model.
+
+**Tripwires:** a `not-icontains` must not name anything the skill says, including the mistakes it warns against, because an answer that follows the skill can repeat them. Grade those in the `llm-rubric`, where the judge can tell a warning from a recommendation. `npm run lint:tripwires` fails on a tripwire that matches its skill, except in negative tests.
 
 **Negative tests:** The question should be adjacent to the skill's topic — close enough
 that an over-eager agent might wrongly push the new skill information, but where doing so
@@ -140,7 +170,13 @@ question and does NOT recommend the skill's solution where it doesn't apply.
 
 Write prompts based on real developer or AI confusion: evidenced in GitHub issues, Stack Overflow questions, or Slack threads where AI assistants are known to fail.
 
-**Important:** Let the YAML choose the provider on any run you record or cite. Passing `--providers` replaces the pinned generator, and unless the value matches a configured provider's `id` or `label`, Promptfoo builds a bare provider with none of `providers.yaml`'s config — no `temperature`, no `max_tokens`, no label — which unpins the model on a run you are about to cite, and mislabels the results. Ad-hoc probes are a different matter and the flag is useful there: `--providers echo` renders the prompts back to you without touching a key or spending a token.
+**Important:** Let the YAML choose the provider on any run you record or cite. Passing `--providers` replaces the pinned generator, and unless the value matches a configured provider's `id` or `label`, Promptfoo builds a bare provider with none of `providers.yaml`'s config — no `temperature`, no `max_completion_tokens`, no label — which unpins the model on a run you are about to cite, and mislabels the results. Ad-hoc probes are a different matter and the flag is useful there: `--providers echo` renders the prompts back to you.
+
+## Request size
+
+Groq counts each request as its prompt plus the answer cap it reserves, and refuses one over the generator's tokens per minute before the model reads it. So `lib/skill-prompt.mjs` gives every request the cap `providers.yaml` sets, or whatever the limit leaves after the prompt if that is less. No request is refused for its size, and a longer `SKILL.md` costs its answers room instead.
+
+`npm run lint:prompt-budget`, part of `npm run check` and `check.yml`, reports that room for every test: it warns when a prompt takes some of the answer budget and fails when it takes more than half, since most answers would then be cut off. Each eval run measures the per-minute limit and the chat template from Groq, so the caps follow any change Groq makes. A config whose `SKILL.md` is not written yet is sized with the skill withheld, as its baseline runs it.
 
 ## Example results
 
@@ -152,12 +188,8 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for how to structure a new results doc
 
 Two workflows run in CI, and only one of them gates a merge:
 
-- **`check.yml`** — the deterministic gate: formatting, spelling, markdown lint,
-  terminology, model pins, and skill validation. It runs on every PR including forks,
-  needs no secrets, and is the only workflow that blocks merge.
-- **`eval.yml`** — the judge-graded eval: a weekly drift check against the default
-  branch, plus `workflow_dispatch` (`ref`, `configs`, `baseline`) for a maintainer to
-  validate a branch or PR by hand, pre- or post-merge.
+- **`check.yml`** — the deterministic gate: every `npm run check` step, plus the unit tests (`npm test`). It runs on every PR including forks, needs no secrets, and is the only workflow that blocks merge.
+- **`eval.yml`** — the judge-graded eval: a run against the default branch every day at 10:17 UTC that grades the configs that are due (below), as many as the Groq key's daily tokens hold ([#108](https://github.com/maplibre/maplibre-agent-skills/issues/108)); plus `workflow_dispatch` (`ref`, `configs`, `baseline`) for a maintainer to validate a branch or PR by hand, pre- or post-merge.
 
 **It never runs automatically on `pull_request`.** GitHub withholds secrets from a
 fork's `pull_request`, so an automatic job there couldn't reach the generator or
@@ -168,7 +200,17 @@ context with its secrets regardless of whose ref it checks out.
 harness (`evals/prompts/lib/`) as a reason to look closer — `--ignore-scripts` blocks
 a malicious lifecycle script, not a modified `eval:graded` command.
 
-**Three verdicts, and only two of them move a status.** `scripts/run-evals.js` runs one `npm run eval:graded` per config and records `pass`, `fail`, or `error` for each. `error` means the run reached no graded verdict — a provider or judge failure, a config the per-config time bound cut off, or one the run budget never reached — and `scripts/sync-skill-status.js` leaves those skills' `status:` fields exactly as they were, in either direction, so a rate-limited Sunday cannot demote a skill. A skill whose config produced no line at all is reported with a `::warning::` and makes the run partial. The two bounds are `EVAL_CONFIG_MINUTES` and `EVAL_BUDGET_MINUTES` on the "Run evals" step in `eval.yml`; the run's verdict artifact holds `verdicts.txt`, a `summary.json` with per-config counts, error signatures, and token usage, and one JSON sidecar per config, which is where the error text behind an ERROR row survives — the CSV's ERROR rows carry an empty output and an empty grader reason.
+**Three verdicts, and only two of them move a status.** `scripts/run-evals.js` runs one `npm run eval:graded` per config and records `pass`, `fail`, or `error` for each. `error` means the run reached no graded verdict — a provider or judge failure, a config its time bound cut off, or one the run budget never reached — and `scripts/sync-skill-status.js` leaves those skills' `status:` fields exactly as they were, in either direction, so a rate-limited Sunday cannot demote a skill. A skill the run planned but produced no line for is reported with a `::warning::` and makes the run partial. The time comes from `EVAL_BUDGET_MINUTES` on the "Run evals" step in `eval.yml`: each config may use what the budget has left after the least time the configs planned after it need. The run's verdict artifact holds `verdicts.txt`, a `summary.json` with per-config counts, error signatures, and token usage, and one JSON sidecar per config.
+
+**A test that does not pass runs twice more, and a failure on any attempt stands.** The runner hands the first attempt's JSON to `--filter-failing --repeat 2`. A test fails when any graded attempt failed, passes when none did, and is an `error` only when no attempt was graded, so the re-runs grade a test a provider error left ungraded and show whether a failure repeats, which the run log and the drift issue's Signals column list per attempt. Baseline runs are never re-run, and neither is a config the time bound cut off or one with more than two tests down. The re-run's `-retry` CSV is committed beside the first.
+
+**A run grades what is due.** A grade has three inputs: the skill text the generator gets as its system prompt, the config's tests and rubrics, and the harness every config shares (`evals/prompts/lib/`, the `eval:graded` command that pins the judge, and the Promptfoo version in `package-lock.json`). With both models pinned, grading a config again on the same three only repeats the same measurement. Each run commits `evals/results/<date>.json` beside its CSVs with a hash of each input for every config it graded, and the next run grades only the configs whose inputs changed since. The scheduled run also grades each config last graded `EVAL_REGRADE_DAYS` (7) or more days ago, which is what shows a provider changing a model behind its pinned id. A dispatch with blank `configs` grades only what changed on its ref, so dispatching `refs/pull/<N>/merge` grades what the PR changes, plus anything the default branch changed that has not been graded since. A day with nothing due runs nothing and succeeds. A config whose `SKILL.md` is not written yet (a new skill's rubric round) is left out, and its baseline runs by dispatch with `baseline` set; it is due the day the skill exists. A library release changes none of the three inputs, so it triggers no grading; the [release watch](../CONTRIBUTING.md#release-watch) checks releases against the skills.
+
+**Each day's run plans itself.** `scripts/run-evals.js` orders the due configs, the changed ones first, each by the day it last got a verdict, read from the CSVs in `evals/results/`; a day that left any test in `ERROR` doesn't count, so an errored config stays due and first in line. It runs each config, in that order, whose worst case (every request at full size, every allowed re-run) fits in what `EVAL_TOKENS_PER_DAY` has left after the run's actual spend, and the rest go first the next day. How often a config is graded follows from how many configs there are and how big they are; `npm run lint:prompt-budget` reports how many days a full round takes. If Groq refuses a request for its daily limit, which promptfoo records in Groq's words only in its debug log, no further config starts and the drift issue quotes Groq's figures. A dispatch runs the configs it names, in that order, and `--shard k/n` still takes a slice by hand.
+
+**Requests are paced, so none meets the per-minute limit.** The runner gives each config a `--delay` of its largest request's share of a minute at the measured limit, so the limit has room for each request when it is sent. After a per-minute 429, promptfoo 0.122 waits as long as Groq's daily-request header says rather than the seconds Groq states, so each one cost 86 s or more. After every config the run log names the rate-limit waits promptfoo's debug log recorded, by host, and the drift issue lists them under Signals.
+
+**The judge's day ends the run too.** Google reports the judge's limits in no response header and states a daily quota only in the body of a refusal, which promptfoo does not keep. So after a config whose grading met rate limits and fell short of a pass, the runner asks the judge once itself; if Google refuses that for a daily quota, nothing is re-run and no further config starts. A config cut off by either provider's daily refusal records `error` without failing the run: its CSVs go to the verdict artifact instead of `evals/results/`, so it is first in line the next day. A run that graded no config at all fails. The runner also sets `PROMPTFOO_RETRY_5XX`, so promptfoo retries a 5xx, such as the judge's "high demand" 503, with backoff instead of recording an ERROR row.
 
 `npm run lint:model-pins` fails on any provider id that drifts from the [Setup](#setup)
 pins (the generator in `providers.yaml`, the judge in the `eval:graded` script).

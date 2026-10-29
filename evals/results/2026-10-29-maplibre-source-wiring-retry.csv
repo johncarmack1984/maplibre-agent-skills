@@ -1,0 +1,190 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+"negative — unrelated question, expression syntax",skills/maplibre-source-wiring/SKILL.md,"How do I color my circle layer based on a numeric population property, so bigger values are darker?
+","Below is a minimal example that shows how to style a **circle layer** so the fill colour gets darker as the `population` property grows. The key is the `circle-color` paint property, which can use an **interpolate** expression to map a numeric value to a colour ramp.
+
+```js
+// Assuming you already have a source called ""places"" that contains a
+// `population` property on each feature.
+map.addLayer({
+  id: 'places-circles',
+  type: 'circle',
+  source: 'places',
+  // For vector sources you also need the source-layer name:
+  // sourceLayer: 'places',   // <-- uncomment if needed
+  paint: {
+    // Optional: make the circles larger for larger populations
+    // (you can keep this static if you only care about colour)
+    'circle-radius': [
+      'interpolate',
+      ['linear'],
+      ['get', 'population'],
+      0,    4,   // 0 people → radius 4 px
+      1000, 6,
+      10000, 10,
+      100000, 14,
+      1000000, 20
+    ],
+
+    // The colour ramp – lighter for low values, darker for high values.
+    // Choose any colour scale you like; here we go from light yellow to dark orange.
+    'circle-color': [
+      'interpolate',
+      ['linear'],
+      ['get', 'population'],
+      //   value   colour
+      0,          'rgba(255,255,204,0.6)',   // very light
+      1000,       'rgba(255,237,160,0.6)',
+      10000,      'rgba(254,217,118,0.6)',
+      50000,      'rgba(254,178,76,0.6)',
+      100000,     'rgba(253,141,60,0.6)',
+      500000,     'rgba(252,78,42,0.6)',
+      1000000,    'rgba(227,26,28,0.6)'      // very dark
+    ],
+
+    // Optional: a thin outline so circles stay visible on any background
+    'circle-stroke-color': 'rgba(0,0,0,0.2)',
+    'circle-stroke-width': 1
+  }
+});
+```
+
+### How it works
+
+| Part | What it does |
+|------|--------------|
+| `['get', 'population']` | Pulls the numeric `population` property from each feature. |
+| `['interpolate', ['linear'], …]` | Creates a piece-wise linear mapping from the numeric value to another value (here a colour). |
+| The list of *value → colour* pairs | Defines the colour ramp. The first number is the population threshold, the second is the colour you want for that threshold. MapLibre will smoothly interpolate between the colours for values that fall between the thresholds. |
+| `rgba(..., 0.6)` | The fourth component (`0.6`) is the opacity; adjust it to make the circles more or less transparent. |
+| `circle-radius` (optional) | Often you also want the circles to grow with population. The same `interpolate` pattern works for radius. |
+
+### Tips & variations
+
+* **Different colour palettes** – If you prefer a blue-to-dark-blue ramp, replace the `rgba` strings with something like `'#e0f3f8'`, `'#a8dadc'`, `'#457b9d'`, `'#1d3557'`. You can also use CSS colour names or hex codes.
+* **Logarithmic scaling** – For very skewed data you might want a log scale: replace `['linear']` with `['log']`. Example: `['interpolate', ['log'], ['get', 'population'], …]`.
+* **Data-driven stops** – If you have a known min/max, you can compute the stops programmatically and inject them into the style object, keeping the code tidy.
+* **Hover/selection** – You can combine this colour ramp with a `feature-state` expression to highlight a hovered circle without changing the base colour logic.
+
+That’s all you need—once the layer is added, circles with larger `population` values will appear darker (and optionally larger) on the map.",PASS,1.00,,All assertions passed,
+"negative — unrelated question, expression syntax",skills/maplibre-source-wiring/SKILL.md,"How do I color my circle layer based on a numeric population property, so bigger values are darker?
+","Below is a minimal, working example that colors a **circle** layer according to a numeric `population` property on each feature. The larger the population, the darker the circle (you can adjust the colors or the range to suit your data).
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>Population-based circle colors</title>
+  <script src=""https://unpkg.com/maplibre-gl@4.3.0/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@4.3.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body { margin:0; padding:0; }
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+<script>
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://demotiles.maplibre.org/style.json', // any base style
+    center: [-98, 38],
+    zoom: 4
+  });
+
+  // Example GeoJSON – replace with your own source
+  const cities = {
+    type: ""FeatureCollection"",
+    features: [
+      { type: ""Feature"", properties: { name: ""New York"", population: 8419000 }, geometry: { type: ""Point"", coordinates: [-74.006, 40.7128] } },
+      { type: ""Feature"", properties: { name: ""Los Angeles"", population: 3980000 }, geometry: { type: ""Point"", coordinates: [-118.2437, 34.0522] } },
+      { type: ""Feature"", properties: { name: ""Chicago"", population: 2716000 }, geometry: { type: ""Point"", coordinates: [-87.6298, 41.8781] } },
+      // …more features…
+    ]
+  };
+
+  map.on('load', () => {
+    // Add the data source
+    map.addSource('cities', {
+      type: 'geojson',
+      data: cities
+    });
+
+    // Add the circle layer
+    map.addLayer({
+      id: 'city-circles',
+      type: 'circle',
+      source: 'cities',
+      paint: {
+        // Circle radius (optional – you can also base this on population)
+        'circle-radius': [
+          'interpolate',
+          ['linear'],
+          ['get', 'population'],
+          0,      2,   // tiny circles for very small values
+          500000, 4,
+          2000000, 8,
+          10000000, 16   // biggest circles for the largest cities
+        ],
+
+        // Circle color – darker = larger population
+        'circle-color': [
+          'interpolate',
+          ['linear'],
+          ['get', 'population'],
+          //   value   color
+          0,          '#fee5d9',   // light pink for the smallest
+          500000,     '#fcae91',
+          2000000,    '#fb6a4a',
+          5000000,    '#de2d26',
+          10000000,   '#a50f15'    // dark red for the biggest
+        ],
+
+        // Optional: make the circles semi-transparent so underlying basemap stays visible
+        'circle-opacity': 0.7
+      }
+    });
+
+    // (Optional) add a popup to show the name & population
+    map.on('click', 'city-circles', (e) => {
+      const props = e.features[0].properties;
+      new maplibregl.Popup()
+        .setLngLat(e.lngLat)
+        .setHTML(`<strong>${props.name}</strong><br/>Population: ${props.population.toLocaleString()}`)
+        .addTo(map);
+    });
+
+    // Change cursor on hover
+    map.on('mouseenter', 'city-circles', () => map.getCanvas().style.cursor = 'pointer');
+    map.on('mouseleave', 'city-circles', () => map.getCanvas().style.cursor = '');
+  });
+</script>
+</body>
+</html>
+```
+
+### How the expression works
+
+* **`['get', 'population']`** – pulls the numeric `population` property from each feature.
+* **`['interpolate', ['linear'], …]`** – creates a piece-wise linear mapping from the numeric value to a visual value (color or radius).  
+  * The first argument after `['linear']` is the input value (`population`).  
+  * The following pairs are *stop* values: `value → output`.  
+* The color stops go from a light hue (`#fee5d9`) for low populations to a dark hue (`#a50f15`) for high populations. Adjust the colors or add more stops to fine-tune the gradient.
+
+### Tweaking it for your data
+
+| What you want to change | How |
+|--------------------------|-----|
+| **Different color palette** | Replace the hex codes in the `circle-color` stops with any colors you like (e.g., blues, greens, or a sequential palette from ColorBrewer). |
+| **More/less contrast** | Add or move stops. For a smoother gradient, add intermediate stops; for a sharper step-like effect, use `['step', …]` instead of `interpolate`. |
+| **Base the radius on population** | The example already shows a radius interpolation. Adjust the stop values to match the range of your data. |
+| **Use a logarithmic scale** | Replace `['linear']` with `['log']` (requires all values > 0). |
+| **Clamp values** | Add `['clamp', …]` around the `['get', 'population']` if you want to force values outside a range to the nearest stop. |
+
+### Common pitfalls
+
+* **Property name mismatch** – Ensure the property you reference (`population` in the example) exactly matches the name in your source data (case-sensitive).  
+* **Non-numeric values** – If some features have `null` or string values, the expression will evaluate to `null` and the circle will fall back to the default style. Clean or filter the data, or guard with `['coalesce', ['to-number', ['get', 'population']], 0]`.  
+* **CORS / source loading** – The example uses an inline GeoJSON source, so CORS isn’t an issue. If you load a remote source, make sure the server sends proper CORS headers.
+
+That’s it! With the `interpolate` expression on `circle-color` (and optionally `circle-radius`), larger population values will appear as darker circles on your MapLibre map. Adjust the stops and colors to match the visual language you need. Happy mapping!",FAIL,0.00,,"The output includes a section titled 'Common pitfalls' that lists 'CORS / source loading', which is explicitly forbidden by the rubric.",

@@ -7,20 +7,18 @@ than listed: they are not evidence of a gap. See `evals/prompts/maplibre-tile-so
 Model `groq:openai/gpt-oss-120b` · judge `google:gemini-2.5-flash-lite` · `npm run eval:graded`.
 Raw CSVs under [`latest/`](latest/), matching `maplibre-tile-sources-*`.
 
-| #   | Test                                                  | Type         | Baseline (no skill)                                                                             | With skill                                                                  |
-| --- | ----------------------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| 3   | Merging basemap and application data into one tileset | Anti-pattern | **FAIL** — supplies the merge pipeline without pushing back on the premise                      | **PASS** — corrects the premise and gives the two-source pattern            |
-| 4   | Small dataset, no tile server needed                  | Negative     | PASS                                                                                            | PASS                                                                        |
-| 7   | Leaflet cannot render vector tiles natively           | Implicit     | **FAIL** — recommends Leaflet.VectorGrid, and inverts the package name to `leaflet-maplibre-gl` | **PASS** — Leaflet is raster-only, names `maplibre-gl-leaflet` (2026-08-28) |
+| #   | Test                                                  | Type         | Baseline (no skill)                                                        | With skill                                                       |
+| --- | ----------------------------------------------------- | ------------ | -------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| 3   | Merging basemap and application data into one tileset | Anti-pattern | **FAIL** — supplies the merge pipeline without pushing back on the premise | **PASS** — corrects the premise and gives the two-source pattern |
+| 4   | Small dataset, no tile server needed                  | Negative     | PASS                                                                       | PASS                                                             |
+| 7   | Leaflet cannot render vector tiles natively           | Implicit     | PASS 2/3 (2026-10-26)                                                      | PASS 3/3 (2026-10-26)                                            |
 
-**Result: the launch bar is cleared. `status: verified`.** Two gaps demonstrated closed, none
-open. Four further tests (1, 2, 5, 6) pass in both directions: they confirm the skill does not
+**Result: the launch bar is cleared. `status: verified`.** One gap demonstrated closed (test 3),
+none open. Four further tests (1, 2, 5, 6) pass in both directions: they confirm the skill does not
 regress answers the model already gets right, and every with-skill row was recorded or
 re-confirmed after the last skill edit.
 
-Test 7's baseline is the case for pairing every rubric with an `icontains` tripwire. It inverts
-the package name to `leaflet-maplibre-gl`, which a rubric alone would likely have scored as
-broadly correct.
+Test 7 re-run 2026-10-26, three runs each way, after its rubric stopped requiring a raster layer: MapLibre GL Leaflet adds a live MapLibre GL JS map to Leaflet as a layer. The baseline now passes 2 of 3, so the test is no longer evidence of a gap. Both sides cite a `@0.0.13` build of `@maplibre/maplibre-gl-leaflet` that does not exist, which no rubric checks. Raw CSVs: [with-skill](latest/maplibre-tile-sources-with-skill-leaflet_2026-10-26.csv), [baseline](latest/maplibre-tile-sources-baseline-leaflet_2026-10-26.csv).
 
 ## Test 3: two defects, both fixed before the row meant anything
 

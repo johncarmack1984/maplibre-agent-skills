@@ -10,11 +10,13 @@ import {
   isSafeCliPath,
   isSafeConfigPath,
   listEvalConfigs,
+  mergeWaits,
   missingVerdicts,
   parseVerdicts,
   runName,
   signatureOf,
-  skillOf
+  skillOf,
+  waitsLine
 } from './lib/eval-verdicts.js';
 
 // Shaped like a real `promptfoo eval --output x.json` file: the top level is
@@ -53,10 +55,38 @@ function row(failureReason, description, error) {
 }
 
 const GRADER_RATE_LIMIT =
-  'RateLimitExhaustedError: Rate limit exceeded for google:gemini-2.5-flash-lite after 4 attempts';
+  'RateLimitExhaustedError: Rate limit exceeded for google:gemini-3.1-flash-lite after 4 attempts';
 const QUEUE_TIMEOUT =
   'Request groq:openai/gpt-oss-120b[7b7ebfedd4ce]-1788103001543-7fjq3b4amns-0 timed out after 300000ms in queue';
 const MAX_DURATION = 'Evaluation exceeded max duration of 2700000ms';
+// The judge's own 503, verbatim from the 2026-09-27 maplibre-cartography sidecar
+// (run 36312598528, the implicit test) and the 2026-09-13
+// maplibre-pmtiles-patterns one. promptfoo files it as an ASSERT row, with the
+// text as the llm-rubric component's reason and `metadata.graderError: true` on
+// that component.
+const JUDGE_UNAVAILABLE =
+  'Error: No candidates returned in API response.\n\nGot response: {"error":{"code":503,"message":"This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.","status":"UNAVAILABLE"}}';
+// Groq refusing a request over the organization's tokens per minute, verbatim
+// from the 2026-10-21 maplibre-sprites-icons sidecar (run 39585050825, test 2),
+// organization id elided.
+const REQUEST_TOO_LARGE =
+  'API error: 413 Payload Too Large\n{"error":{"message":"Request too large for model `openai/gpt-oss-120b` in organization `org_…` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Requested 8008, please reduce your message size and try again. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}';
+// A rubric the judge did grade, from the 2026-09-06 maplibre-pmtiles-patterns
+// sidecar (the addProtocol anti-pattern test).
+const RUBRIC_FAILURE =
+  'However, the rubric specifically requires the handler to return an object with a `data` property (e.g., `{ data: buffer }`) and states that returning a bare `ArrayBuffer`, `Blob`, or `Response` is *not* the v4 contract.';
+
+// An ASSERT row trimmed to what the classifier reads: each assertion keeps its
+// own verdict and reason in gradingResult.componentResults, and the row's
+// `error` repeats the last failing one.
+function assertRow(description, componentResults) {
+  const failing = componentResults.filter((result) => !result.pass);
+  const reason = failing[failing.length - 1].reason;
+  return {
+    ...row(1, description, reason),
+    gradingResult: { pass: false, score: 0, reason, componentResults }
+  };
+}
 
 describe('classifyEval', () => {
   it('calls an all-passing run a pass', () => {
@@ -112,6 +142,105 @@ describe('classifyEval', () => {
     assert.deepEqual(result.signatures, ['rate-limit-exhausted']);
   });
 
+  it('calls a judge outage inside a rubric an error, not a fail', () => {
+    const result = classifyEval(
+      sidecar([
+        row(0, 'explicit'),
+        assertRow('implicit', [
+          {
+            pass: false,
+            score: 0,
+            reason: JUDGE_UNAVAILABLE,
+            metadata: { graderError: true },
+            assertion: { type: 'llm-rubric' }
+          }
+        ]),
+        row(0, 'anti-pattern'),
+        row(0, 'negative')
+      ])
+    );
+    assert.equal(result.verdict, 'error');
+    assert.deepEqual(result.counts, { pass: 3, fail: 0, error: 1 });
+    assert.deepEqual(result.signatures, ['judge-unavailable']);
+    assert.equal(result.errors.length, 1);
+    assert.equal(result.errors[0].description, 'implicit');
+    assert.equal(result.errors[0].signature, 'judge-unavailable');
+    assert.equal(result.errors[0].message, JUDGE_UNAVAILABLE);
+  });
+
+  it('keeps a rubric the judge did grade a fail', () => {
+    const result = classifyEval(
+      sidecar([
+        row(0, 'explicit'),
+        assertRow('anti-pattern', [
+          {
+            pass: true,
+            score: 1,
+            reason: 'Assertion passed',
+            assertion: { type: 'icontains' }
+          },
+          {
+            pass: false,
+            score: 0.3,
+            reason: RUBRIC_FAILURE,
+            assertion: { type: 'llm-rubric' }
+          }
+        ]),
+        row(0, 'negative')
+      ])
+    );
+    assert.equal(result.verdict, 'fail');
+    assert.deepEqual(result.counts, { pass: 2, fail: 1, error: 0 });
+    assert.deepEqual(result.signatures, []);
+    assert.deepEqual(result.errors, []);
+  });
+
+  it('lets a judge outage outrank a graded failure in the same row', () => {
+    const result = classifyEval(
+      sidecar([
+        row(0, 'explicit'),
+        assertRow('implicit', [
+          {
+            pass: false,
+            score: 0,
+            reason: 'Expected output to contain "pmtiles"',
+            assertion: { type: 'icontains' }
+          },
+          {
+            pass: false,
+            score: 0,
+            reason: JUDGE_UNAVAILABLE,
+            metadata: { graderError: true },
+            assertion: { type: 'llm-rubric' }
+          }
+        ])
+      ])
+    );
+    assert.equal(result.verdict, 'error');
+    assert.deepEqual(result.counts, { pass: 1, fail: 0, error: 1 });
+    assert.deepEqual(result.signatures, ['judge-unavailable']);
+  });
+
+  it('calls any failed grader call an error, named by its reason', () => {
+    const result = classifyEval(
+      sidecar([
+        row(0, 'explicit'),
+        assertRow('implicit', [
+          {
+            pass: false,
+            score: 0,
+            reason: 'API call error: TypeError: fetch failed',
+            metadata: { graderError: true },
+            assertion: { type: 'llm-rubric' }
+          }
+        ])
+      ])
+    );
+    assert.equal(result.verdict, 'error');
+    assert.deepEqual(result.counts, { pass: 1, fail: 0, error: 1 });
+    assert.deepEqual(result.signatures, ['other']);
+  });
+
   it('reads the max-duration rows the time bound writes', () => {
     const result = classifyEval(
       sidecar([
@@ -160,6 +289,29 @@ describe('signatureOf', () => {
 
   it('names the time bound', () => {
     assert.equal(signatureOf(MAX_DURATION), 'max-duration');
+  });
+
+  it('names the judge outage only with the phrase promptfoo wraps it in', () => {
+    assert.equal(signatureOf(JUDGE_UNAVAILABLE), 'judge-unavailable');
+    assert.equal(
+      signatureOf(
+        'The output tells the user to retry a tile request that got a 503 "UNAVAILABLE".'
+      ),
+      'other'
+    );
+  });
+
+  it('names a request too large for the minute, though its body says rate_limit_exceeded', () => {
+    assert.equal(signatureOf(REQUEST_TOO_LARGE), 'request-too-large');
+  });
+
+  it("names a 5xx that outlasted promptfoo's retries", () => {
+    assert.equal(
+      signatureOf(
+        'API call error: Error: Request failed after 4 retries: Error: Internal Server Error: 503 Service Unavailable'
+      ),
+      'unavailable'
+    );
   });
 
   it('names a generator rate limit from a 429 or its text', () => {
@@ -401,6 +553,21 @@ describe('headlineFor', () => {
     );
   });
 
+  it('says request too large when a request can never fit the minute', () => {
+    const summary = withConfigs([
+      { skill: 'maplibre-cartography', verdict: 'pass', signatures: [] },
+      {
+        skill: 'maplibre-fonts-glyphs',
+        verdict: 'error',
+        signatures: ['request-too-large']
+      }
+    ]);
+    assert.equal(
+      headlineFor({ summary, evalResult: 'failure' }),
+      'request too large'
+    );
+  });
+
   it('says cut off when the time bound or the budget ended the run', () => {
     const bound = withConfigs([
       {
@@ -465,9 +632,104 @@ describe('headlineFor', () => {
       'infrastructure'
     );
   });
+
+  it('says passed when every graded config passed and the job succeeded', () => {
+    assert.equal(
+      headlineFor({ summary: PASSING, evalResult: 'success' }),
+      'passed'
+    );
+    const waiting = withConfigs([
+      { skill: 'maplibre-cartography', verdict: 'pass', signatures: [] },
+      {
+        skill: 'maplibre-fonts-glyphs',
+        verdict: 'error',
+        signatures: ['rate-limit-exhausted', 'day-spent'],
+        dayCut: 'judge'
+      }
+    ]);
+    assert.equal(
+      headlineFor({ summary: waiting, evalResult: 'success' }),
+      'passed'
+    );
+  });
+
+  it('leaves a config the day cut out of the headline: it is waiting, not broken', () => {
+    const summary = withConfigs([
+      { skill: 'maplibre-cartography', verdict: 'fail', signatures: [] },
+      {
+        skill: 'maplibre-fonts-glyphs',
+        verdict: 'error',
+        signatures: ['rate-limit-exhausted', 'day-spent'],
+        dayCut: 'judge'
+      }
+    ]);
+    assert.equal(
+      headlineFor({ summary, evalResult: 'failure' }),
+      'graded failure'
+    );
+  });
+
+  it('says the day was spent when it ended before any config was graded', () => {
+    // The config after it waited, so it was never planned.
+    const summary = {
+      ...PASSING,
+      planned: ['maplibre-cartography'],
+      configs: [
+        {
+          skill: 'maplibre-cartography',
+          verdict: 'error',
+          signatures: ['rate-limit-exhausted', 'day-spent'],
+          dayCut: 'judge'
+        }
+      ]
+    };
+    assert.equal(
+      headlineFor({ summary, evalResult: 'failure' }),
+      'day spent before any verdict'
+    );
+  });
 });
 
 describe('classificationBlock', () => {
+  it("quotes Google's refusal of the judge, and names what the day cut and what waits", () => {
+    const summary = {
+      ...withConfigs([
+        { skill: 'maplibre-cartography', verdict: 'fail', signatures: [] },
+        {
+          skill: 'maplibre-fonts-glyphs',
+          verdict: 'error',
+          signatures: ['rate-limit-exhausted', 'day-spent'],
+          dayCut: 'judge'
+        }
+      ]),
+      day: {
+        tokensPerDay: 200000,
+        spent: 169072,
+        waiting: ['maplibre-mapbox-migration'],
+        judgeSpent: {
+          quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier',
+          limit: 20,
+          model: 'gemini-3.1-flash-lite'
+        }
+      }
+    };
+    const block = classificationBlock({
+      summary,
+      evalResult: 'failure',
+      publish: { commit: 'success', sync: 'success', statusCommit: 'skipped' }
+    });
+    assert.match(block, /\*\*Classification: graded failure\.\*\*/);
+    assert.match(
+      block,
+      /Google refused the judge for its daily quota \(20 requests a day for gemini-3\.1-flash-lite, `GenerateRequestsPerDayPerProjectPerModel-FreeTier`\)/
+    );
+    assert.match(block, /they go first the next day: maplibre-fonts-glyphs\./);
+    assert.match(
+      block,
+      /Waiting for another day, which is spent: maplibre-mapbox-migration\./
+    );
+  });
+
   it('leads with the headline and tabulates every planned skill', () => {
     const summary = withConfigs([
       { skill: 'maplibre-cartography', verdict: 'pass', signatures: [] },
@@ -492,6 +754,106 @@ describe('classificationBlock', () => {
     assert.match(block, /2 of 2 planned configs recorded/);
     assert.match(block, /12,000/);
     assert.match(block, /never changes a skill's `status:`/);
+  });
+
+  it('lists every attempt of the tests a config ran again', () => {
+    const summary = withConfigs([
+      {
+        skill: 'maplibre-cartography',
+        verdict: 'fail',
+        signatures: [],
+        retry: {
+          tests: [
+            {
+              description: 'explicit',
+              attempts: ['fail', 'fail', 'pass'],
+              verdict: 'fail'
+            }
+          ]
+        }
+      },
+      { skill: 'maplibre-fonts-glyphs', verdict: 'pass', signatures: [] }
+    ]);
+    const block = classificationBlock({
+      summary,
+      evalResult: 'failure',
+      publish: { commit: 'success', sync: 'success', statusCommit: 'success' }
+    });
+    assert.match(
+      block,
+      /\| maplibre-cartography \| fail \| re-ran 1 test \(explicit: fail, fail, pass\) \|/
+    );
+    assert.match(block, /\| maplibre-fonts-glyphs \| pass \| — \|/);
+  });
+
+  it('names the rate-limit waits of both attempts, by host', () => {
+    const summary = withConfigs([
+      {
+        skill: 'maplibre-cartography',
+        verdict: 'pass',
+        signatures: [],
+        waits: [
+          { host: 'generativelanguage.googleapis.com', count: 4, ms: 1080000 }
+        ],
+        retry: {
+          tests: [],
+          waits: [
+            { host: 'generativelanguage.googleapis.com', count: 1, ms: 60000 },
+            { host: 'api.groq.com', count: 1, ms: 86400 }
+          ]
+        }
+      }
+    ]);
+    const block = classificationBlock({
+      summary,
+      evalResult: 'success',
+      publish: { commit: 'success', sync: 'success', statusCommit: 'success' }
+    });
+    assert.match(
+      block,
+      /\| maplibre-cartography \| pass \| rate-limit waits: generativelanguage\.googleapis\.com 5 times, 19m 0s; api\.groq\.com 1 time, 1m 26s \|/
+    );
+  });
+
+  it('sums waits by host across attempts and reads them as one line', () => {
+    const waits = mergeWaits(
+      [{ host: 'api.groq.com', count: 2, ms: 172800 }],
+      [{ host: 'api.groq.com', count: 1, ms: 30000 }],
+      []
+    );
+    assert.deepEqual(waits, [{ host: 'api.groq.com', count: 3, ms: 202800 }]);
+    assert.equal(waitsLine(waits), 'api.groq.com 3 times, 3m 23s');
+    assert.equal(
+      waitsLine([{ host: 'api.groq.com', count: 1, ms: 8000 }]),
+      'api.groq.com 1 time, 8s'
+    );
+    assert.equal(waitsLine([]), '');
+  });
+
+  it('says which configs wait for another day, and when Groq said the day was spent', () => {
+    const summary = {
+      ...withConfigs([
+        {
+          skill: 'maplibre-cartography',
+          verdict: 'error',
+          signatures: ['rate-limit-exhausted']
+        },
+        { skill: 'maplibre-fonts-glyphs', verdict: 'pass', signatures: [] }
+      ]),
+      day: {
+        tokensPerDay: 200000,
+        spent: 151000,
+        waiting: ['maplibre-sprites-icons'],
+        spentByGroq: { tokensPerDay: 150000, used: 149990 }
+      }
+    };
+    const block = classificationBlock({
+      summary,
+      evalResult: 'failure',
+      publish: {}
+    });
+    assert.match(block, /daily limit \(149,990 of 150,000 tokens used\)/);
+    assert.match(block, /Waiting for another day.*: maplibre-sprites-icons\./);
   });
 
   it('reports a rejected push in the publish steps', () => {

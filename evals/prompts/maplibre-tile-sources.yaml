@@ -155,6 +155,6 @@ tests:
           Must state that Leaflet itself only renders raster tiles and
           cannot directly consume a vector tile source. Must recommend a
           MapLibre-to-Leaflet integration (such as the maplibre-gl-leaflet
-          plugin) that renders the MapLibre style and displays it as a
-          raster layer inside Leaflet. Must not claim Leaflet can natively
+          plugin) that adds a live MapLibre GL JS map to the Leaflet map as
+          a layer. Must not claim Leaflet can natively
           render vector tiles without such a plugin.

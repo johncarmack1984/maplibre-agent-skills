@@ -1,0 +1,37 @@
+{
+  "commit": "7f3a3ed27217a00f8a83b0cdeda19bb79d156f9d",
+  "configs": {
+    "maplibre-terrain-rendering": {
+      "inputs": {
+        "skill": "ba2420a31ea6eec1",
+        "config": "8e5fd8cb5d89f870",
+        "harness": "addb1d2ec77b56d9"
+      },
+      "judge": "google:gemini-3.1-flash-lite"
+    },
+    "maplibre-tile-sources": {
+      "inputs": {
+        "skill": "ce3b533ca123f1be",
+        "config": "03bfd440664ef2c5",
+        "harness": "addb1d2ec77b56d9"
+      },
+      "judge": "google:gemini-3.1-flash-lite"
+    },
+    "maplibre-cartography": {
+      "inputs": {
+        "skill": "2be6be6132419680",
+        "config": "64e472403de87f07",
+        "harness": "addb1d2ec77b56d9"
+      },
+      "judge": "google:gemini-3.1-flash-lite"
+    },
+    "maplibre-pmtiles-patterns": {
+      "inputs": {
+        "skill": "2757343ac138e74f",
+        "config": "0b981e898c66372b",
+        "harness": "addb1d2ec77b56d9"
+      },
+      "judge": "google:gemini-3.1-flash-lite"
+    }
+  }
+}

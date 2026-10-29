@@ -1,0 +1,336 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+negative — out-of-scope question about map camera animation,skills/maplibre-cartography/SKILL.md,How do I smoothly fly the camera to a new location in MapLibre GL JS after the user clicks a button?,"Below is a **complete, copy-and-paste ready** example that shows how to:
+
+1. **Add a button** to the page (you can style it however you like).  
+2. **Listen for the click** and call `map.flyTo()` with a smooth easing curve, a custom duration, and optional bearing/pitch changes.  
+3. **Keep the map’s style and layers untouched** – the camera animation does not affect layer ordering or label legibility, so the cartographic rules from the *maplibre-cartography* skill still apply.
+
+---
+
+## 1️⃣ HTML – a button in the UI
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"">
+  <title>MapLibre – smooth flyTo demo</title>
+  <link href=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.css"" rel=""stylesheet""/>
+  <style>
+    body, html { margin:0; height:100%; }
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+    /* Simple floating button */
+    #flyBtn {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      padding: 8px 12px;
+      background: rgba(255,255,255,0.9);
+      border: 1px solid #777;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: sans-serif;
+    }
+    #flyBtn:hover { background: rgba(255,255,255,1); }
+  </style>
+</head>
+<body>
+
+<div id=""map""></div>
+<button id=""flyBtn"">Fly to Paris</button>
+
+<script src=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.js""></script>
+<script>
+  // 2️⃣ Initialise the map (replace the style URL with yours)
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://demotiles.maplibre.org/style.json', // vector basemap
+    center: [-0.1276, 51.5074], // London
+    zoom: 5,
+    pitch: 0,
+    bearing: 0
+  });
+
+  // Wait until the style is fully loaded before we enable the button
+  map.on('load', () => {
+    document.getElementById('flyBtn').disabled = false;
+  });
+
+  // 3️⃣ Click handler – smooth flyTo
+  document.getElementById('flyBtn').addEventListener('click', () => {
+    // Target location – Paris (lon, lat)
+    const target = [2.3522, 48.8566];
+
+    // Fly options – tweak to your taste
+    const flyOptions = {
+      // Center of the map after the animation
+      center: target,
+
+      // Zoom level you want to end up at
+      zoom: 12,
+
+      // Optional: tilt the map a little for a 3-D feel
+      pitch: 45,
+
+      // Optional: rotate so north points slightly left (-30°)
+      bearing: -30,
+
+      // Duration in ms – 1500 ms = 1.5 seconds
+      duration: 1500,
+
+      // Easing function – MapLibre ships with a few built-ins.
+      // `maplibregl.easeCubicInOut` gives a smooth “accelerate-then-decelerate” feel.
+      easing: maplibregl.easeCubicInOut,
+
+      // If you want the animation to be interruptible (e.g. user drags the map),
+      // set `essential: true` to let the browser cancel it when needed.
+      essential: true
+    };
+
+    // Trigger the animation
+    map.flyTo(flyOptions);
+  });
+</script>
+</body>
+</html>
+```
+
+### What the code does
+
+| Step | Explanation |
+|------|-------------|
+| **HTML button** | A simple `<button>` placed on top of the map. Its style (`rgba(255,255,255,0.9)`) gives a light background that works on both light-vector and satellite basemaps (the button is not part of the map canvas, so it never interferes with label legibility). |
+| **Map initialisation** | Uses the public demo style (a light vector basemap). If you are using satellite imagery, the same `flyTo` logic works – just keep the label-halo recommendations from the cartography skill (`text-color: ""#ffffff""` + dark halo) so your basemap labels stay readable during the animation. |
+| **`map.on('load')`** | Guarantees the button is only usable once the style (and all its label layers) are ready. |
+| **`flyTo` options** | - `center`, `zoom`, `pitch`, `bearing` define the final camera pose.<br>- `duration` controls speed; 1000-2000 ms feels “smooth” for most UI contexts.<br>- `easing` selects the interpolation curve. `easeCubicInOut` is the classic “smooth-start-smooth-stop”.<br>- `essential: true` tells the browser that the animation is not a *user-initiated* gesture, so it can be cancelled if the user starts panning/zooming during the flight (prevents a “stuck” animation). |
+| **Accessibility note** | The button is a native HTML element, so it is automatically focusable and works with screen readers. If you need a keyboard shortcut, add a `keydown` listener that calls the same `flyTo` routine. |
+
+---
+
+## 🎯 Tweaking the Flight
+
+| Goal | Setting to adjust |
+|------|-------------------|
+| **Faster jump** | Reduce `duration` (e.g., `duration: 800`). |
+| **More dramatic 3-D feel** | Increase `pitch` (e.g., `pitch: 60`) and/or add a `bearing` rotation. |
+| **Stay on the same zoom but just pan** | Omit `zoom` (or set it to the current `map.getZoom()`). |
+| **Zoom out to show a region** | Use a lower `zoom` (e.g., `zoom: 4`). |
+| **Custom easing** | Provide any function `t => Math.pow(t, 2)` (ease-in) or use the built-ins: `maplibregl.easeLinear`, `maplibregl.easeCubicIn`, `maplibregl.easeCubicOut`. |
+| **Prevent user interaction during flight** | Set `interactive: false` on the map before `flyTo` and restore it in the `moveend` event. |
+
+```js
+map.once('moveend', () => map.scrollZoom.enable()); // re-enable after flight
+map.scrollZoom.disable(); // optional: block scroll-zoom while flying
+map.flyTo({center: target, zoom: 12, duration: 1500, easing: maplibregl.easeCubicInOut});
+```
+
+---
+
+## 📚 Why `flyTo` Is Preferred Over `jumpTo`
+
+* `flyTo` animates the camera along a **great-circle arc**, preserving the sense of motion and giving the user context of where the map is moving from.  
+* It respects the **visual hierarchy** of your style: labels stay in place, only the viewport changes, so the halo-contrast rules you set for labels (white text + dark semi-transparent halo on imagery) remain effective throughout the animation.  
+* The animation can be **interrupted** (e.g., user drags) without leaving the map in an odd state, which is important for a responsive UI.
+
+---
+
+## ✅ Quick checklist before you ship
+
+- [ ] **Button is focusable** (`<button>` or `role=""button""` with `tabindex=""0""`).  
+- [ ] **Contrast**: button background meets WCAG AA (the example uses ~90 % white on a dark border, which passes).  
+- [ ] **Map style**: if you switch to a satellite basemap, verify that your label `text-color`/`text-halo-color` follow the cartography skill (white text + dark halo).  
+- [ ] **Layer ordering**: the flight does not affect layer order, but if you inject extra data layers at runtime, remember to add them **before the first symbol layer** so they don’t cover basemap labels (see the *injection pattern* in the skill).  
+- [ ] **Performance**: `flyTo` is GPU-accelerated; keep the number of visible vector features reasonable at the target zoom to avoid frame-drops during the animation.
+
+---
+
+### TL;DR code snippet (just the JS part)
+
+```js
+document.getElementById('flyBtn').addEventListener('click', () => {
+  map.flyTo({
+    center: [2.3522, 48.8566],   // Paris
+    zoom: 12,
+    pitch: 45,
+    bearing: -30,
+    duration: 1500,
+    easing: maplibregl.easeCubicInOut,
+    essential: true
+  });
+});
+```
+
+That’s all you need for a smooth, accessible camera transition in MapLibre GL JS! 🚀",PASS,1.00,,All assertions passed,
+negative — out-of-scope question about map camera animation,skills/maplibre-cartography/SKILL.md,How do I smoothly fly the camera to a new location in MapLibre GL JS after the user clicks a button?,"Below is a **complete, copy-and-paste ready** example that shows how to:
+
+1. Add a button to the page (you can style it however you like).  
+2. Listen for the click event.  
+3. Call `map.flyTo()` with a set of options that give a smooth, “camera-like” transition to the target location.  
+4. Keep cartographic best-practice concerns in mind (label legibility, layer ordering, accessibility).
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"">
+  <title>MapLibre – smooth flyTo on button click</title>
+  <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
+  <!-- MapLibre GL JS CSS -->
+  <link href=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body, html { margin:0; padding:0; height:100%; }
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+    /* Simple button – keep it out of the map’s label area */
+    #flyBtn {
+      position: absolute;
+      top: 10px; left: 10px;
+      padding: 8px 12px;
+      background: rgba(255,255,255,0.9);
+      border: 1px solid #777;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: sans-serif;
+    }
+    #flyBtn:focus { outline: 2px solid #0066ff; }
+  </style>
+</head>
+<body>
+
+<div id=""map""></div>
+<button id=""flyBtn"" aria-label=""Fly to San Francisco"">Fly to SF</button>
+
+<script src=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.js""></script>
+<script>
+  // -------------------------------------------------
+  // 1️⃣ Initialise the map (using a raster satellite base)
+  // -------------------------------------------------
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {
+        // Example satellite imagery (you can replace with your own PMTiles, etc.)
+        'sat': {
+          type: 'raster',
+          tiles: [
+            // OpenStreetMap satellite tile server – replace with your own for production
+            'https://{a-c}.tile.openstreetmap.org/{z}/{x}/{y}.png'
+          ],
+          tileSize: 256,
+          attribution: '&copy; OpenStreetMap contributors'
+        }
+      },
+      layers: [
+        // Raster imagery is the bottom-most layer (see cartographic skill)
+        { id: 'sat', type: 'raster', source: 'sat' }
+      ]
+    },
+    center: [-122.447303, 37.753574], // San Francisco (initial view)
+    zoom: 12,
+    pitch: 45,          // give a 3-D feel – optional
+    bearing: 0,
+    antialias: true
+  });
+
+  // -------------------------------------------------
+  // 2️⃣ Define the target camera parameters
+  // -------------------------------------------------
+  const target = {
+    // Longitude, latitude (SF downtown)
+    center: [-122.4194, 37.7749],
+    zoom: 15,               // zoom in a bit
+    bearing: 30,            // rotate a little for drama
+    pitch: 60,              // tilt more to show terrain
+    // The following control the feel of the animation
+    duration: 2500,         // ms – longer = smoother
+    curve: 1.42,            // default “fly” curve (1.42 is a good balance)
+    easing: t => t,         // linear easing – you can use d3-ease or a custom function
+    // Optional: stop any ongoing animation before starting a new one
+    essential: true         // true = respects reduced-motion preferences
+  };
+
+  // -------------------------------------------------
+  // 3️⃣ Wire the button click → flyTo
+  // -------------------------------------------------
+  const btn = document.getElementById('flyBtn');
+  btn.addEventListener('click', () => {
+    // If the user has “prefers-reduced-motion” set, we skip the animation
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      map.jumpTo(target);   // instant move
+    } else {
+      map.flyTo(target);
+    }
+  });
+
+  // -------------------------------------------------
+  // 4️⃣ (Optional) Keep label legibility on the satellite base
+  // -------------------------------------------------
+  // The satellite basemap has no uniform tone, so we enforce a
+  // dark semi-transparent halo for all text labels that the style
+  // may add later (or that you add yourself).
+  map.on('style.load', () => {
+    const labelLayers = map.getStyle().layers.filter(l => l.type === 'symbol');
+    labelLayers.forEach(l => {
+      map.setPaintProperty(l.id, 'text-color', '#ffffff');
+      map.setPaintProperty(l.id, 'text-halo-color', 'rgba(0,0,0,0.75)');
+      map.setPaintProperty(l.id, 'text-halo-width', 1.2);
+    });
+  });
+
+  // -------------------------------------------------
+  // 5️⃣ Accessibility note
+  // -------------------------------------------------
+  // The button is focusable and has an ARIA label.
+  // If you need a fully accessible map, consider adding
+  // a hidden data table or a screen-reader friendly
+  // description and use the maplibre-gl-accessibility plugin.
+</script>
+</body>
+</html>
+```
+
+### Why this works well from a cartographic standpoint
+
+| Step | Cartographic principle (from **maplibre-cartography**) |
+|------|--------------------------------------------------------|
+| **Raster imagery as bottom layer** | Keeps the satellite photo as the visual “ground” and prevents it from being covered by opaque vector fills. |
+| **`text-halo-color: rgba(0,0,0,0.75)`** | On imagery the halo must be dark and semi-transparent so labels stay readable regardless of the underlying pixel values. |
+| **`duration` + `curve`** | A longer duration (≈ 2-3 s) and the default curve (≈ 1.42) give a smooth acceleration/deceleration that feels like a camera moving through 3-D space, rather than a jarring jump. |
+| **`essential: true`** | Respects the user’s “prefers-reduced-motion” setting, an accessibility requirement. |
+| **Button placement** | Placed in a corner where it does not overlap map symbols; the semi-transparent background keeps it visible over any basemap. |
+| **Layer ordering** | The raster layer is added first (bottom). Any custom data you later inject should be added **before the first symbol layer** (see the “injection pattern” in the skill) so you never hide the basemap’s labels. |
+
+### Tweaking the animation
+
+| Property | What it does | Typical values |
+|----------|--------------|----------------|
+| `duration` | Total time of the animation (ms). | 1500-3000 for a “slow-fly”, 500-1000 for a quick pan. |
+| `curve` | Controls the shape of the flight path (higher = more “easing-in-out”). | 1.0-2.0; 1.42 is the default that feels natural. |
+| `easing` | A function that maps *t* (0-1) → eased *t*. | `t => t` (linear), `t => Math.pow(t, 0.5)` (ease-out), or any d3-ease function. |
+| `bearing` / `pitch` | Adds rotation and tilt. | Keep pitch ≤ 80° to avoid extreme distortion. |
+| `essential` | If `true`, the animation is suppressed when the user prefers reduced motion. | Always set to `true` for accessibility. |
+
+### Adding more destinations
+
+If you have several buttons (or a dropdown) that each fly to a different place, store the target objects in a map and reuse the same click handler:
+
+```js
+const destinations = {
+  sf: { center: [-122.4194, 37.7749], zoom: 15, bearing: 30, pitch: 60 },
+  nyc: { center: [-74.0060, 40.7128], zoom: 14, bearing: -20, pitch: 45 },
+  // …more
+};
+
+document.querySelectorAll('.flyBtn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const target = destinations[btn.dataset.dest];
+    map.flyTo({ ...target, duration: 2000, essential: true });
+  });
+});
+```
+
+Just remember to keep the **halo** and **layer-ordering** rules from step 4 for any new style you load.
+
+---
+
+**That’s it!** Click the button and the camera will glide smoothly to San Francisco (or any other location you configure), while preserving label legibility on the satellite basemap and respecting accessibility preferences. Happy mapping!",ERROR,0.00,,,

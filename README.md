@@ -20,7 +20,7 @@ If you find any inconsistency with this quality bar, please file an issue or PR.
 
 ## What Status Means
 
-Each skill is tested with [Promptfoo](https://promptfoo.dev/) evals to verify it improves AI responses on real developer questions. A skill's front-matter `status` records where it stands (e.g. whether an eval has proven it fixes a real failure). See [`evals/README.md`](evals/README.md) for how evals work.
+Each skill is tested with [Promptfoo](https://promptfoo.dev/) evals to verify it improves AI responses on real developer questions. The `metadata.status` field in a skill's front matter records where it stands (e.g. whether an eval has proven it fixes a real failure). See [`evals/README.md`](evals/README.md) for how evals work.
 
 | Status           | Means                                                                                                          |
 | ---------------- | -------------------------------------------------------------------------------------------------------------- |
@@ -37,23 +37,24 @@ Each skill's front matter is the source of truth for its current status — see 
 <!-- skills-table:start -->
 <!-- Rows are regenerated at release by `npm run generate:skills-table`: sorted by name, new skills added, removed skills dropped. Edit the "Use when" text in place; it is preserved. -->
 
-| Skill                                                                      | Use when                                                                                                                                                             |
-| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`maplibre-cartography`](skills/maplibre-cartography/SKILL.md)             | Styling a map; making labels, markers, or roads readable on imagery or vector basemaps; setting up fonts, sprites, or shields                                        |
-| [`maplibre-fonts-glyphs`](skills/maplibre-fonts-glyphs/SKILL.md)           | Text labels aren't rendering in the intended font, setting up a glyphs server, choosing between self-hosting and generating font PBFs, or handling non-Latin scripts |
-| [`maplibre-mapbox-migration`](skills/maplibre-mapbox-migration/SKILL.md)   | Moving an existing Mapbox GL JS app to MapLibre; evaluating MapLibre as an open-source alternative                                                                   |
-| [`maplibre-pmtiles-patterns`](skills/maplibre-pmtiles-patterns/SKILL.md)   | Hosting tiles without a tile server; static or serverless deployments; converting from MBTiles; generating tiles from OSM or GeoJSON                                 |
-| [`maplibre-skill-authoring`](skills/maplibre-skill-authoring/SKILL.md)     | At the end of a MapLibre task that took real research, or when asked to capture one as a skill                                                                       |
-| [`maplibre-source-wiring`](skills/maplibre-source-wiring/SKILL.md)         | A source is configured but nothing is drawing, or when setFeatureState does nothing                                                                                  |
-| [`maplibre-terrain-rendering`](skills/maplibre-terrain-rendering/SKILL.md) | Relief looks harsh, flat, or absent, or when the layer type or property for an elevation effect is unclear                                                           |
-| [`maplibre-tile-sources`](skills/maplibre-tile-sources/SKILL.md)           | Choosing how to supply map data; deciding between GeoJSON and tiles; configuring a basemap; debugging blank maps or missing labels                                   |
-| [`maplibre-v6-migration`](skills/maplibre-v6-migration/SKILL.md)           | A v5 app breaks after upgrading to v6, or before pinning a v6 install                                                                                                |
+| Skill                                                                      | Use when                                                                                                                                                                                     |
+| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`maplibre-cartography`](skills/maplibre-cartography/SKILL.md)             | Styling a map; making labels, markers, or roads readable on imagery or vector basemaps                                                                                                       |
+| [`maplibre-fonts-glyphs`](skills/maplibre-fonts-glyphs/SKILL.md)           | Text labels aren't rendering in the intended font, setting up a glyphs server, choosing between self-hosting and generating font PBFs, or handling non-Latin scripts                         |
+| [`maplibre-mapbox-migration`](skills/maplibre-mapbox-migration/SKILL.md)   | Moving an existing Mapbox GL JS app to MapLibre; evaluating MapLibre as an open-source alternative                                                                                           |
+| [`maplibre-pmtiles-patterns`](skills/maplibre-pmtiles-patterns/SKILL.md)   | Hosting tiles without a tile server; static or serverless deployments; converting from MBTiles; generating tiles from OSM or GeoJSON                                                         |
+| [`maplibre-skill-authoring`](skills/maplibre-skill-authoring/SKILL.md)     | At the end of a MapLibre task that took real research, or when asked to capture one as a skill                                                                                               |
+| [`maplibre-source-wiring`](skills/maplibre-source-wiring/SKILL.md)         | A source is configured but nothing is drawing, or when setFeatureState does nothing                                                                                                          |
+| [`maplibre-sprites-icons`](skills/maplibre-sprites-icons/SKILL.md)         | Deciding how to put icons on a map, when a symbol layer's icons never appear, when adding your own icons to a style whose sprite you do not control, or when shields are missing their badge |
+| [`maplibre-terrain-rendering`](skills/maplibre-terrain-rendering/SKILL.md) | Relief looks harsh, flat, or absent, or when the layer type or property for an elevation effect is unclear                                                                                   |
+| [`maplibre-tile-sources`](skills/maplibre-tile-sources/SKILL.md)           | Choosing how to supply map data; deciding between GeoJSON and tiles; configuring a basemap; debugging blank maps or missing labels                                                           |
+| [`maplibre-v6-migration`](skills/maplibre-v6-migration/SKILL.md)           | A v5 app breaks after upgrading to v6, or before pinning a v6 install                                                                                                                        |
 
 <!-- skills-table:end -->
 
 ## Development
 
-Each skill lives under `skills/<skill-name>/` as a single **SKILL.md**: YAML front-matter (`name`, `description`, `status`) plus markdown content.
+Each skill lives under `skills/<skill-name>/` as a single **SKILL.md**: YAML front matter (`name`, `description`, and `metadata.status`) plus markdown content.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) to add or improve a skill. All experience levels welcome, well-behaved and supervised AI agents are welcome to contribute too.
 
@@ -86,7 +87,7 @@ This project follows [semver](https://semver.org/). Version numbers signal what 
 - **Minor** (0.1.0 → 0.2.0) — a new skill was added, a skill was removed, or how skills are consumed changed. Review the [CHANGELOG](CHANGELOG.md) to see what's new.
 - **Major** (0.x → 1.0) — a change that would break installed skills (renamed directories, restructured front matter, etc.).
 
-Each skill's front matter carries a `status` field — see [What Status Means](#what-status-means). The [CHANGELOG](CHANGELOG.md) records notable changes; entries are written by contributors via a structured PR field and accrued automatically on merge. See [CONTRIBUTING.md](CONTRIBUTING.md#how-to-fill-in-the-changelog-field) for how that works.
+Each skill's front matter carries a `metadata.status` field — see [What Status Means](#what-status-means). The [CHANGELOG](CHANGELOG.md) records notable changes; entries are written by contributors via a structured PR field and accrued automatically on merge. See [CONTRIBUTING.md](CONTRIBUTING.md#how-to-fill-in-the-changelog-field) for how that works.
 
 ## Install
 
@@ -99,7 +100,7 @@ An install copies skill directories only. If an installed skill turns out to be 
 Skills are plain markdown.
 
 - **Paste into chat**: Open any `SKILL.md` above and paste it directly into your AI assistant's context window.
-- **Copy to your project**: Drop a `SKILL.md` into `.claude/skills/`, `.cursor/rules/`, or append it to `.github/copilot-instructions.md`.
+- **Copy to your project**: Copy `skills/<name>/` to `.agents/skills/<name>/`, which Cursor, GitHub Copilot and Codex read, or to `.claude/skills/<name>/` for Claude Code.
 - **Symlink for local development**:
 
 ```bash
@@ -107,9 +108,17 @@ mkdir -p .claude
 ln -s /path/to/maplibre-agent-skills/skills .claude/skills
 ```
 
+### As a Claude Code plugin
+
+```text
+/plugin install maplibre-agent-skills --marketplace maplibre/maplibre-agent-skills
+```
+
+The plugin carries every skill in `skills/` except the maintainers' eval runbook.
+
 ### Via the skills CLI
 
-The [skills CLI](https://github.com/vercel-labs/skills) is a package manager for AI agent skills. It places skill files in the right location for your tool automatically, and supports 40+ agents.
+The [skills CLI](https://github.com/vercel-labs/skills) is a package manager for AI agent skills. It installs each skill where your agent looks for it.
 
 ```bash
 # List available skills
@@ -133,7 +142,7 @@ To install for a specific agent:
 ```bash
 npx skills add maplibre/maplibre-agent-skills -a claude-code
 npx skills add maplibre/maplibre-agent-skills -a cursor
-npx skills add maplibre/maplibre-agent-skills -a vscode
+npx skills add maplibre/maplibre-agent-skills -a github-copilot
 ```
 
 See [Supported Agents](https://github.com/vercel-labs/skills?tab=readme-ov-file#supported-agents) for the full list.

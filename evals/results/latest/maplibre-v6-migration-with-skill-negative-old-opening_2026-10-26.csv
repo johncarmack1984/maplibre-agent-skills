@@ -1,0 +1,972 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+"negative — vector tile source setup, unrelated to v6 breaking changes",skills/maplibre-v6-migration/SKILL.md,"How do I add a vector tile source from a PMTiles file to a MapLibre GL JS map and style a line layer from it?
+","Below is a **complete, working pattern** for a MapLibre GL JS v6 app that
+
+1. loads a **PMTiles** file (a single-file container of vector tiles) and  
+2. draws a **line** layer from one of the source-layers inside that file.
+
+The code works whether you are loading MapLibre from a CDN **or** from a bundler (Vite, webpack, etc.).  
+All of the v5-to-v6 breaking-change points are highlighted so you won’t hit the usual “it used to work” errors.
+
+---
+
+## 1️⃣ Install the two packages (if you use a bundler)
+
+```bash
+npm i maplibre-gl@^6 pmtiles
+# or with Yarn / pnpm
+```
+
+> **NOTE** – `maplibre-gl` v6 is **ESM-only**. There is no default export and there is no CommonJS `require()` support.  
+> If you are still on a plain `<script>` tag, skip the bundler steps and go straight to the CDN example in section 2.
+
+---
+
+## 2️⃣ CDN-only (no bundler) – the simplest way to try it out
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"">
+  <title>PMTiles + MapLibre v6</title>
+  <link href=""https://unpkg.com/maplibre-gl@6/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script type=""module"">
+  // 1️⃣ Import the ESM build from the CDN
+  import * as maplibregl from 'https://unpkg.com/maplibre-gl@6/dist/maplibre-gl.mjs';
+  // 2️⃣ Import the PMTiles helper (also ESM)
+  import { PMTiles } from 'https://cdn.jsdelivr.net/npm/pmtiles@2.7.0/dist/index.mjs';
+
+  // 3️⃣ Register the custom protocol that lets MapLibre fetch from a .pmtiles file
+  const pmtiles = new PMTiles('https://YOUR_DOMAIN/path/to/your-data.pmtiles');
+  pmtiles.addProtocol();               // registers the ""pmtiles://"" fetch handler
+
+  // 4️⃣ Create the map (no need for setWorkerUrl() when using a CDN)
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://demotiles.maplibre.org/style.json', // any base style you like
+    center: [0, 0],
+    zoom: 2
+  });
+
+  // 5️⃣ When the base style is ready, add the PMTiles source + line layer
+  map.on('style.load', () => {
+    // ---- vector source that points at the PMTiles file ----
+    map.addSource('my-pmtiles', {
+      type: 'vector',
+      // The URL must use the ""pmtiles://"" scheme; the part after the scheme
+      // must be **exactly** the same string you passed to the PMTiles ctor.
+      url: 'pmtiles://https://YOUR_DOMAIN/path/to/your-data.pmtiles'
+    });
+
+    // ---- line layer that draws from a source-layer inside the PMTiles ----
+    map.addLayer({
+      id: 'my-lines',
+      type: 'line',
+      source: 'my-pmtiles',
+      // Replace this with the actual source-layer name that lives inside the .pmtiles file
+      'source-layer': 'roads',          // <-- e.g. ""roads"", ""railways"", etc.
+      layout: {
+        'line-cap': 'round',
+        'line-join': 'round'
+      },
+      paint: {
+        'line-color': '#ff6600',
+        'line-width': 2,
+        'line-opacity': 0.9
+      }
+    });
+  });
+</script>
+</body>
+</html>
+```
+
+**What changed from v5?**
+
+| v5 pattern | v6 replacement |
+|------------|----------------|
+| `import maplibregl from 'maplibre-gl'` | `import * as maplibregl from 'maplibre-gl'` (or named imports) |
+| `<script src=""…/dist/maplibre-gl.js""></script>` | `<script type=""module""> import … from '…/dist/maplibre-gl.mjs'; </script>` |
+| `require('maplibre-gl')` | Not supported – use dynamic `import()` if you must stay in CommonJS |
+| `styleimagemissing` → `addImage()` | Use `map.setMissingStyleImageResolver()` (not needed for this example) |
+| `map.transform` | Use public getters (`map.getZoom()`, `map.getCenter()`, …) |
+| `MapDataEvent` | Use `MapSourceDataEvent | MapStyleDataEvent` (not needed here) |
+| Bundled apps → `setWorkerUrl()` | **Not needed** for CDN-only; see section 4 for bundler setup |
+
+---
+
+## 3️⃣ Bundler setup (Vite, webpack, esbuild, Rollup, etc.)
+
+Below is a minimal **Vite** example; the same idea works for other bundlers – just call `setWorkerUrl()` once before creating the map.
+
+### `src/main.ts` (or `main.js`)
+
+```ts
+// 1️⃣ Import the public API (named or namespace)
+import { Map, setWorkerUrl } from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+
+// 2️⃣ Import the worker URL – Vite’s `?worker&url` query makes the worker a separate file
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
+
+// 3️⃣ Register the worker (required for any bundler build)
+setWorkerUrl(workerUrl);
+
+// 4️⃣ Import the PMTiles helper (ESM)
+import { PMTiles } from 'pmtiles';
+
+// 5️⃣ Register the custom protocol
+const pmtiles = new PMTiles('/data/your-data.pmtiles'); // relative to your public folder
+pmtiles.addProtocol();
+
+// 6️⃣ Create the map
+const map = new Map({
+  container: 'map',               // <-- a <div id=""map""></div> in your HTML
+  style: 'https://demotiles.maplibre.org/style.json',
+  center: [0, 0],
+  zoom: 2
+});
+
+// 7️⃣ Add source + line layer once the style is loaded
+map.on('style.load', () => {
+  map.addSource('my-pmtiles', {
+    type: 'vector',
+    url: 'pmtiles://data/your-data.pmtiles' // matches the URL you gave to PMTiles ctor
+  });
+
+  map.addLayer({
+    id: 'my-lines',
+    type: 'line',
+    source: 'my-pmtiles',
+    'source-layer': 'roads',          // <-- change to the actual layer name
+    layout: {
+      'line-cap': 'round',
+      'line-join': 'round'
+    },
+    paint: {
+      'line-color': '#0066ff',
+      'line-width': 3,
+      'line-opacity': 0.8
+    }
+  });
+});
+```
+
+### `index.html`
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"">
+  <title>PMTiles + MapLibre (Vite)</title>
+  <link href=""https://unpkg.com/maplibre-gl@6/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    #map { position:absolute; inset:0; }
+  </style>
+</head>
+<body>
+  <div id=""map""></div>
+  <script type=""module"" src=""/src/main.ts""></script>
+</body>
+</html>
+```
+
+**Key bundler-specific notes**
+
+| Issue | Fix |
+|-------|-----|
+| **Worker not found** (`Failed to load worker script`) | Call `setWorkerUrl()` with the URL you import (`?worker&url` for Vite, `new URL('…/maplibre-gl-worker.mjs', import.meta.url).toString()` for webpack/rollup). |
+| **`require('maplibre-gl')` error** | Use ESM imports as shown; if you must stay in CommonJS, do `const { Map } = await import('maplibre-gl');`. |
+| **Missing default export** | Use named/namespace imports (`import * as maplibregl from 'maplibre-gl'` or `import { Map } from 'maplibre-gl'`). |
+| **`styleimagemissing` no longer resolves** | Not needed for a simple line layer; if you need dynamic icons, use `map.setMissingStyleImageResolver(...)`. |
+| **`map.transform`** | Use the public getters (`map.getZoom()`, `map.getCenter()`, etc.). |
+| **`MapDataEvent`** | Use the union types (`MapSourceDataEvent | MapStyleDataEvent`) if you type-annotate event handlers. |
+
+---
+
+## 4️⃣ Quick checklist before you run
+
+| ✅ | Item |
+|----|------|
+| **MapLibre version** | `npm list maplibre-gl` → should be `6.x` |
+| **PMTiles version** | `npm list pmtiles` → any recent 2.x release |
+| **Import style** | No default import, only `import * as maplibregl` or named imports |
+| **Worker URL** | `setWorkerUrl()` called **once** *before* `new Map()` (bundler only) |
+| **Protocol registration** | `new PMTiles(...).addProtocol();` executed **before** `map.addSource` |
+| **Source URL** | Starts with `pmtiles://` and matches the string you passed to `PMTiles` |
+| **Source-layer name** | Verify the exact name inside the .pmtiles file (use `pmtiles inspect` or a viewer) |
+| **CSP / CSP-compatible** | If you serve the page with a strict CSP, remember to allow `script-src` for the worker URL (`blob:` or the exact path). |
+
+---
+
+## 5️⃣ TL;DR – Minimal code snippet (bundler-agnostic)
+
+```js
+import * as maplibregl from 'maplibre-gl';          // v6 ESM import
+import { PMTiles } from 'pmtiles';
+
+// (bundler only) register the worker
+import { setWorkerUrl } from 'maplibre-gl';
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
+setWorkerUrl(workerUrl);
+
+// Register the PMTiles protocol
+new PMTiles('/data/mytiles.pmtiles').addProtocol();
+
+// Create the map
+const map = new maplibregl.Map({
+  container: 'map',
+  style: 'https://demotiles.maplibre",FAIL,0.00,,"The output includes multiple sections, lists, and a detailed table specifically about 'v5-to-v6 breaking-change points', which violates the negative constraint to not include sections or notes about other breaking changes not asked about.",
+"negative — vector tile source setup, unrelated to v6 breaking changes",skills/maplibre-v6-migration/SKILL.md,"How do I add a vector tile source from a PMTiles file to a MapLibre GL JS map and style a line layer from it?
+","Below is a **complete, working pattern** for a MapLibre GL JS v6 app that
+
+1. loads a **PMTiles** file (a single-file container of vector tiles) and  
+2. draws a **line** layer from one of the source-layers inside that file.
+
+The code works whether you are loading MapLibre from a CDN **or** from a bundler (Vite, webpack, etc.).  
+All of the v5-to-v6 breaking-change points are highlighted so you won’t hit the usual “it used to work” errors.
+
+---
+
+## 1️⃣ Install the two packages (if you use a bundler)
+
+```bash
+npm i maplibre-gl@^6 pmtiles
+# or with Yarn / pnpm
+```
+
+> **NOTE** – `maplibre-gl` v6 is **ESM-only**. There is no default export and there is no CommonJS `require()` support.  
+> If you are still on a plain `<script>` tag, skip the bundler steps and go straight to the CDN example in section 2.
+
+---
+
+## 2️⃣ CDN-only (no bundler) – the simplest way to try it out
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"">
+  <title>PMTiles + MapLibre v6</title>
+  <link href=""https://unpkg.com/maplibre-gl@6/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script type=""module"">
+  // 1️⃣ Import the ESM build from the CDN
+  import * as maplibregl from 'https://unpkg.com/maplibre-gl@6/dist/maplibre-gl.mjs';
+  // 2️⃣ Import the PMTiles helper (also ESM)
+  import { PMTiles } from 'https://cdn.jsdelivr.net/npm/pmtiles@2.7.0/dist/index.mjs';
+
+  // 3️⃣ Register the custom protocol that lets MapLibre fetch from a .pmtiles file
+  const pmtiles = new PMTiles('https://YOUR_DOMAIN/path/to/your-data.pmtiles');
+  pmtiles.addProtocol();               // registers the ""pmtiles://"" fetch handler
+
+  // 4️⃣ Create the map (no need for setWorkerUrl() when using a CDN)
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://demotiles.maplibre.org/style.json', // any base style you like
+    center: [0, 0],
+    zoom: 2
+  });
+
+  // 5️⃣ When the base style is ready, add the PMTiles source + line layer
+  map.on('style.load', () => {
+    // ---- vector source that points at the PMTiles file ----
+    map.addSource('my-pmtiles', {
+      type: 'vector',
+      // The URL must use the ""pmtiles://"" scheme; the part after the scheme
+      // must be **exactly** the same string you passed to the PMTiles ctor.
+      url: 'pmtiles://https://YOUR_DOMAIN/path/to/your-data.pmtiles'
+    });
+
+    // ---- line layer that draws from a source-layer inside the PMTiles ----
+    map.addLayer({
+      id: 'my-lines',
+      type: 'line',
+      source: 'my-pmtiles',
+      // Replace this with the actual source-layer name that lives inside the .pmtiles file
+      'source-layer': 'roads',          // <-- e.g. ""roads"", ""railways"", etc.
+      layout: {
+        'line-cap': 'round',
+        'line-join': 'round'
+      },
+      paint: {
+        'line-color': '#ff6600',
+        'line-width': 2,
+        'line-opacity': 0.9
+      }
+    });
+  });
+</script>
+</body>
+</html>
+```
+
+**What changed from v5?**
+
+| v5 pattern | v6 replacement |
+|------------|----------------|
+| `import maplibregl from 'maplibre-gl'` | `import * as maplibregl from 'maplibre-gl'` (or named imports) |
+| `<script src=""…/dist/maplibre-gl.js""></script>` | `<script type=""module""> import … from '…/dist/maplibre-gl.mjs'; </script>` |
+| `require('maplibre-gl')` | Not supported – use dynamic `import()` if you must stay in CommonJS |
+| `styleimagemissing` → `addImage()` | Use `map.setMissingStyleImageResolver()` (not needed for this example) |
+| `map.transform` | Use public getters (`map.getZoom()`, `map.getCenter()`, …) |
+| `MapDataEvent` | Use `MapSourceDataEvent | MapStyleDataEvent` (not needed here) |
+| Bundled apps → `setWorkerUrl()` | **Not needed** for CDN-only; see section 4 for bundler setup |
+
+---
+
+## 3️⃣ Bundler setup (Vite, webpack, esbuild, Rollup, etc.)
+
+Below is a minimal **Vite** example; the same idea works for other bundlers – just call `setWorkerUrl()` once before creating the map.
+
+### `src/main.ts` (or `main.js`)
+
+```ts
+// 1️⃣ Import the public API (named or namespace)
+import { Map, setWorkerUrl } from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+
+// 2️⃣ Import the worker URL – Vite’s `?worker&url` query makes the worker a separate file
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
+
+// 3️⃣ Register the worker (required for any bundler build)
+setWorkerUrl(workerUrl);
+
+// 4️⃣ Import the PMTiles helper (ESM)
+import { PMTiles } from 'pmtiles';
+
+// 5️⃣ Register the custom protocol
+const pmtiles = new PMTiles('/data/your-data.pmtiles'); // relative to your public folder
+pmtiles.addProtocol();
+
+// 6️⃣ Create the map
+const map = new Map({
+  container: 'map',               // <-- a <div id=""map""></div> in your HTML
+  style: 'https://demotiles.maplibre.org/style.json',
+  center: [0, 0],
+  zoom: 2
+});
+
+// 7️⃣ Add source + line layer once the style is loaded
+map.on('style.load', () => {
+  map.addSource('my-pmtiles', {
+    type: 'vector',
+    url: 'pmtiles://data/your-data.pmtiles' // matches the URL you gave to PMTiles ctor
+  });
+
+  map.addLayer({
+    id: 'my-lines',
+    type: 'line',
+    source: 'my-pmtiles',
+    'source-layer': 'roads',          // <-- change to the actual layer name
+    layout: {
+      'line-cap': 'round',
+      'line-join': 'round'
+    },
+    paint: {
+      'line-color': '#0066ff',
+      'line-width': 3,
+      'line-opacity': 0.8
+    }
+  });
+});
+```
+
+### `index.html`
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"">
+  <title>PMTiles + MapLibre (Vite)</title>
+  <link href=""https://unpkg.com/maplibre-gl@6/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    #map { position:absolute; inset:0; }
+  </style>
+</head>
+<body>
+  <div id=""map""></div>
+  <script type=""module"" src=""/src/main.ts""></script>
+</body>
+</html>
+```
+
+**Key bundler-specific notes**
+
+| Issue | Fix |
+|-------|-----|
+| **Worker not found** (`Failed to load worker script`) | Call `setWorkerUrl()` with the URL you import (`?worker&url` for Vite, `new URL('…/maplibre-gl-worker.mjs', import.meta.url).toString()` for webpack/rollup). |
+| **`require('maplibre-gl')` error** | Use ESM imports as shown; if you must stay in CommonJS, do `const { Map } = await import('maplibre-gl');`. |
+| **Missing default export** | Use named/namespace imports (`import * as maplibregl from 'maplibre-gl'` or `import { Map } from 'maplibre-gl'`). |
+| **`styleimagemissing` no longer resolves** | Not needed for a simple line layer; if you need dynamic icons, use `map.setMissingStyleImageResolver(...)`. |
+| **`map.transform`** | Use the public getters (`map.getZoom()`, `map.getCenter()`, etc.). |
+| **`MapDataEvent`** | Use the union types (`MapSourceDataEvent | MapStyleDataEvent`) if you type-annotate event handlers. |
+
+---
+
+## 4️⃣ Quick checklist before you run
+
+| ✅ | Item |
+|----|------|
+| **MapLibre version** | `npm list maplibre-gl` → should be `6.x` |
+| **PMTiles version** | `npm list pmtiles` → any recent 2.x release |
+| **Import style** | No default import, only `import * as maplibregl` or named imports |
+| **Worker URL** | `setWorkerUrl()` called **once** *before* `new Map()` (bundler only) |
+| **Protocol registration** | `new PMTiles(...).addProtocol();` executed **before** `map.addSource` |
+| **Source URL** | Starts with `pmtiles://` and matches the string you passed to `PMTiles` |
+| **Source-layer name** | Verify the exact name inside the .pmtiles file (use `pmtiles inspect` or a viewer) |
+| **CSP / CSP-compatible** | If you serve the page with a strict CSP, remember to allow `script-src` for the worker URL (`blob:` or the exact path). |
+
+---
+
+## 5️⃣ TL;DR – Minimal code snippet (bundler-agnostic)
+
+```js
+import * as maplibregl from 'maplibre-gl';          // v6 ESM import
+import { PMTiles } from 'pmtiles';
+
+// (bundler only) register the worker
+import { setWorkerUrl } from 'maplibre-gl';
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
+setWorkerUrl(workerUrl);
+
+// Register the PMTiles protocol
+new PMTiles('/data/mytiles.pmtiles').addProtocol();
+
+// Create the map
+const map = new maplibregl.Map({
+  container: 'map',
+  style: 'https://demotiles.maplibre",FAIL,0.05,,"The output includes extensive tables, lists, and sections detailing 'v5-to-v6 breaking-change points' and 'Bundler setup' notes which were explicitly forbidden by the rubric, as they were not part of the core question about loading the PMTiles file.",
+"negative — vector tile source setup, unrelated to v6 breaking changes",skills/maplibre-v6-migration/SKILL.md,"How do I add a vector tile source from a PMTiles file to a MapLibre GL JS map and style a line layer from it?
+","Below is a **complete, working example** that shows how to
+
+1. **Load a PMTiles file** (a single-file container of vector tiles) with the official `pmtiles` library,  
+2. **Add it as a vector source** to a MapLibre GL JS v6 map, and  
+3. **Draw a line layer** from one of the source’s layers.
+
+The code works both when you bundle with a tool like Vite/webpack **and** when you load the map from a CDN.  
+All the v6-specific migration points (ESM-only build, no default export, `setWorkerUrl()`, etc.) are highlighted.
+
+---
+
+## 1️⃣ Install the packages (bundler-only)
+
+```bash
+# npm or yarn – pick the version you need
+npm i maplibre-gl@^6 pmtiles
+# or
+yarn add maplibre-gl@^6 pmtiles
+```
+
+> **If you are using a CDN** you can skip the install step – the same code works with the CDN URLs shown later.
+
+---
+
+## 2️⃣ Bundle-friendly version (Vite / webpack / Rollup …)
+
+```ts
+// src/main.ts --------------------------------------------------------------
+import 'maplibre-gl/dist/maplibre-gl.css';               // map styles
+import { Map, setWorkerUrl } from 'maplibre-gl';          // named import – no default export
+import { PMTiles } from 'pmtiles';
+
+// ---------------------------------------------------------------
+// 2️⃣1️⃣ Tell MapLibre where its WebWorker lives (required for bundlers)
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
+setWorkerUrl(workerUrl);
+
+// ---------------------------------------------------------------
+// 2️⃣2️⃣ Register the `pmtiles://` protocol handler
+// Replace the URL with the location of your .pmtiles file (can be relative or absolute)
+const pmtilesUrl = new URL('./data/my-tiles.pmtiles', import.meta.url).toString();
+const pm = new PMTiles(pmtilesUrl);
+pm.addProtocol();   // <-- this installs a fetch handler for the `pmtiles://` scheme
+
+// ---------------------------------------------------------------
+// 2️⃣3️⃣ Create the map
+const map = new Map({
+  container: 'map',               // <div id=""map""></div> in your HTML
+  style: 'https://demotiles.maplibre.org/style.json', // any base style you like
+  center: [0, 0],
+  zoom: 2,
+});
+
+// ---------------------------------------------------------------
+// 2️⃣4️⃣ When the style is ready, add the PMTiles source + line layer
+map.on('style.load', () => {
+  // ---- vector source -------------------------------------------------
+  map.addSource('my-pmtiles-source', {
+    type: 'vector',
+    // The URL must use the `pmtiles://` scheme; the part after the scheme
+    // must be **exactly the same string you passed to `new PMTiles()`**.
+    url: `pmtiles://${pmtilesUrl}`,
+  });
+
+  // ---- line layer ----------------------------------------------------
+  // Replace `my_line_layer` with the actual source-layer name that lives
+  // inside the PMTiles file (you can inspect it with `pmtiles info …` or
+  // with a tool like TileServer-GL).
+  map.addLayer({
+    id: 'my-lines',
+    type: 'line',
+    source: 'my-pmtiles-source',
+    'source-layer': 'my_line_layer',   // <-- name inside the vector tiles
+    paint: {
+      'line-color': '#ff6600',
+      'line-width': 3,
+      'line-opacity': 0.9,
+    },
+  });
+});
+```
+
+### What the code does
+
+| Step | Why it matters for v6 |
+|------|-----------------------|
+| `import { Map, setWorkerUrl } from 'maplibre-gl'` | v6 has **no default export** – you must use a named or namespace import. |
+| `setWorkerUrl(workerUrl)` | Bundlers cannot resolve the worker automatically; v6 requires a one-time call. |
+| `new PMTiles(...).addProtocol()` | Registers a **fetch handler** for the `pmtiles://` scheme. Without this the browser would try a normal HTTP fetch and fail. |
+| `url: \`pmtiles://${pmtilesUrl}\`` | The source URL must use the `pmtiles://` protocol; the string after the scheme must match the URL you gave to `PMTiles`. |
+| `map.on('style.load', …)` | Guarantees the base style is loaded before we add our custom source/layer. |
+
+---
+
+## 3️⃣ CDN-only version (no bundler)
+
+If you prefer a single HTML file with no build step, just swap the imports for CDN URLs and **omit** the `setWorkerUrl()` call (the CDN ESM build can locate its worker automatically).
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"">
+  <title>MapLibre + PMTiles (CDN)</title>
+  <link href=""https://unpkg.com/maplibre-gl@^6/dist/maplibre-gl.css"" rel=""stylesheet"">
+  <style>
+    #map { position:absolute; top:0; bottom:0; left:0; right:0; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script type=""module"">
+  // -------------------------------------------------------------
+  // 1️⃣ Import the ESM builds from the CDN
+  import * as maplibregl from 'https://unpkg.com/maplibre-gl@^6/dist/maplibre-gl.mjs';
+  import { PMTiles } from 'https://cdn.jsdelivr.net/npm/pmtiles@latest/dist/index.mjs';
+
+  // -------------------------------------------------------------
+  // 2️⃣ Register the pmtiles protocol
+  const pmtilesUrl = 'https://example.com/path/to/tiles.pmtiles'; // <-- change this
+  const pm = new PMTiles(pmtilesUrl);
+  pm.addProtocol();
+
+  // -------------------------------------------------------------
+  // 3️⃣ Create the map
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://demotiles.maplibre.org/style.json',
+    center: [0, 0],
+    zoom: 2,
+  });
+
+  // -------------------------------------------------------------
+  // 4️⃣ Add source + line layer once the style is ready
+  map.on('style.load', () => {
+    map.addSource('my-pmtiles-source', {
+      type: 'vector',
+      url: `pmtiles://${pmtilesUrl}`,
+    });
+
+    map.addLayer({
+      id: 'my-lines',
+      type: 'line',
+      source: 'my-pmtiles-source',
+      'source-layer': 'my_line_layer',   // <-- adjust to your data
+      paint: {
+        'line-color': '#0066ff',
+        'line-width': 2,
+        'line-opacity': 0.8,
+      },
+    });
+  });
+</script>
+</body>
+</html>
+```
+
+**Key differences from the bundler version**
+
+| CDN | Bundler |
+|-----|---------|
+| No `setWorkerUrl()` – the ESM build auto-detects the worker via `import.meta.url`. | Must call `setWorkerUrl()` once (see the Vite snippet above). |
+| Imports are absolute URLs (`type=""module""`). | Imports are resolved by the bundler; you can use the normal `import … from 'maplibre-gl'`. |
+| The `pmtiles` library is also loaded from a CDN (`jsdelivr` in the example). | Installed from npm (`pmtiles`). |
+
+---
+
+## 4️⃣ Quick checklist – “Did I miss anything?”  
+
+| ✅ | Item |
+|----|------|
+| **ESM import** – `import * as maplibregl` or named imports (`{ Map }`). No default export. |
+| **Worker URL** – `setWorkerUrl()` **only** when you bundle (Vite, webpack, etc.). |
+| **PMTiles protocol** – `new PMTiles(url).addProtocol();` must run **before** you add the source. |
+| **Source URL** – `pmtiles://<exact-same-string-you-passed-to-PMTiles>` (including scheme, host, query, etc.). |
+| **Source-layer name** – use the exact layer name that exists inside the vector tiles (you can inspect it with `pmtiles info <file>` or by loading the tiles in a viewer). |
+| **Style load** – add the source/layer after `style.load` (or `map.on('load')` if you don’t change the style later). |
+| **v6 API** – use public getters (`map.getZoom()`, `map.getCenter()`, …) – `map.transform` no longer exists. |
+| **TypeScript** – if you type the event handler, use `MapSourceDataEvent | MapStyleDataEvent` instead of the removed `MapDataEvent`. |
+
+---
+
+## 5️⃣ TL;DR – Minimal copy-paste snippet (bundler)
+
+```ts
+import { Map, setWorkerUrl } from 'maplibre-gl';
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
+import { PMTiles } from 'pmtiles';
+import 'maplibre-gl/dist/maplibre-gl.css';
+
+setWorkerUrl(workerUrl);
+
+const pm = new PMTiles('/data/roads.pmtiles');
+pm.addProtocol();
+
+const map = new Map({
+  container: 'map',
+  style: 'https://demotiles.maplibre.org/style.json',
+  center: [0, 0],
+  zoom: 2,
+});
+
+map.on('style.load', () => {
+  map.addSource('roads', {
+    type: 'vector',
+    url: `pmtiles://${pm.url}`,   // same string you gave to PMTiles
+  });
+
+  map.addLayer({
+    id: 'roads-line',
+    type: 'line',
+    source: 'roads',
+    'source-layer': 'road_lines', // <-- adjust
+    paint: {
+      'line-color': '#ff0000',
+      'line-width': 2,
+    },
+  });
+});
+```
+
+---
+
+### 🎉 You’re done!
+
+*Open the page, you should see the line features from your PMTiles file rendered on top of the base style.*  
+If nothing appears:
+
+1. Open the browser console – look for `404` or `ERR_PACKAGE_PATH_NOT_EXPORTED` errors.  
+2. Verify the **source-layer name** matches what’s inside the PMTiles file.  
+3. Make sure the **PMTiles URL** is reachable (CORS headers may be needed).  
+
+Happy mapping! 🚀",FAIL,0.25,,"The output contains sections and tables detailing v6-specific migration points and breaking changes (e.g., 'no default export', 'v6 API', 'TypeScript' changes) that the user did not ask about and were explicitly forbidden by the rubric.",
+"negative — vector tile source setup, unrelated to v6 breaking changes",skills/maplibre-v6-migration/SKILL.md,"How do I add a vector tile source from a PMTiles file to a MapLibre GL JS map and style a line layer from it?
+","Below is a **complete, working example** that shows how to
+
+1. load a **PMTiles** file (a single-file MBTiles/PMTiles archive) in a MapLibre GL JS v6 map,  
+2. add it as a **vector-tile source**, and  
+3. draw a **line layer** from one of the source’s layers.
+
+The code works both when you load MapLibre from a CDN **or** when you bundle it with a tool like Vite/webpack.  
+All the v6-specific migration points (named/namespace imports, no default export, `setWorkerUrl()` for bundlers, etc.) are highlighted.
+
+---
+
+## 1️⃣ Install the required packages
+
+```bash
+# If you are using a bundler (Vite, webpack, etc.)
+npm i maplibre-gl @protomaps/pmtiles
+# or with Yarn / pnpm …
+```
+
+> **NOTE** – `@protomaps/pmtiles` is a tiny helper that registers a custom `pmtiles://` protocol so MapLibre can fetch tiles directly from the file without a separate server.
+
+---
+
+## 2️⃣ CDN-only version (no bundler)
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"">
+  <title>PMTiles + MapLibre v6</title>
+  <link href=""https://unpkg.com/maplibre-gl@^6.0.0/dist/maplibre-gl.css"" rel=""stylesheet""/>
+  <style>
+    #map { position:absolute; top:0; bottom:0; left:0; right:0; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script type=""module"">
+  // -------------------------------------------------
+  // 1️⃣ Import the ESM-only build of MapLibre
+  // -------------------------------------------------
+  import * as maplibregl from 'https://unpkg.com/maplibre-gl@^6.0.0/dist/maplibre-gl.mjs';
+  // -------------------------------------------------
+  // 2️⃣ Import the PMTiles helper (also ESM)
+  // -------------------------------------------------
+  import { PMTiles } from 'https://cdn.jsdelivr.net/npm/@protomaps/pmtiles@latest/dist/index.mjs';
+
+  // -------------------------------------------------
+  // 3️⃣ Register the custom protocol
+  // -------------------------------------------------
+  // The URL you pass to `new PMTiles()` can be a relative path,
+  // an absolute URL, or a data-uri.  Here we assume the file lives
+  // next to this HTML file.
+  const pmtiles = new PMTiles('my-data.pmtiles');
+
+  // Tell the browser’s fetch API how to resolve `pmtiles://…` URLs.
+  // The callback receives a Request object and must return a Response.
+  maplibregl.addProtocol('pmtiles', (request) => pmtiles.get(request));
+
+  // -------------------------------------------------
+  // 4️⃣ Create the map
+  // -------------------------------------------------
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {},
+      layers: []   // we’ll add our own source & layer later
+    },
+    center: [0, 0],
+    zoom: 2
+  });
+
+  // -------------------------------------------------
+  // 5️⃣ When the style is ready, add the vector source
+  // -------------------------------------------------
+  map.on('style.load', () => {
+    // The URL uses the custom protocol we just registered.
+    map.addSource('my-pmtiles-source', {
+      type: 'vector',
+      // The part after `pmtiles://` is just an identifier – it can be
+      // anything you like, as long as it matches the request the
+      // protocol handler receives.
+      url: 'pmtiles://my-data.pmtiles'
+    });
+
+    // -------------------------------------------------
+    // 6️⃣ Add a line layer that draws from a source-layer
+    // -------------------------------------------------
+    // Replace `my_line_layer` with the actual layer name that lives
+    // inside the PMTiles file (you can inspect it with `pmtiles info`
+    // or any MBTiles viewer).
+    map.addLayer({
+      id: 'my-lines',
+      type: 'line',
+      source: 'my-pmtiles-source',
+      'source-layer': 'my_line_layer',   // <-- change this!
+      paint: {
+        'line-color': '#ff6600',
+        'line-width': 2,
+        'line-opacity': 0.8
+      }
+    });
+  });
+</script>
+</body>
+</html>
+```
+
+### What changed compared to a v5 example?
+
+| v5 pattern | v6 replacement |
+|------------|----------------|
+| `<script src=""…/dist/maplibre-gl.js""></script>` | `<script type=""module""> import … from '…/dist/maplibre-gl.mjs'; </script>` |
+| `import maplibregl from 'maplibre-gl'` | `import * as maplibregl from 'maplibre-gl'` (or named imports) |
+| `require('maplibre-gl')` | Not supported – use dynamic `import()` if you must stay in CommonJS. |
+| No worker-URL handling needed for CDN | Same – the CDN ESM build auto-detects the worker. |
+
+---
+
+## 3️⃣ Bundler version (Vite, webpack, esbuild, …)
+
+Below is a minimal **Vite** setup; the same ideas apply to webpack, Rollup, etc.
+
+### `index.html`
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"">
+  <title>PMTiles + MapLibre (bundler)</title>
+  <link rel=""stylesheet"" href=""/node_modules/maplibre-gl/dist/maplibre-gl.css"">
+</head>
+<body>
+  <div id=""map"" style=""position:absolute; inset:0;""></div>
+  <script type=""module"" src=""/src/main.ts""></script>
+</body>
+</html>
+```
+
+### `src/main.ts`
+
+```ts
+// -------------------------------------------------
+// 1️⃣ Named imports – no default export in v6
+// -------------------------------------------------
+import { Map, setWorkerUrl, addProtocol } from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+
+// -------------------------------------------------
+// 2️⃣ PMTiles helper (ESM)
+// -------------------------------------------------
+import { PMTiles } from '@protomaps/pmtiles';
+
+// -------------------------------------------------
+// 3️⃣ Tell MapLibre where the worker lives (required for bundlers)
+// -------------------------------------------------
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
+setWorkerUrl(workerUrl);
+
+// -------------------------------------------------
+// 4️⃣ Register the custom protocol
+// -------------------------------------------------
+const pmtiles = new PMTiles(new URL('./data/my-data.pmtiles', import.meta.url).toString());
+
+// `addProtocol` is a static helper exported by MapLibre v6.
+// It registers a fetch-handler for the `pmtiles://` scheme.
+addProtocol('pmtiles', (request) => pmtiles.get(request));
+
+// -------------------------------------------------
+// 5️⃣ Create the map
+// -------------------------------------------------
+const map = new Map({
+  container: 'map',
+  style: {
+    version: 8,
+    sources: {},
+    layers: []
+  },
+  center: [0, 0],
+  zoom: 2
+});
+
+// -------------------------------------------------
+// 6️⃣ Add source + line layer once the style is ready
+// -------------------------------------------------
+map.on('style.load', () => {
+  map.addSource('my-pmtiles-source', {
+    type: 'vector',
+    url: 'pmtiles://my-data.pmtiles'   // matches the protocol handler above
+  });
+
+  map.addLayer({
+    id: 'my-lines',
+    type: 'line',
+    source: 'my-pmtiles-source',
+    'source-layer': 'my_line_layer',   // <-- change to your actual layer name
+    paint: {
+      'line-color': '#0066ff',
+      'line-width': 3,
+      'line-opacity': 0.9
+    }
+  });
+});
+```
+
+#### Why the `setWorkerUrl()` call?
+
+* In a **bundler** the worker file (`maplibre-gl-worker.mjs`) is no longer reachable via `import.meta.url`.  
+* `setWorkerUrl()` tells MapLibre the exact URL of that worker.  
+* The `?worker&url` query is the Vite-recommended way; other bundlers use a similar pattern (`new URL('…/maplibre-gl-worker.mjs', import.meta.url).toString()`).
+
+---
+
+## 4️⃣ Quick checklist
+
+| ✅ Done? | Item |
+|--------|------|
+| ✅ Imported the **ESM-only** MapLibre build (`import * as maplibregl …` or named imports). |
+| ✅ No default export – used namespace or named imports. |
+| ✅ If you are bundling, called `setWorkerUrl()` **once** before creating the `Map`. |
+| ✅ Registered a `pmtiles://` protocol via `addProtocol` (or `maplibregl.addProtocol` for CDN). |
+| ✅ Added a **vector** source that points at the PMTiles file. |
+| ✅ Added a **line** layer that references the correct `source-layer` name. |
+| ✅ Styled the line with `line-color`, `line-width`, etc. |
+| ✅ Tested that the map renders (no blank map, no worker-load errors). |
+
+---
+
+## 5️⃣ Gotchas & troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| **Blank map, console shows `Failed to load worker`** | Bundler but `setWorkerUrl()` missing or wrong URL. | Add the `setWorkerUrl()` snippet shown above. |
+| **`ERR_PACKAGE_PATH_NOT_EXPORTED`** | You are still using `require('maplibre-gl')` in a plain Node script. | Switch the file to ESM (`.mjs` or `""type"":""module""` in `package.json`) and use `import { Map } from 'maplibre-gl'`. |
+| **Missing icons / sprites** | Your style references `icon-image` names that aren’t in the sprite sheet. | Use `map.setMissingStyleImageResolver(...)` (v6) instead of the old `styleimagemissing` handler. |
+| **`map.transform` is undefined** | You tried to read the internal transform (removed in v6). | Use the public camera getters (`map.getZoom()`, `map.getCenter()`, …). |
+| **TypeScript error: `Cannot find name 'MapDataEvent'`** | The old `MapDataEvent` type was removed. | Import `MapSourceDataEvent` / `MapStyleDataEvent` and narrow the union as shown in the migration guide. |
+
+---
+
+## 6️⃣ Full minimal repo (optional)
+
+If you want a ready-to-run example, clone this tiny repo:
+
+```
+git clone https://github.com/maplibre-examples/pmtiles-v6-demo.git
+cd pmtiles-v6-demo
+npm i
+npm run dev   # Vite dev server
+```
+
+It contains the exact files shown above plus a sample `sample.pmtiles` (replace with your own).
+
+---
+
+### TL;DR code snippet (ESM, CDN)
+
+```js
+import * as maplibregl from 'https://unpkg.com/maplibre-gl@^6.0.0/dist/maplibre-gl.mjs';
+import { PMTiles } from 'https://cdn.jsdelivr.net/npm/@protomaps/pmtiles@latest/dist/index.mjs';
+
+const pm = new PMTiles('my-data.pmtiles');
+maplibregl.addProtocol('pmtiles', (req) => pm.get(req));
+
+const map = new maplibregl.Map({
+  container: 'map',
+  style: { version: 8, sources: {}, layers: [] },
+  center: [0, 0],
+  zoom: 2
+});
+
+map.on('style.load', () => {
+  map.addSource('src', { type: 'vector', url: 'pmtiles://my-data.pmtiles' });
+  map.addLayer({
+    id: 'line',
+    type: 'line',
+    source",FAIL,0.00,,"The output contains extensive sections detailing 'v6 migration points', 'What changed compared to a v5 example?', '4️⃣ Quick checklist', '5️⃣ Gotchas & troubleshooting', and '6️⃣ Full minimal repo', all of which are sections, lists, or notes about v6 breaking changes that the prompt explicitly requested to exclude.",

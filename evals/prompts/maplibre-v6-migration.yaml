@@ -22,15 +22,15 @@ tests:
     assert:
       - type: icontains
         value: '<script type="module"'
-      - type: not-icontains
-        value: '/dist/maplibre-gl.js'
       - type: llm-rubric
         value: >
           States or implies that v6 dropped the UMD bundle and the CSP build,
           so a plain `<script src=".../dist/maplibre-gl.js">` tag no longer
           works. The working example loads the ESM build
           (dist/maplibre-gl.mjs) from a `<script type="module">` and pins an
-          explicit major version rather than @latest.
+          explicit major version rather than @latest. Must NOT present a
+          `dist/maplibre-gl.js` script tag as the working answer; it may
+          appear only as an explicitly labeled pre-v6 example.
 
   - description: implicit — convert a Mapbox import to MapLibre (default export removed)
     vars:
@@ -73,8 +73,11 @@ tests:
         value: 'setMissingStyleImageResolver'
       - type: llm-rubric
         value: >
-          Recommends `map.setMissingStyleImageResolver()` as the mechanism.
-          Does not present listening for `styleimagemissing` and calling
+          Recommends `map.setMissingStyleImageResolver()` as the mechanism,
+          with a resolver that calls `map.addImage()` itself (directly or
+          after awaiting a load). Must NOT present returning the image from
+          the resolver as what supplies it: MapLibre ignores the resolver's
+          return value. Does not present listening for `styleimagemissing` and calling
           `map.addImage()` synchronously from inside the handler as sufficient
           on its own — in v6 that event is notify-only and no longer resolves
           the pending request.
@@ -139,9 +142,17 @@ tests:
         How do I add a vector tile source from a PMTiles file to a MapLibre GL
         JS map and style a line layer from it?
     assert:
+      - type: not-icontains
+        value: 'setMissingStyleImageResolver'
+      - type: not-icontains
+        value: 'map.transform'
+      - type: not-icontains
+        value: 'MapDataEvent'
       - type: llm-rubric
         value: >
-          Answers the PMTiles vector source question directly (protocol
-          registration, source/layer JSON) without pivoting to v6 migration
-          topics like ESM imports, setMissingStyleImageResolver, or
-          map.transform, none of which are relevant to this question.
+          Answers the PMTiles vector source question directly: registers the
+          pmtiles protocol, adds a vector source from the file, and adds a
+          line layer from it. Its code may use v6 imports, a v6 CDN URL, and
+          `setWorkerUrl()` in a bundler setup. Must NOT add a section, table,
+          list or note about migrating from v5, or about v6 changes its code
+          does not use.

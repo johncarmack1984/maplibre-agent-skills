@@ -1,0 +1,1299 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+explicit — GeoJSON vs tiles decision for a real scenario,skills/maplibre-tile-sources/SKILL.md,"I have about 8,000 hiking trail segments stored as GeoJSON, and users need to click a trail to see its name and distance. I also need a basemap showing terrain and roads. How should I set up the data sources in MapLibre — do I need vector tiles, or can I use GeoJSON?
+","**Short answer**
+
+*You can start with a plain `geojson` source for the 8 000 trail segments and a hosted vector-basemap (terrain + roads) as a second source.*  
+If you notice a noticeable pause when the map first loads, or if the trails are very detailed (many vertices per segment), switch the trails to a small vector-tile set generated with **tippecanoe** (or **Planetiler**) – but you don’t need a tile server just to make the map work.
+
+Below is a step-by-step guide, the “why” behind each decision, and the “what-if” path for later scaling.
+
+---
+
+## 1. Why GeoJSON is fine for ~8 000 trail segments
+
+| Metric | Typical range for 8 000 trail segments | What the spec says |
+|--------|----------------------------------------|--------------------|
+| **Feature count** | 8 000 (≈ 1.6 × the “sweet-spot” limit of 5 000) | Still well inside the “lag zone” (≤ 50 000) |
+| **File size** (after modest simplification) | 2 – 5 MB | Below the 20 MB “lag zone” ceiling; browsers usually parse this in < 2 s on desktop and < 4 s on modern mobiles |
+| **Interactivity needed** | Click → name & distance | GeoJSON gives you the full feature properties client-side, no extra server round-trip |
+
+**Result:**  
+- One HTTP request for the GeoJSON file.  
+- No tile infrastructure to set up.  
+- Full access to every property for pop-ups, filtering, editing, etc.
+
+If you later find the initial load is > 3 s on your target devices, you can **simplify** the geometries (reduce vertex count) or **move to vector tiles** – the switch is painless because the rest of the style stays the same.
+
+---
+
+## 2. Recommended source layout (two-source pattern)
+
+| Source name | Type | What it holds | Where it comes from |
+|-------------|------|---------------|---------------------|
+| `basemap`   | `vector` | Terrain DEM + road & label layers (e.g. OpenMapTiles, MapTiler, OpenFreeMap) | Use a **style URL** or a **TileJSON** vector source |
+| `trails`    | `geojson` | Your 8 000 trail segments (LineString or MultiLineString) | Inline object **or** a static file (`/data/trails.geojson`) |
+
+### Example style snippet (JSON)
+
+```json
+{
+  ""version"": 8,
+  ""sources"": {
+    ""basemap"": {
+      ""type"": ""vector"",
+      ""url"": ""https://api.maptiler.com/maps/streets-v2/style.json?key=YOUR_KEY""
+    },
+    ""trails"": {
+      ""type"": ""geojson"",
+      ""data"": ""/data/trails.geojson""
+    }
+  },
+  ""layers"": [
+    /* 1️⃣ Terrain & background layers from the basemap style – keep them first */
+    /* (you can just use the whole hosted style and then insert your own layers) */
+
+    /* 2️⃣ Insert your trail line layer *before* the first symbol layer so labels stay on top */
+    {
+      ""id"": ""trails-line"",
+      ""type"": ""line"",
+      ""source"": ""trails"",
+      ""paint"": {
+        ""line-color"": ""#ff7f00"",
+        ""line-width"": 3
+      }
+    },
+
+    /* 3️⃣ Optional: a line-halo for better contrast on bright basemaps */
+    {
+      ""id"": ""trails-line-halo"",
+      ""type"": ""line"",
+      ""source"": ""trails"",
+      ""paint"": {
+        ""line-color"": ""#ffffff"",
+        ""line-width"": 5,
+        ""line-opacity"": 0.4
+      }
+    },
+
+    /* 4️⃣ Click-able point layer for pop-ups (if you want a marker at the trail start) */
+    {
+      ""id"": ""trails-points"",
+      ""type"": ""circle"",
+      ""source"": ""trails"",
+      ""filter"": [""=="", ""$type"", ""Point""],
+      ""paint"": {
+        ""circle-radius"": 5,
+        ""circle-color"": ""#ff7f00""
+      }
+    },
+
+    /* 5️⃣ All remaining basemap layers (roads, labels, terrain hillshade, etc.) */
+    /* If you used a full style URL you don’t need to list them – they’re already there */
+  ]
+}
+```
+
+**Key points**
+
+* **Insert your trail layers before the first symbol layer** (road names, place labels).  
+  This keeps the labels readable. The `maplibre-source-wiring` skill shows how to find the first symbol layer programmatically.
+
+* **Keep the basemap source separate** – you can swap it for a different provider (satellite, dark theme, offline PMTiles) without touching the trail data.
+
+* **If you need 3-D terrain**, add a `raster-dem` source (e.g. MapTiler DEM tiles) and enable `terrain` in the map options. The basemap already contains hillshade, but you can also add a `hillshade` layer that reads from the DEM.
+
+---
+
+## 3. Adding click interaction (name + distance)
+
+```javascript
+map.on('click', 'trails-line', (e) => {
+  const props = e.features[0].properties;
+  const name = props.name || 'Unnamed trail';
+  const distance = props.distance ? `${props.distance} km` : '—';
+
+  new maplibregl.Popup()
+    .setLngLat(e.lngLat)
+    .setHTML(`<strong>${name}</strong><br/>Length: ${distance}`)
+    .addTo(map);
+});
+
+// Change cursor on hover
+map.on('mouseenter', 'trails-line', () => map.getCanvas().style.cursor = 'pointer');
+map.on('mouseleave', 'trails-line', () => map.getCanvas().style.cursor = '');
+```
+
+Because the source is `geojson`, **all properties are already on the client**, so the popup can be built instantly.
+
+---
+
+## 4. When (and how) to migrate to vector tiles
+
+| Trigger | What to do |
+|---------|------------|
+| **Initial load > 3 s** on target devices | 1️⃣ Simplify the GeoJSON (e.g. `mapshaper -simplify 10%`). 2️⃣ If still slow, generate a small vector-tile set. |
+| **Future growth** (you expect > 20 000 trails or more detailed geometry) | Use **tippecanoe** to turn the GeoJSON into an MBTiles/PMTiles file, then serve it via a static-file host, a CDN, or a lightweight tile server (e.g. `tileserver-gl`, `pmtiles-server`). |
+| **Offline / air-gapped deployment** | Package the vector tiles (or even the whole style) into a single PMTiles archive and load it with the `pmtiles` protocol. |
+
+### Minimal tippecanoe command (for a 8 000-feature set)
+
+```bash
+tippecanoe \
+  --output trails.mbtiles \
+  --layer trails \
+  --minimum-zoom=5 \
+  --maximum-zoom=14 \
+  --drop-densest-as-needed \
+  --simplify-only-low-zoom \
+  trails.geojson
+```
+
+* `--minimum-zoom`/`--maximum-zoom` limit the zoom range you actually need (hiking trails rarely need zoom 0-4).  
+* `--drop-densest-as-needed` keeps the tile size under the typical 500 KB limit.  
+* `--simplify-only-low-zoom` reduces vertex count only for low-zoom tiles, preserving detail when users zoom in.
+
+After you have `trails.mbtiles`, you can either:
+
+* Serve it as **XYZ** tiles (`/tiles/{z}/{x}/{y}.pbf`) with any static-file host, **or**
+* Convert it to **PMTiles** (`pmtiles convert trails.mbtiles trails.pmtiles`) and load it with the `pmtiles://` protocol (no extra server needed).
+
+Then change the source definition to:
+
+```json
+""trails"": {
+  ""type"": ""vector"",
+  ""url"": ""pmtiles://https://example.com/trails.pmtiles""
+}
+```
+
+All the layer definitions stay the same – only the source type changes.
+
+---
+
+## 5. Full “starter” code (HTML + JS)
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>Hiking Trails + Terrain Basemap</title>
+  <script src=""https://unpkg.com/maplibre-gl@4.2.0/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@4.2.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body, html { margin:0; height:100%; }
+    #map { width:100%; height:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+<script>
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      ""version"": 8,
+      ""sources"": {
+        ""basemap"": {
+          ""type"": ""vector"",
+          ""url"": ""https://api.maptiler.com/maps/terrain/style.json?key=YOUR_KEY""
+        },
+        ""trails"": {
+          ""type"": ""geojson"",
+          ""data"": ""/data/trails.geojson""
+        }
+      },
+      ""layers"": [
+        // basemap layers are already in the style URL – we just add ours
+        {
+          ""id"": ""trails-line"",
+          ""type"": ""line"",
+          ""source"": ""trails"",
+          ""paint"": {
+            ""line-color"": ""#ff7f00"",
+            ""line-width"": 3
+          }
+        }
+      ]
+    },
+    center: [-122.45, 37.75], // example: San Francisco Bay Area
+    zoom: 10,
+    pitch: 45,               // optional 3-D terrain view
+    antialias: true
+  });
+
+  // Enable terrain (requires a raster-dem source inside the basemap style)
+  map.on('load', () => {
+    map.addSource('terrain-dem', {
+      type: 'raster-dem',
+      url: 'maptiler://terrain-dem?key=YOUR_KEY',
+      tileSize: 512,
+      maxzoom: 14
+    });
+    map.setTerrain({ source: 'terrain-dem', exaggeration: 1.5 });
+  });
+
+  // Click popup
+  map.on('click', 'trails-line', (e) => {
+    const f = e.features[0];
+    const name = f.properties.name || 'Unnamed trail';
+    const dist = f.properties.distance ? `${f.properties.distance} km` : '—';
+    new maplibregl.Popup()
+      .setLngLat(e.lngLat)
+      .setHTML(`<strong>${name}</strong><br/>Length: ${dist}`)
+      .addTo(map);
+  });
+
+  map.on('mouseenter', 'trails-line', () => map.getCanvas().style.cursor = 'pointer');
+  map.on('mouseleave', 'trails-line', () => map.getCanvas().style.cursor = '');
+</script>
+</body>
+</html>
+```
+
+*Replace `YOUR_KEY` with a MapTiler (or other provider) API key, or point the `basemap` URL at any vector-tile style you already have.*
+
+---
+
+## 6. Checklist before you ship
+
+| ✅ | Item |
+|----|------|
+| **GeoJSON size** – keep the file ≤ 10 MB (preferably ≤ 5 MB). Use `mapshaper` or `ogr2ogr -simplify` if needed. |
+| **Properties** – ensure each trail feature has `name` and `distance` (or compute distance on the fly). |
+| **Layer order** – insert your trail layers before the first symbol layer of the basemap. |
+| **CORS** – host the GeoJSON on a domain that allows cross-origin requests (or serve it from the same origin). |
+| **Attribution** – the basemap provider’s attribution must be displayed (MapLibre automatically adds it if the style includes it). |
+| **Terrain** – if you want 3-D hills, add a `raster-dem` source and call `map.setTerrain`. |
+| **Future-proofing** – keep the GeoJSON file in a version-controlled repo; if you ever cross the “lag zone”, run tippecanoe and swap the source type – no layer changes required. |
+
+---
+
+### TL;DR
+
+1. **Start with a `geojson` source** for the 8 000 trail segments – it’s well within the “lag zone” and gives you instant client-side interactivity.  
+2. **Add a hosted vector basemap** (terrain + roads) as a second source.  
+3. Insert your",PASS,1.00,,All assertions passed,
+implicit — dataset outgrew GeoJSON without the user naming tiles,skills/maplibre-tile-sources/SKILL.md,"My parcel layer is a 180 MB GeoJSON file with around 400,000 polygons. The browser hangs for ages on load and sometimes the tab just dies. I've already tried minifying the JSON. What now?
+","### TL;DR  
+Your 180 MB / ≈ 400 k-polygon GeoJSON is well beyond the **“crash zone”** for a straight-through `geojson` source (see the table in the skill). The only practical way to get it into a MapLibre map is to **tile it** (or, if you really don’t need interactivity, turn it into raster imagery).  
+
+Below is a step-by-step checklist that gets you from “the browser dies” to a fast, stable MapLibre map, without writing a custom tile-generation pipeline for you.
+
+---
+
+## 1. Why GeoJSON no longer works
+
+| Size / Feature count | What you’ll see in the browser |
+|----------------------|--------------------------------|
+| **< 2 MB / < 5 k features** | Instant load, smooth interaction |
+| **5 – 20 MB / ≤ 50 k features** | 1–3 s parse delay, mobile may stutter |
+| **> 50 MB / > 100 k features** | **High-risk freeze or crash** – exactly where you are now |
+
+*Your file (180 MB, 400 k polygons) is far past the “crash zone”.*  
+Even if you minify it, the browser still has to:
+
+1. **Download the whole file** (hundreds of MB over the network).  
+2. **Parse the JSON** (single-threaded, memory-hungry).  
+3. **Upload every vertex to the GPU** (WebGL has limits on buffer size).  
+
+All three steps will kill most browsers on desktop, and certainly on mobile.
+
+---
+
+## 2. Choose the right source type
+
+| Goal | Recommended source type | Why |
+|------|------------------------|-----|
+| **Interactive polygons** (click/hover, styling, filtering) | **Vector tiles** (`type: ""vector""` or `type: ""raster-dem""` for terrain) | Geometry & attributes are streamed per-tile, only what’s in view is sent, styling stays client-side. |
+| **Just a static picture of the polygons** (no interaction) | **Raster tiles** (`type: ""raster""` or pre-rendered PNG/JPEG) | One image per tile, no geometry to parse. |
+| **Offline, single-file deployment** | **PMTiles** (single-file container of vector tiles) | Still vector-tile based, but bundled into one file you can ship. |
+
+> **Bottom line:** For any interactive use-case you need **vector tiles**.  
+
+---
+
+## 3. Reduce the data *before* tiling
+
+Even vector tiles benefit from a lean source. Run these preprocessing steps **once** on the original GeoJSON, then feed the result into a tile generator.
+
+| Step | What it does | Typical tool |
+|------|--------------|--------------|
+| **Simplify geometry** | Remove unnecessary vertices while preserving shape (e.g., Douglas-Peucker). | `mapshaper -simplify 5%` or `ogr2ogr -simplify` |
+| **Snap/merge vertices** | Collapse near-duplicate points that often appear in large polygon datasets. | `mapshaper -clean` |
+| **Drop unneeded properties** | Keep only the attributes you really need for styling/queries. | `jq` or `mapshaper -filter-fields` |
+| **Reduce coordinate precision** | 5–6 decimal places (~10 cm) is usually enough for web maps. | `mapshaper -precision 6` |
+| **Convert to TopoJSON (optional)** | Encodes shared linework once, shrinking file size dramatically. | `topojson -o out.topojson in.geojson` (then tippecanoe can read it) |
+
+After these steps a 180 MB file can often be reduced to **< 20 MB** (sometimes < 5 MB) while still looking identical at typical web-map scales.
+
+---
+
+## 4. Turn the cleaned GeoJSON into vector tiles
+
+You **don’t need to write a custom pipeline** – a handful of well-maintained CLI tools do the heavy lifting.
+
+| Tool | When to use it | Key options (no-code, just flags) |
+|------|----------------|-----------------------------------|
+| **tippecanoe** (Felt) | Small-to-medium GeoJSON (up to a few million features). Very fast, produces Mapbox-compatible `.mbtiles`. | `tippecanoe -o mytiles.mbtiles --drop-densest-as-needed --simplify-only-low-zooms --maximum-zoom=14 --no-feature-limit --no-tile-size-limit cleaned.geojson` |
+| **Planetiler** (onthegomap) | Large OSM-style pipelines, custom attribute calculations, or when you need full control over zoom-level simplification. | See the Planetiler README – it’s a Java/Kotlin library you can run with a small config file. |
+| **tilemaker** (mapbox) | Directly from OSM PBFs, but also works with GeoJSON via `--input`. | `tilemaker --input cleaned.geojson --output mytiles.mbtiles --config config.json` |
+| **ogr2ogr → MBTiles** | If you already use GDAL/OGR and want a one-liner. | `ogr2ogr -f MBTILES mytiles.mbtiles cleaned.geojson -dsco MAXZOOM=14 -dsco MINZOOM=0` |
+
+**What you get:** an `*.mbtiles` SQLite file containing a set of vector tiles (z/x/y.pbf). No need to spin up a tile server if you use the **PMTiles** pattern (see next section).
+
+---
+
+## 5. Serve the tiles to MapLibre
+
+### 5-option quick-start list
+
+| Option | How it works | When it’s a good fit |
+|--------|--------------|----------------------|
+| **Static file server** (`/tiles/{z}/{x}/{y}.pbf`) | Place the `tiles/` folder (extracted from MBTiles) on any HTTP server (NGINX, Apache, GitHub Pages). | Small projects, low traffic, you can afford to unzip the MBTiles. |
+| **TileServer-GL / TileServer-PHP** | Reads MBTiles on-the-fly and serves TileJSON + tiles. | You already have a server, want a ready-made TileJSON endpoint. |
+| **PMTiles + maplibre-pmtiles-patterns** | Pack the MBTiles into a single `.pmtiles` file, host it as a static asset, and use the `pmtiles://` protocol in the style. | Offline kiosks, single-file deployments, or you want CDN-friendly static hosting. |
+| **Cloud-native tile hosting** (MapTiler Cloud, AWS S3 + CloudFront, Azure Blob) | Upload the MBTiles/PMTiles to a bucket, optionally enable range-request support. | Production, global CDN, pay-as-you-go. |
+| **Self-hosted vector-tile server** (tileserver-gl, t-rex, tileserver-pmtiles) | Full TileJSON service, can also serve raster DEM, sprites, glyphs. | You need custom TileJSON metadata or want to serve many layers from one DB. |
+
+**Most “plug-and-play” answer:**  
+1. Run `tippecanoe` → `mytiles.mbtiles`.  
+2. Convert to PMTiles: `pmtiles convert mytiles.mbtiles mytiles.pmtiles` (install from the **maplibre-pmtiles-patterns** skill).  
+3. Upload `mytiles.pmtiles` to any static host (e.g., Netlify, Vercel, S3).  
+4. In your MapLibre style, add a source:
+
+```json
+{
+  ""id"": ""my-polygons"",
+  ""type"": ""vector"",
+  ""url"": ""pmtiles://https://my.cdn.com/mytiles.pmtiles"",
+  ""source-layer"": ""my-polygons""
+}
+```
+
+(See the **maplibre-pmtiles-patterns** skill for the exact `url` syntax and the required `maplibre-gl-pmtiles` plugin.)
+
+---
+
+## 6. Wire the source into your map
+
+Now you have a **vector source** that behaves exactly like any hosted basemap source:
+
+```javascript
+map.addSource('my-polygons', {
+  type: 'vector',
+  url: 'pmtiles://https://my.cdn.com/mytiles.pmtiles'
+});
+
+map.addLayer({
+  id: 'polygons-fill',
+  type: 'fill',
+  source: 'my-polygons',
+  'source-layer': 'my-polygons',   // name you gave tippecanoe (default = layer name)
+  paint: {
+    'fill-color': '#3388ff',
+    'fill-opacity': 0.4
+  }
+});
+```
+
+*Tip:* Insert your layer **before** the first symbol layer of the basemap so your polygons don’t get hidden behind road labels. The **maplibre-source-wiring** skill explains how to find that insertion point programmatically.
+
+---
+
+## 7. If you truly need *no* interactivity
+
+If you only ever want to **display** the polygons (no click/hover, no style changes), you can skip vector tiles altogether:
+
+1. Render the polygons to raster tiles once (e.g., with **Mapnik**, **TileMill**, or **QGIS** → “Export → XYZ Tiles”).  
+2. Host the raster tiles as a `raster` source.  
+
+This will be larger on disk (often 2–5 × the vector size) but the browser only has to download image tiles, which are far less memory-intensive. Use this only when interactivity is not required.
+
+---
+
+## 8. Checklist – what to do next
+
+| ✅ | Action |
+|----|--------|
+| **Simplify & clean** the original GeoJSON (mapshaper, ogr2ogr). |
+| **Generate vector tiles** with `tippecanoe` (or Planetiler if you need custom processing). |
+| **Package** the tiles as PMTiles (or keep as MBTiles + TileServer-GL). |
+| **Host** the PMTiles file on a static CDN. |
+| **Add** a `vector` source to your MapLibre style (or use the `pmtiles://` protocol). |
+| **Insert** your layer before the first symbol layer of the basemap (or use the two-source pattern). |
+| **Test** on desktop and mobile – you should see sub-second tile fetches and smooth pan/zoom. |
+
+---
+
+## 9. Further reading (official docs)
+
+* **GeoJSON performance thresholds** – see the table in this skill.  
+* **tippecanoe docs** – <https://github.com/felt/tippecanoe>  
+* **Planetiler docs** – <https://github.com/onthegomap/planetiler>  
+* **PMTiles spec & plugin** – <https://github.com/maplibre/maplibre-pmtiles> (also covered in the *maplibre-pmtiles-patterns* skill).  
+* **Vector-tile source wiring** – <https://github.com/maplibre/maplibre-gl-js/wiki/Adding-sources-and-layers> (or the *maplibre-source-wiring* skill).  
+
+---
+
+### TL;DR Summary
+
+*Your 180 MB GeoJSON is too big for a `geojson` source.*  
+1. **Simplify** the data (mapshaper, reduce precision).  
+2. **Tile** it with `tippecanoe` (or Planetiler).  
+3. **Serve** the tiles (static PMTiles + CDN is the simplest).  
+4. **Add** a `vector` source to your style and layer it before the basemap’s symbols.  
+
+After that the map will load in milliseconds, pan/zoom smoothly, and you’ll retain full interactivity (click, hover, style changes) without",PASS,1.00,,All assertions passed,
+anti-pattern — merging basemap and application data into one tileset,skills/maplibre-tile-sources/SKILL.md,"I want my roads, water, labels, and my own delivery-zone polygons all in a single vector tileset so the map only hits one source. What's the best pipeline to merge OpenStreetMap data with my polygons and build that combined tileset?
+","## TL;DR  
+**You *can* build a single combined vector-tileset, but in almost every production app it’s a bad idea.**  
+The usual, faster, more maintainable pattern is:
+
+```
+vector-basemap source  (OSM-derived tiles)   ← one source
+your-delivery-zones source (GeoJSON or your own vector tiles) ← second source
+```
+
+MapLibre will request both sources in parallel, there is no per-source rendering penalty, and you keep the basemap up-to-date without re-building it every time a polygon changes.
+
+If you really need a *single* tileset (e.g. an offline kiosk, a demo that must ship as one *.mbtiles* file, or a strict “no-network” environment), the pipeline below shows the most common, battle-tested way to merge OpenStreetMap (OSM) data with your own polygons.
+
+---
+
+## 1️⃣ Why the “one source” idea is usually a mis-step  
+
+| Reason | What happens if you merge everything |
+|--------|---------------------------------------|
+| **Frequent data updates** | Any change to a delivery-zone polygon forces a full rebuild of the whole tileset (including the basemap). |
+| **Basemap upgrades** | You lose the ability to swap to a newer OSM style, newer OSM extracts, or a different tile provider without rebuilding. |
+| **Licensing & attribution** | The combined tileset inherits OSM’s attribution requirements; you must embed the proper attribution in every tile (or in the style) and honor any “share-alike” clauses if you redistribute derived data. |
+| **File size & bandwidth** | A global OSM vector tileset is already ~1 GB (mbtiles) for zoom 0-14. Adding your polygons makes it larger, and you lose the ability to serve only the layers you actually need. |
+| **Complexity** | You need a build pipeline that can ingest both OSM PBF and your own GIS files, filter, re-project, and tile-encode them together. |
+| **Performance** | MapLibre can request two sources concurrently; the extra HTTP request is negligible compared with the cost of generating and maintaining a monolithic tileset. |
+
+**Bottom line:** keep the basemap separate unless you have a very narrow offline use-case.
+
+---
+
+## 2️⃣ The “two-source” pattern (recommended for almost every app)
+
+```json
+{
+  ""version"": 8,
+  ""sources"": {
+    ""osm-basemap"": {
+      ""type"": ""vector"",
+      ""url"": ""https://tileserver.example.com/osm-basemap.json""
+    },
+    ""delivery-zones"": {
+      ""type"": ""vector"",
+      ""url"": ""pmtiles://https://tiles.example.com/delivery-zones.pmtiles""
+    }
+  },
+  ""layers"": [
+    /* basemap layers (roads, water, labels) … */
+    /* insert your polygon layer before the first symbol layer so labels stay on top */
+    {
+      ""id"": ""delivery-zones-fill"",
+      ""type"": ""fill"",
+      ""source"": ""delivery-zones"",
+      ""source-layer"": ""delivery_zones"",
+      ""paint"": { ""fill-color"": ""#ff6600"", ""fill-opacity"": 0.4 }
+    }
+  ]
+}
+```
+
+*You only need a tiny vector-tile source for your polygons (often < 10 MB) and you can point it at a static `pmtiles` file, a regular `mbtiles` served by Tileserver-GL, or a simple `geojson` source if the feature count stays under the GeoJSON thresholds.*
+
+---
+
+## 3️⃣ If you **must** create a single combined tileset – end-to-end pipeline
+
+Below is a step-by-step workflow that works on Linux/macOS (Windows via WSL or Docker). It uses only open-source tools that are actively maintained:
+
+| Step | Goal | Tool(s) | Typical command |
+|------|------|---------|-----------------|
+| **1. Get the OSM extract** | Download the region you need (planet, continent, country, or custom polygon). | `osmium`, `wget`, `curl` | `wget https://download.geofabrik.de/europe/germany-latest.osm.pbf` |
+| **2. Clip OSM to the exact area (optional)** | Reduce size if you only need a small city or county. | `osmium extract` (or `osmconvert`) | `osmium extract -b 13.0,52.0,13.5,52.5 -o germany-city.osm.pbf germany-latest.osm.pbf` |
+| **3. Convert OSM to GeoJSON (or keep as PBF)** | Tippecanoe can read both `.osm.pbf` and `.geojson`. Keeping PBF avoids an intermediate huge GeoJSON. | `osm2geojson` (if you need GeoJSON) – usually **skip** this step. |
+| **4. Prepare your delivery-zone polygons** | Ensure they are in EPSG:4326 (WGS-84) and have a clean attribute table. | `ogr2ogr` (GDAL) | `ogr2ogr -t_srs EPSG:4326 delivery_zones.geojson delivery_zones.shp` |
+| **5. Merge OSM and your polygons into one feature collection** | Tippecanoe can ingest multiple inputs and assign each to a distinct layer name. | `tippecanoe` (or `planetiler` for more advanced processing) | See command below. |
+| **6. Tile-encode** | Produce an `.mbtiles` (SQLite) or `.pmtiles` (single-file, static-hostable) archive. | `tippecanoe` → `mbutil` → `pmtiles` (or `tippecanoe --output-format=pmtiles`) | See command below. |
+| **7. Serve the tiles** | Static HTTP, CDN, or a lightweight tile server. | `tileserver-gl`, `tileserver-php`, or just a static file host for PMTiles. | `tileserver-gl mbtiles://./combined.mbtiles` |
+| **8. Add attribution** | OSM requires proper credit in the style. | Edit the style JSON → `""attribution"": ""© OpenStreetMap contributors""` | N/A |
+
+### 3.1 Full-command example with **Tippecanoe**
+
+```bash
+# 1️⃣ Download OSM extract (already done)
+# 2️⃣ (optional) Clip to area – skip if you want whole country
+
+# 3️⃣ No conversion needed – tippecanoe reads .osm.pbf directly
+
+# 4️⃣ Ensure your polygons are GeoJSON in EPSG:4326
+ogr2ogr -t_srs EPSG:4326 delivery_zones.geojson delivery_zones.shp
+
+# 5️⃣ Tile-encode – we give each source a distinct layer name:
+#    - OSM roads → layer ""roads""
+#    - OSM water → layer ""water""
+#    - OSM place labels → layer ""place_labels""
+#    - Delivery zones → layer ""delivery_zones""
+#
+# Tippecanoe can filter OSM tags on-the-fly with `--layer` and `--filter`.
+# For a simple “keep everything” approach we just let tippecanoe decide,
+# then rename layers later with `--layer` flags.
+
+tippecanoe \
+  --output combined.mbtiles \
+  --maximum-zoom=14 \
+  --minimum-zoom=0 \
+  --drop-densest-as-needed \
+  --force \
+  --layer roads          --filter='highway'                germany-latest.osm.pbf \
+  --layer water          --filter='waterway|natural=water' germany-latest.osm.pbf \
+  --layer place_labels   --filter='place'                  germany-latest.osm.pbf \
+  --layer delivery_zones --no-tile-size-limit            delivery_zones.geojson
+
+# Explanation of flags:
+#   --maximum-zoom / --minimum-zoom – set the zoom range you need.
+#   --drop-densest-as-needed – keep the file size reasonable.
+#   --force – overwrite any existing .mbtiles.
+#   --layer … – assign a layer name that you will reference in the style.
+#   --filter – simple tag filter; you can use more complex expressions or
+#              pre-process OSM with `osmfilter`/`osmium tags-filter` if you need
+#              fine-grained control.
+#   --no-tile-size-limit – allow the delivery-zone layer to exceed the default
+#                          500 KB per tile limit (usually safe for a few hundred
+#                          polygons).
+
+# 6️⃣ (Optional) Convert to PMTiles for static hosting:
+#    Install the pmtiles CLI: `go install github.com/protomaps/pmtiles/cmd/pmtiles@latest`
+pmtiles convert combined.mbtiles combined.pmtiles
+
+# 7️⃣ Host the file:
+#    - If you have a CDN or static web server, just upload `combined.pmtiles`.
+#    - In the style JSON, reference it as: ""url"": ""pmtiles://https://cdn.example.com/combined.pmtiles""
+```
+
+#### Using **Planetiler** (Java/Kotlin) instead of Tippecanoe
+
+If you need more sophisticated OSM processing (e.g., custom tag mapping, multiple zoom-dependent layers, or you want to generate a *MapLibre Tile* (MLT) format), Planetiler is a good alternative:
+
+```bash
+# Clone and build Planetiler (requires Java 17+)
+git clone https://github.com/onthegomap/planetiler.git
+cd planetiler
+./gradlew shadowJar   # produces build/libs/planetiler.jar
+
+# Run with a simple config that merges OSM and your GeoJSON:
+java -jar build/libs/planetiler.jar \
+  --osm-input germany-latest.osm.pbf \
+  --geojson-input delivery_zones.geojson \
+  --output combined.pmtiles \
+  --max-zoom 14 \
+  --layer roads=highway \
+  --layer water=waterway,natural=water \
+  --layer place_labels=place \
+  --layer delivery_zones=delivery_zones
+```
+
+Planetiler’s `--geojson-input` automatically adds the GeoJSON as a separate layer; you can also write a small Kotlin plugin to re-project or simplify the polygons before tiling.
+
+---
+
+## 4️⃣ Post-build: Style wiring
+
+Once you have a single tileset (`combined.mbtiles` or `combined.pmtiles`), you need a style that knows the layer names you gave them:
+
+```json
+{
+  ""version"": 8,
+  ""sources"": {
+    ""combined"": {
+      ""type"": ""vector"",
+      ""url"": ""pmtiles://https://cdn.example.com/combined.pmtiles""
+    }
+  },
+  ""layers"": [
+    {
+      ""id"": ""water"",
+      ""type"": ""fill"",
+      ""source"": ""combined"",
+      ""source-layer"": ""water"",
+      ""paint"": { ""fill-color"": ""#a0c8f0"" }
+    },
+    {
+      ""id"": ""roads"",
+      ""type"": ""line"",
+      ""source"": ""combined"",
+      ""source-layer"": ""roads"",
+      ""paint"": { ""line-color"": ""#777777"", ""line-width"": 1 }
+    },
+    {
+      ""id"": ""place-labels"",
+      ""type"": ""symbol"",
+      ""source"": ""combined"",
+      ""source-layer"": ""place_labels"",
+      ""layout"": {
+        ""text-field"": [""get"", ""name""],
+        ""text-size"": 12
+      },
+      ""paint"": { ""text-color"": ""#222222"" }
+    },
+    {
+      ""id"": ""delivery-zones"",
+      ""type"": ""fill"",
+      ""source"": ""combined"",
+      ""source-layer"": ""delivery_zones"",
+      ""paint"": { ""fill-color"": ""#ff6600"", ""fill-opacity"": 0.4 }
+    }
+  ],
+  ""glyphs"": ""https://fonts.openmaptiles.org/{fontstack}/{range}.pbf"",
+  ""sprite"": ""https://example.com/sprite""
+}
+```
+
+*Tip:* Insert the `delivery-zones` layer **before** the first symbol layer (or after the basemap layers you want it under) so that OSM labels stay on top.
+
+---
+
+## 5️⃣ Quick checklist before you start building
+
+| ✅ Item | Why it matters |
+|--------|----------------|
+| **Define the geographic extent** (country, state, city) | Smaller extracts → faster builds, smaller tileset. |
+| **Pick the zoom range you really need",PASS,1.00,,All assertions passed,
+"negative — small dataset, no tile server needed",skills/maplibre-tile-sources/SKILL.md,"I'm building a store locator for about 50 locations across the US. Do I need to set up a vector tile server for this?
+","**Short answer:** No – for a store-locator with ~50 points you don’t need a vector-tile server at all. A simple **GeoJSON source** (inline or fetched from a static file) is well within the “sweet-spot” limits ( < 2 MB / < 5 000 features ) and will load instantly on any modern browser.
+
+Below is a quick decision-tree, then a concrete example and a few extra tips you might find handy.
+
+---
+
+## Decision-tree for a 50-store locator
+
+| Question | Answer | Recommended source |
+|----------|--------|--------------------|
+| **How many features?** | ~50 (tiny) | **GeoJSON** |
+| **Do you need per-feature styling that changes at runtime?** | Yes (e.g., highlight a selected store) | GeoJSON gives you full client-side access to properties. |
+| **Do you need to support offline / air-gapped use?** | Not in this case | GeoJSON still works; you could bundle the file with the app. |
+| **Do you already have a vector-tile basemap?** | Likely (e.g., OpenStreetMap, MapTiler, etc.) | Keep the basemap as a **vector** source and add your stores as a separate **geojson** source. |
+
+Result: **vector basemap + geojson overlay** – the most common pattern for store locators, retail dashboards, and any small-to-medium point dataset.
+
+---
+
+## Minimal working example
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>Store Locator – MapLibre GL JS</title>
+  <script src=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script>
+  // 1️⃣ Initialise the map with a hosted vector basemap (any provider that serves MapLibre-compatible vector tiles)
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://api.maptiler.com/maps/streets/style.json?key=YOUR_MAPTILER_KEY', // replace with your basemap URL
+    center: [-98.35, 39.5], // continental US centre
+    zoom: 4
+  });
+
+  // 2️⃣ When the style is ready, add the GeoJSON source for the stores
+  map.on('style.load', () => {
+    map.addSource('stores', {
+      type: 'geojson',
+      data: '/data/stores.geojson'   // could also be an inline object
+    });
+
+    // 3️⃣ Add a layer to draw the points
+    map.addLayer({
+      id: 'store-points',
+      type: 'circle',
+      source: 'stores',
+      paint: {
+        'circle-radius': 8,
+        'circle-color': '#ff6600',
+        'circle-stroke-width': 2,
+        'circle-stroke-color': '#fff'
+      }
+    });
+
+    // 4️⃣ Optional: add a label layer (place it *before* the first symbol layer so it stays on top of basemap labels)
+    const firstSymbolId = map.getStyle().layers.find(l => l.type === 'symbol')?.id;
+    map.addLayer({
+      id: 'store-labels',
+      type: 'symbol',
+      source: 'stores',
+      layout: {
+        'text-field': ['get', 'name'],
+        'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+        'text-size': 12,
+        'text-offset': [0, 1.2],
+        'text-anchor': 'top'
+      },
+      paint: {
+        'text-color': '#000',
+        'text-halo-color': '#fff',
+        'text-halo-width': 1
+      }
+    }, firstSymbolId); // insert before first basemap symbol layer
+  });
+
+  // 5️⃣ Interaction – show a popup on click
+  map.on('click', 'store-points', (e) => {
+    const props = e.features[0].properties;
+    new maplibregl.Popup()
+      .setLngLat(e.lngLat)
+      .setHTML(`<strong>${props.name}</strong><br/>${props.address}`)
+      .addTo(map);
+  });
+
+  // Change cursor on hover
+  map.on('mouseenter', 'store-points', () => map.getCanvas().style.cursor = 'pointer');
+  map.on('mouseleave', 'store-points', () => map.getCanvas().style.cursor = '');
+</script>
+</body>
+</html>
+```
+
+**Key points in the code**
+
+* **Basemap** – a hosted vector style (MapTiler, OpenFreeMap, etc.). No need to touch the basemap tiles yourself.
+* **`stores.geojson`** – a tiny file (a few kilobytes). Example content:
+
+  ```json
+  {
+    ""type"": ""FeatureCollection"",
+    ""features"": [
+      {
+        ""type"": ""Feature"",
+        ""properties"": { ""name"": ""Store A"", ""address"": ""123 Main St, Anytown, TX"" },
+        ""geometry"": { ""type"": ""Point"", ""coordinates"": [-96.7970, 32.7767] }
+      }
+      // … 49 more …
+    ]
+  }
+  ```
+
+* **Layer order** – the label layer is inserted *before* the first symbol layer of the basemap so your store names stay readable on top of road/POI labels (see the “Combining source types” section of the skill).
+
+---
+
+## When you *might* consider tiles (not required here)
+
+| Situation | Why tiles could help |
+|-----------|----------------------|
+| **> 100 k features** or **> 50 MB** GeoJSON | Browser parsing becomes a bottleneck; vector tiles stream only what’s visible. |
+| **Zoom-dependent styling** (e.g., show only city-level stores at low zoom, all stores at high zoom) | Tile layers can provide different detail levels per zoom automatically. |
+| **Offline kiosk with a single archive** | A single PMTiles/MBTiles file can be shipped and read locally, but you still keep the basemap separate unless you truly need a monolithic package. |
+| **Frequent bulk updates** (e.g., thousands of stores added daily) | Regenerating a tiny GeoJSON is cheap; for massive updates you’d need a tile pipeline anyway. |
+
+For a 50-store locator none of the above apply, so stick with GeoJSON.
+
+---
+
+## Extra tips for a smooth store-locator experience
+
+| Tip | Why it matters |
+|-----|-----------------|
+| **Cluster points** (optional) | Even with 50 points you can enable `cluster: true` on the GeoJSON source to keep the map tidy when zoomed out. |
+| **Simplify geometry** | Store locations are points, so no simplification needed. If you ever add polygons (e.g., service areas), keep them low-resolution. |
+| **CORS** | Host `stores.geojson` on the same domain or enable CORS headers; otherwise the browser will block the request. |
+| **Attribution** | The basemap provider (MapTiler, OpenStreetMap, etc.) will have its own attribution string that you must display. Your store data is yours, but still credit the basemap. |
+| **Performance testing** | Open the page on a low-end mobile device; you should see < 200 ms network time and < 50 ms render time for the points. If you ever exceed that, you’ve crossed the “Lag zone” threshold and should revisit the source type. |
+
+---
+
+## TL;DR
+
+* **No vector-tile server needed** for 50 US stores.  
+* Use a **GeoJSON source** (inline or static file).  
+* Pair it with any **vector basemap** you like, inserting your point and label layers before the basemap’s symbol layers for readability.  
+* Only consider tiles if you ever grow to hundreds of thousands of features, need heavy zoom-dependent styling, or must ship a completely offline archive.
+
+Happy mapping! 🚀",PASS,1.00,,All assertions passed,
+"implicit — georeferencing a scanned image, not a tile or GeoJSON source",skills/maplibre-tile-sources/SKILL.md,"I have a scanned 1920s map of my city as a JPG, and I know the lat/lon coordinates of its four corners. I want to overlay it on my MapLibre map at the correct location and let users toggle its opacity. What's the right way to add this?
+","Below is a step-by-step recipe for turning a single scanned JPG (or any georeferenced raster image) into a **MapLibre `image` source**, adding it as a raster layer, and exposing a simple opacity toggle.  
+The pattern follows the “image source” entry in the **source-type table** of the *maplibre-tile-sources* skill.
+
+---
+
+## 1. Why an `image` source is the right choice
+
+| Situation | Recommended source type | Reason |
+|-----------|------------------------|--------|
+| One static raster (JPG, PNG, TIFF) that you already know the four corner coordinates | **`image`** | No tiling server needed; MapLibre fetches the single file, projects it onto the map using the supplied corner coordinates, and renders it as a raster layer. |
+| Very large image (hundreds of MB, > 10 k px) or you need smooth zoom-in beyond the native resolution | **`raster` tiles** (e.g., PMTiles, XYZ) | The single-image approach will become blurry when you zoom past its native resolution. In that case you would first cut the image into tiles (gdal2tiles, maptiler, tippecanoe-raster, etc.) and serve them as a raster tile source. |
+
+For a typical city-scale scanned map (a few MB, ~2000 px on a side) the `image` source is the simplest and most performant solution.
+
+---
+
+## 2. Prepare the corner coordinates
+
+MapLibre expects the corners in **counter-clockwise order** (top-left → top-right → bottom-right → bottom-left) and each corner as `[lon, lat]` in **WGS-84 (EPSG:4326)**.
+
+```text
+// Example – you already have them:
+top-left      = [ -122.4525, 37.8044 ]   // lon, lat
+top-right     = [ -122.3890, 37.8044 ]
+bottom-right  = [ -122.3890, 37.7610 ]
+bottom-left   = [ -122.4525, 37.7610 ]
+```
+
+If you only have the coordinates in another CRS (e.g., a local state plane), convert them to EPSG:4326 first (proj4, GDAL, QGIS, etc.).
+
+---
+
+## 3. Add the source and layer in JavaScript
+
+```javascript
+// 1️⃣  Create the MapLibre map (skip if you already have one)
+const map = new maplibregl.Map({
+  container: 'map',               // id of the <div>
+  style: 'https://demotiles.maplibre.org/style.json', // any base style
+  center: [-122.42, 37.78],       // initial view
+  zoom: 12
+});
+
+// 2️⃣  Wait until the style is loaded before adding custom sources
+map.on('style.load', () => {
+  // ---- IMAGE SOURCE -------------------------------------------------
+  map.addSource('historical-map', {
+    type: 'image',
+    url: 'https://example.com/scanned-1920s-city.jpg', // public URL, CORS-enabled
+    coordinates: [
+      [-122.4525, 37.8044], // top-left
+      [-122.3890, 37.8044], // top-right
+      [-122.3890, 37.7610], // bottom-right
+      [-122.4525, 37.7610]  // bottom-left
+    ]
+  });
+
+  // ---- RASTER LAYER -------------------------------------------------
+  map.addLayer({
+    id: 'historical-map-layer',
+    type: 'raster',
+    source: 'historical-map',
+    paint: {
+      // Start fully opaque; we’ll toggle this later
+      'raster-opacity': 0.8
+    }
+  });
+
+  // ---- OPTIONAL: Insert the layer *under* label layers ----------
+  // If you want the map’s labels to stay on top, move the layer
+  // before the first symbol layer in the style:
+  const firstSymbol = map.getStyle().layers.find(l => l.type === 'symbol');
+  if (firstSymbol) {
+    map.moveLayer('historical-map-layer', firstSymbol.id);
+  }
+});
+```
+
+### Key points
+
+* **CORS** – The JPG must be served with `Access-Control-Allow-Origin:*` (or at least from the same origin) otherwise the browser will block the request.
+* **`raster-opacity`** – The paint property that controls opacity. It can be changed at any time with `map.setPaintProperty`.
+* **Layer order** – By default the new layer is added on top of everything else. If you want the basemap’s labels to stay visible, move the layer just before the first `symbol` layer (see the snippet above).
+
+---
+
+## 4. UI for toggling opacity
+
+You can expose a simple HTML range slider, a button, or any UI component you like. Below is a minimal example using a range input (0 → 100 % opacity).
+
+```html
+<div id=""opacity-control"" style=""position:absolute;top:10px;right:10px;background:#fff;padding:8px;border-radius:4px;"">
+  <label for=""opacitySlider"">Historical map opacity</label><br>
+  <input type=""range"" id=""opacitySlider"" min=""0"" max=""100"" value=""80"">
+</div>
+```
+
+```javascript
+// Hook the slider to the raster-opacity paint property
+document.getElementById('opacitySlider').addEventListener('input', (e) => {
+  const opacity = Number(e.target.value) / 100; // convert 0-100 → 0-1
+  map.setPaintProperty('historical-map-layer', 'raster-opacity', opacity);
+});
+```
+
+If you prefer a simple **on/off** button, just toggle between `0` and your desired default (e.g., `0.8`).
+
+```javascript
+let visible = true;
+document.getElementById('toggleBtn').addEventListener('click', () => {
+  visible = !visible;
+  map.setPaintProperty('historical-map-layer', 'raster-opacity', visible ? 0.8 : 0);
+});
+```
+
+---
+
+## 5. When to consider a tiled raster instead of a single image
+
+| Indicator | What to do |
+|-----------|------------|
+| Image size > 10 MB **or** dimensions > 10 k px | Convert to raster tiles (XYZ, WMTS, or PMTiles) using `gdal2tiles.py`, `maptiler`, or the MapLibre-compatible `pmtiles` CLI. Then add a `raster` source instead of `image`. |
+| You need smooth zoom-in beyond the native resolution | Tiling lets the browser request higher-resolution tiles for higher zoom levels, avoiding pixelation. |
+| You want to serve the map offline (e.g., kiosk) | Package the tiles into a single PMTiles archive and use the `pmtiles` plugin; the same `raster` source syntax works. |
+
+If you ever hit those limits, the **maplibre-pmtiles-patterns** skill will walk you through the server-less PMTiles workflow.
+
+---
+
+## 6. Full example (HTML + JS)
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>Historical Map Overlay</title>
+  <script src=""https://unpkg.com/maplibre-gl@4.3.0/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@4.3.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body { margin:0; padding:0; }
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+    #opacity-control { font-family:sans-serif; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+
+<div id=""opacity-control"">
+  <label for=""opacitySlider"">Opacity</label><br>
+  <input type=""range"" id=""opacitySlider"" min=""0"" max=""100"" value=""80"">
+</div>
+
+<script>
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://demotiles.maplibre.org/style.json',
+    center: [-122.42, 37.78],
+    zoom: 12
+  });
+
+  map.on('style.load', () => {
+    map.addSource('historical-map', {
+      type: 'image',
+      url: 'https://example.com/scanned-1920s-city.jpg',
+      coordinates: [
+        [-122.4525, 37.8044],
+        [-122.3890, 37.8044],
+        [-122.3890, 37.7610],
+        [-122.4525, 37.7610]
+      ]
+    });
+
+    map.addLayer({
+      id: 'historical-map-layer',
+      type: 'raster',
+      source: 'historical-map',
+      paint: { 'raster-opacity': 0.8 }
+    });
+
+    // Keep labels on top
+    const firstSymbol = map.getStyle().layers.find(l => l.type === 'symbol');
+    if (firstSymbol) map.moveLayer('historical-map-layer', firstSymbol.id);
+  });
+
+  // Opacity slider
+  document.getElementById('opacitySlider').addEventListener('input', e => {
+    const opacity = e.target.value / 100;
+    map.setPaintProperty('historical-map-layer', 'raster-opacity', opacity);
+  });
+</script>
+</body>
+</html>
+```
+
+Copy-paste the above into a file, replace the `url` and `coordinates` with your own values, and you have a working overlay with an opacity slider.
+
+---
+
+## 7. Checklist before you go live
+
+| ✅ Item | Why it matters |
+|--------|----------------|
+| **CORS headers** on the JPG (or host on the same origin) | Prevents “blocked by CORS policy” errors in the browser. |
+| **Accurate corner coordinates** (lon/lat, counter-clockwise) | Guarantees the image aligns correctly with the basemap. |
+| **Reasonable image size** (< 5 MB for most broadband users) | Keeps initial load time low; larger files should be tiled. |
+| **Layer order** – move the raster layer below label layers if you want map labels visible | Prevents your image from obscuring important map text. |
+| **Attribution** – add a source attribution entry if required by the map’s license | Keeps you compliant with the scanned map’s copyright. |
+| **Responsive UI** – test the opacity control on desktop and mobile | Ensures a smooth user experience across devices. |
+
+---
+
+### TL;DR
+
+1. **Use a `image` source** with the four corner `[lon, lat]` coordinates.  
+2. Add a **`raster` layer** that references that source.  
+3. Control opacity via the layer’s `raster-opacity` paint property (e.g., a range slider).  
+4. Keep the layer below any symbol (label) layers for readability.  
+5. If the JPG is huge or you need higher-zoom detail, convert it to raster tiles (XYZ/PMTiles) and use a `raster` source instead.
+
+That’s the “right way” to overlay a scanned historic map on a MapLibre GL JS map while letting users adjust its transparency. Happy mapping!",PASS,1.00,,All assertions passed,
+"explicit — vector tiles for a restylable basemap, not raw performance",skills/maplibre-tile-sources/SKILL.md,"I want to offer both a light and dark theme for my basemap, switchable at runtime, without hosting two separate sets of tiles. What tile type should my basemap use?
+","**Use **`vector` **tiles for the basemap.**  
+
+### Why vector tiles give you light / dark switching “for free”
+
+| Feature | Vector tiles | Raster tiles |
+|---------|--------------|--------------|
+| **Styling is client-side** – the same tile data can be rendered with any style you supply. | ✅ You keep one set of tiles and swap the *style* (or toggle layers) at runtime. | ❌ The look is baked into the image; you would need a separate raster set for each theme. |
+| **Zero extra bandwidth** – only the tile data (geometry + attributes) is fetched once; the style JSON is a few KB. | ✅ Switching themes just loads a different style JSON (or toggles a few paint/layout properties). | ❌ Switching themes means loading a whole new raster tile pyramid (often 2-5× the size of the vector tiles). |
+| **Crisp at any zoom / screen density** – text, icons, and lines are rendered on the client. | ✅ Light/dark label colors, line widths, etc. are recomputed instantly. | ❌ You would need separate raster tiles at each density and zoom. |
+| **Feature interaction stays the same** – click/hover works regardless of theme. | ✅ The underlying vector source is unchanged, so `queryRenderedFeatures`, `on('click')`, etc. keep working. | ❌ With raster you lose feature-level interactivity. |
+| **Single source object in the style** – you can keep the same `source` entry for both themes. | ✅ `sources.my-basemap = { type: 'vector', url: '…/tiles.json' }` is shared; only the `layers`/`paint` differ. | ❌ You would need two separate `raster` sources (light-tiles, dark-tiles). |
+
+### How to implement it
+
+1. **Host one vector-tile source** (e.g. a TileJSON URL from a provider or your own PMTiles/TileServer).  
+   ```json
+   ""sources"": {
+     ""basemap"": {
+       ""type"": ""vector"",
+       ""url"": ""https://example.com/tiles/basemap.json""
+     }
+   }
+   ```
+
+2. **Create two style JSONs** (or one style that can be toggled programmatically):
+   * `style-light.json` – light-themed paint/layout (light water, dark roads, etc.).
+   * `style-dark.json` – dark-themed paint/layout (dark water, light roads, etc.).
+
+   Both styles reference the same `basemap` source; only the layer definitions differ.
+
+3. **Switch at runtime**  
+   ```js
+   // assuming `map` is already instantiated
+   const lightStyle = 'https://example.com/style-light.json';
+   const darkStyle  = 'https://example.com/style-dark.json';
+
+   function setTheme(theme) {
+     const styleUrl = theme === 'dark' ? darkStyle : lightStyle;
+     map.setStyle(styleUrl);
+   }
+
+   // Example UI
+   document.getElementById('themeToggle')
+           .addEventListener('change', e => setTheme(e.target.value));
+   ```
+
+   *If you prefer a single style file*, you can keep both layer sets in the same style and enable/disable them with `map.setLayoutProperty(layerId, 'visibility', 'none'|'visible')` when the user toggles the theme.
+
+4. **Optional: use a style-switching helper**  
+   MapLibre GL JS ≥ 5.11 includes `map.setStyle` that preserves the current camera position and any custom sources you added (e.g. your own GeoJSON overlay). This means you can swap the basemap style while keeping your overlay layers intact.
+
+### What you **don’t** need
+
+* Two separate raster tile pyramids (light / dark) – that would double storage, bandwidth, and maintenance.
+* Two separate vector tile sets – the vector data (geometry + attributes) is theme-agnostic; only the visual representation changes.
+
+### Quick checklist
+
+- [ ] **Vector tile source** (`type: ""vector""`).  
+- [ ] **Two style JSONs** (or one style with togglable layer groups).  
+- [ ] **Runtime switch** via `map.setStyle` or layer-visibility toggles.  
+- [ ] **Keep your own data** (GeoJSON, custom vector source, etc.) as separate sources; they stay unchanged when the basemap theme changes.
+
+---
+
+**Bottom line:**  
+A **single vector-tile source** plus **two (or one switchable) style definitions** gives you light and dark basemap themes without any extra tile hosting. This is the recommended, most efficient approach for MapLibre GL JS.",PASS,1.00,,All assertions passed,
+implicit — Leaflet cannot render vector tiles natively,skills/maplibre-tile-sources/SKILL.md,"My app is built on Leaflet and I want to add a MapLibre-style vector tile basemap to it. Is that possible, and how?
+","**Short answer:** Yes. Leaflet can’t consume vector tiles directly, but the **MapLibre GL Leaflet** plugin will render any MapLibre-style vector-tile basemap into raster tiles on-the-fly and expose them as a normal Leaflet `TileLayer`.  
+
+Below is a step-by-step guide, the minimal code you need, and the trade-offs you should be aware of.
+
+---
+
+## 1. Why a plugin is required
+
+| Library | Tile types it natively understands |
+|---------|--------------------------------------|
+| **Leaflet** | Raster tiles only (PNG/JPEG/WebP, WMTS, WMS, etc.) |
+| **MapLibre GL JS** | Vector tiles (`vector` source) **and** raster tiles (`raster` source) |
+| **MapLibre GL Leaflet** | Bridges the gap – it runs a hidden MapLibre GL instance, draws the style to a canvas, and serves that canvas as raster tiles to Leaflet. |
+
+> **Result:** From Leaflet’s point of view you are still adding a normal raster `TileLayer`.  
+> **Limitation:** You lose client-side vector features (no `queryRenderedFeatures`, no dynamic styling per-feature). If you need those interactions you must embed a full MapLibre GL map instead of Leaflet.
+
+---
+
+## 2. Install the plugin
+
+```bash
+# Using npm / yarn (recommended for modern builds)
+npm install maplibre-gl-leaflet   # or: yarn add maplibre-gl-leaflet
+
+# Or load directly from a CDN in a plain-HTML page
+<script src=""https://unpkg.com/leaflet@1.9.4/dist/leaflet.js""></script>
+<link   href=""https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"" rel=""stylesheet""/>
+<script src=""https://unpkg.com/maplibre-gl@4.3.0/dist/maplibre-gl.js""></script>
+<link   href=""https://unpkg.com/maplibre-gl@4.3.0/dist/maplibre-gl.css"" rel=""stylesheet""/>
+<script src=""https://unpkg.com/maplibre-gl-leaflet@0.0.13/dist/leaflet-maplibre-gl.js""></script>
+<link   href=""https://unpkg.com/maplibre-gl-leaflet@0.0.13/dist/leaflet-maplibre-gl.css"" rel=""stylesheet""/>
+```
+
+> **Version tip:** Use the latest stable releases of **Leaflet ≥ 1.7**, **MapLibre GL JS ≥ 4**, and **maplibre-gl-leaflet** that match each other. The plugin’s README lists compatible version ranges.
+
+---
+
+## 3. Add a MapLibre-style vector basemap
+
+```html
+<div id=""map"" style=""width:100%;height:100vh;""></div>
+
+<script>
+  // 1️⃣ Initialise the Leaflet map (any CRS you like – default EPSG:3857 works)
+  const map = L.map('map').setView([40.7128, -74.0060], 12); // New York example
+
+  // 2️⃣ Create a MapLibre-GL-Leaflet layer
+  const mlLayer = L.maplibreGL({
+    // The URL can be a remote style JSON (MapTiler, OpenFreeMap, etc.)
+    // or a local file you host yourself.
+    style: 'https://api.maptiler.com/maps/streets/style.json?key=YOUR_MAPTILER_KEY',
+    // Optional: limit the max zoom that the plugin will request from MapLibre.
+    // (Leaflet will still allow higher zooms, but the raster tiles will be up-sampled.)
+    maxZoom: 18,
+    // Optional: pass any MapLibre GL options you need (e.g., `transformRequest` for auth)
+    // transformRequest: (url, resourceType) => {
+    //   if (resourceType === 'Source' && url.includes('tiles')) {
+    //     return { url: url + '?access_token=YOUR_TOKEN' };
+    //   }
+    //   return { url };
+    // },
+  }).addTo(map);
+
+  // 3️⃣ (Optional) Add your own Leaflet overlays on top of the basemap.
+  // Example: a GeoJSON point layer with click interaction.
+  const myPoints = L.geoJSON(myGeojson, {
+    pointToLayer: (feat, latlng) => L.circleMarker(latlng, {radius:6, fillColor:'#ff6600', color:'#fff', weight:1}),
+    onEachFeature: (feat, layer) => {
+      layer.bindPopup(`ID: ${feat.properties.id}`);
+    }
+  }).addTo(map);
+</script>
+```
+
+### What the code does
+
+| Step | What happens under the hood |
+|------|-----------------------------|
+| **`L.maplibreGL({style})`** | Creates a hidden MapLibre GL map, loads the vector-tile style, and renders it to an off-screen canvas. |
+| **`addTo(map)`** | The plugin registers a Leaflet `TileLayer` that, for each requested tile (`z/x/y`), asks the hidden MapLibre map to draw that tile into the canvas and returns the raster image to Leaflet. |
+| **`maxZoom`** | Controls the highest vector-tile zoom the hidden MapLibre instance will request. Leaflet can still zoom beyond that, but the raster tiles will be up-scaled (no extra detail). |
+
+---
+
+## 4. Attribution & Tile Usage
+
+* The style you point to (e.g., MapTiler, OpenFreeMap, OpenStreetMap-based providers) usually includes an `attribution` field in its JSON. The plugin automatically adds that to Leaflet’s attribution control.  
+* If you host your own vector tiles, make sure the style’s `sources` contain the correct `attribution` strings, or add them manually:
+
+```js
+map.attributionControl.addAttribution('© Your Data Provider');
+```
+
+---
+
+## 5. When to use this vs. a full MapLibre GL map
+
+| Use case | Recommended approach |
+|----------|----------------------|
+| **Pure Leaflet UI, existing Leaflet plugins (draw, heatmap, clustering, etc.)** | **MapLibre GL Leaflet** – you keep the Leaflet ecosystem and just swap the basemap. |
+| **Need per-feature interaction on the basemap (click a road, query properties, dynamic styling)** | Embed a **stand-alone MapLibre GL map** side-by-side or replace Leaflet entirely. |
+| **Offline kiosk / static HTML where you want a single bundle** | Pre-render the vector style to raster tiles (e.g., with `tile-join` or `mbtiles`) and serve them as normal raster tiles – you can still use the plugin, but you could also skip it and use a regular `L.tileLayer`. |
+| **Performance-critical mobile app with limited bandwidth** | Vector tiles are still the most efficient; the plugin only adds a thin raster conversion layer, which is negligible compared to the network cost of the vector tiles themselves. |
+
+---
+
+## 6. Gotchas & Tips
+
+| Issue | How to avoid / fix |
+|-------|--------------------|
+| **CORS errors** when the style or tile URLs are on a different domain. | Ensure the tile server sends `Access-Control-Allow-Origin: *` (or your domain). The plugin forwards the same request headers as MapLibre GL, so any CORS policy that works for a pure MapLibre map will work here. |
+| **High-DPI screens** – raster tiles may look blurry if the source style only provides up to `z=14`. | Set `detectRetina: true` on the Leaflet map (default) and make sure the vector source includes higher zoom levels. The plugin will request the appropriate `@2x` tiles automatically. |
+| **Tile flicker when panning fast** – the hidden MapLibre map has to render each tile on demand. | Increase the hidden map’s `pixelRatio` (via `L.maplibreGL({pixelRatio: 2})`) or pre-warm the cache by calling `mlLayer.getMap().setZoom()` to a higher zoom once on load. |
+| **Styling changes at runtime** – you can call `mlLayer.getMap().setStyle(newStyleUrl)` to swap basemaps without recreating the Leaflet layer. | Keep a reference to the underlying MapLibre map: `const mlMap = mlLayer.getMap();` then `mlMap.setStyle('…')`. |
+| **Memory usage** – the hidden MapLibre map holds a full tile cache. | Use the `maxTileCacheSize` option (MapLibre GL) via `mlLayer.getMap().setMaxTileCacheSize(256)` if you run into memory pressure on low-end devices. |
+
+---
+
+## 7. Full minimal example (HTML only)
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8""/>
+  <title>Leaflet + MapLibre-GL-Leaflet basemap</title>
+  <link rel=""stylesheet"" href=""https://unpkg.com/leaflet@1.9.4/dist/leaflet.css""/>
+  <link rel=""stylesheet"" href=""https://unpkg.com/maplibre-gl@4.3.0/dist/maplibre-gl.css""/>
+  <style>#map {height:100vh; width:100%;}</style>
+</head>
+<body>
+<div id=""map""></div>
+
+<script src=""https://unpkg.com/leaflet@1.9.4/dist/leaflet.js""></script>
+<script src=""https://unpkg.com/maplibre-gl@4.3.0/dist/maplibre-gl.js""></script>
+<script src=""https://unpkg.com/maplibre-gl-leaflet@0.0.13/dist/leaflet-maplibre-gl.js""></script>
+
+<script>
+  const map = L.map('map').setView([51.505, -0.09], 13);
+
+  // MapLibre-GL-Leaflet basemap
+  L.maplibreGL({
+    style: 'https://api.maptiler.com/maps/streets/style.json?key=YOUR_MAPTILER_KEY',
+    // optional: add your own MapLibre GL options here
+  }).addTo(map);
+
+  // Example overlay: a simple GeoJSON point
+  const geojson = {
+    ""type"":""FeatureCollection"",
+    ""features"":[
+      {""type"":""Feature"",""properties"":{""name"":""London Eye""},
+       ""geometry"":{""type"":""Point"",""coordinates"":[-0.1195,51.5033]}}
+    ]
+  };
+  L.geoJSON(geojson).addTo(map);
+</script>
+</body>
+</html>
+```
+
+Replace `YOUR_MAPTILER_KEY` with a valid token (or point to any public style URL that serves vector tiles).
+
+---
+
+## 8. Further reading
+
+* **MapLibre GL Leaflet repo** – installation, API, and advanced options: <https://github.com/maplibre/maplibre-gl-leaflet>
+* **MapLibre Style Specification** – what a `style.json` can contain: <https://maplibre.org/maplibre-style-spec/>
+* **Vector-tile providers** – MapTiler Cloud, OpenFreeMap, OpenMapTiles, etc. (all expose a `style.json` you can plug in directly).
+* **If you later decide to drop Leaflet** – see the skill *maplibre-source-wiring* for wiring your own vector-tile source into a pure MapLibre GL style.
+
+---
+
+### TL;DR
+
+1. **Install** `maplibre-gl-leaflet`.
+2. **Create** a Leaflet map as usual.
+3. **Add** `L.maplibreGL({style: '…'})` as a layer – it turns any MapLibre-style vector-tile basemap into raster tiles that Leaflet can display.
+4. **Overlay** your own Leaflet layers (GeoJSON, markers, heatmaps, etc.) on top.
+
+That’s all you need to bring a modern vector-tile basemap into a Leaflet-based application. Happy mapping!",PASS,1.00,,All assertions passed,

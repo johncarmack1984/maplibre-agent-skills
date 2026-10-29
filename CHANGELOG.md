@@ -4,19 +4,69 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ## [Unreleased]
 
-<!-- bump: minor -->
+<!-- bump: patch -->
+
+### Fixed
+
+- `maplibre-source-wiring`: keeps its failure modes out of the tips or gotchas section of an answer to an unrelated question ([#163](https://github.com/maplibre/maplibre-agent-skills/pull/163))
+- `maplibre-pmtiles-patterns`: the layer names are the `vector_layers` array of `pmtiles show --metadata`, which plain `show` prints only as `<object>`; `verify` checks the archive structure, not tile contents ([#157](https://github.com/maplibre/maplibre-agent-skills/pull/157))
+- `maplibre-source-wiring`: opens with its scope rule, so an answer to an unrelated styling question no longer adds a blank-map debugging section ([#156](https://github.com/maplibre/maplibre-agent-skills/pull/156))
+- `maplibre-v6-migration`: opens with its scope rule, so an answer to an unrelated question no longer adds v6 migration sections ([#153](https://github.com/maplibre/maplibre-agent-skills/pull/153))
+- `maplibre-fonts-glyphs`: GL JS reads `font-faces` since 6.7.0, needs no right-to-left plugin since 6.9.0, and draws Devanagari and other complex scripts correctly since 6.15.0 ([#152](https://github.com/maplibre/maplibre-agent-skills/pull/152))
+- `maplibre-terrain-rendering`: says MapLibre GL JS has no `setFog` method or root `fog` object, so haze goes in `sky`, and the sky test fails a `setFog` call ([#151](https://github.com/maplibre/maplibre-agent-skills/pull/151))
+
+### Internal
+
+- `npm run format:check`: checks the files git tracks or would track, so a file that `.git/info/exclude` or a global excludes file hides from git no longer fails the check ([#160](https://github.com/maplibre/maplibre-agent-skills/pull/160))
+- `.githooks/pre-push`: a push that only deletes branches skips the checks ([#159](https://github.com/maplibre/maplibre-agent-skills/pull/159))
+- `eval.yml`: a test that fails any attempt fails its config and the run; the re-runs show whether the failure repeats, and the drift issue lists every attempt ([#158](https://github.com/maplibre/maplibre-agent-skills/pull/158))
+- `eval:graded`: the judge is `gemini-3.1-flash-lite`, which held recorded answers to their rubrics where `gemini-2.5-flash-lite` passed misses ([#150](https://github.com/maplibre/maplibre-agent-skills/pull/150))
+- `eval.yml`: the scheduled run grades a config when its SKILL.md, eval config or harness changes, and re-grades the rest weekly; each run commits `evals/results/<date>.json` with what it graded on ([#149](https://github.com/maplibre/maplibre-agent-skills/pull/149))
+- `eval.yml`: the publish job's status sync imports no package again, and a unit test keeps every script that job runs free of packages ([#148](https://github.com/maplibre/maplibre-agent-skills/pull/148))
+
+## [0.3.0] - 2026-10-26
+
+### Added
+
+- Claude Code plugin: `/plugin install maplibre-agent-skills --marketplace maplibre/maplibre-agent-skills` installs every skill except the maintainers' eval runbook ([#145](https://github.com/maplibre/maplibre-agent-skills/pull/145))
+- `maplibre-sprites-icons` skill, extracted from `maplibre-cartography`: a decision tree for a `Marker`, a sprite, or `addImage`; `sprite` URL forms and several sheets; self-hosting; SVGs through `addImage`; finding a missing icon; route shields (#68) ([#96](https://github.com/maplibre/maplibre-agent-skills/pull/96))
+- `maplibre-running-evals` process skill: the step-by-step procedure for running the Promptfoo evals; `evals/README.md` now treats the pinned judge as the default and says when another judge is legitimate ([#81](https://github.com/maplibre/maplibre-agent-skills/pull/81))
 
 ### Changed
 
+- skills: `status` moves under `metadata`, as the Agent Skills spec requires, so claude.ai uploads accept them; `maplibre-running-evals` no longer installs with `npx skills add`; `validate:skills` checks front matter against the spec and requires the footer ([#138](https://github.com/maplibre/maplibre-agent-skills/pull/138))
 - `maplibre-terrain-patterns` replaced by `maplibre-terrain-rendering` (hillshade, color-relief, contours, 3D terrain and sky, `verified`), with its eval config split along the same seam and cross-references updated; the companion DEM-source content was withdrawn after a probe showed no gap to close ([#84](https://github.com/maplibre/maplibre-agent-skills/pull/84))
 - evals: rubrics for `maplibre-mapbox-migration` and `maplibre-pmtiles-patterns` now fail invented APIs; `maplibre-mapbox-migration` gains the Mapbox v2 → MapLibre API mapping, and both skills move to `verified` ([#85](https://github.com/maplibre/maplibre-agent-skills/pull/85))
 
 ### Fixed
 
+- `maplibre-mapbox-migration`, `maplibre-pmtiles-patterns`, `maplibre-cartography`, `maplibre-tile-sources`: correct a package name that is not on npm, version boundaries, dead links and citations, and how MapLibre GL Leaflet works ([#143](https://github.com/maplibre/maplibre-agent-skills/pull/143))
+- `maplibre-v6-migration`: the CDN example uses a namespace import, the `setMissingStyleImageResolver` example calls `map.addImage()` because GL JS ignores the resolver's return value, and the worker note covers 6.13.0's self-contained worker ([#142](https://github.com/maplibre/maplibre-agent-skills/pull/142))
+- README: the install section gives the skill folders Cursor, GitHub Copilot, Codex and Claude Code read, and `-a github-copilot` in place of `-a vscode`, which the skills CLI rejects ([#139](https://github.com/maplibre/maplibre-agent-skills/pull/139))
+- `maplibre-source-wiring` and `maplibre-tile-sources`: replace "silently omitted" with the console warning GL JS logs for a missing sprite or icon, and `map.hasImage()` ([#104](https://github.com/maplibre/maplibre-agent-skills/pull/104))
+- `maplibre-sprites-icons`: gives each OSM Bright sheet's shield badges per network, and its shield test checks those ranges without the judge ([#135](https://github.com/maplibre/maplibre-agent-skills/pull/135))
+- `maplibre-source-wiring`: says a `{z}/{x}/{y}` template is not a URL to test by hand, which its TileJSON advice had crowded out ([#120](https://github.com/maplibre/maplibre-agent-skills/pull/120))
+- `maplibre-fonts-glyphs`: no longer adds font and glyph advice to answers about layers that draw no text ([#121](https://github.com/maplibre/maplibre-agent-skills/pull/121))
+- `maplibre-tile-sources`: back to the narrowed skill #69 verified, which fits the eval provider's request limit again; `maplibre-source-wiring` now says TileJSON 3.0 requires `vector_layers` and names Protomaps' `earth` layer ([#118](https://github.com/maplibre/maplibre-agent-skills/pull/118))
 - `maplibre-pmtiles-patterns`: state the GL JS 4.0.0 `addProtocol` handler contract (`{data, cacheControl?, expires?}`, module-level registration), that sources locate tiles with `url` or `tiles` only, and the real `pmtiles` inspection commands ([#92](https://github.com/maplibre/maplibre-agent-skills/pull/92))
 
 ### Internal
 
+- dependencies: `promptfoo` 0.125, `markdownlint-cli` 0.50 and `js-yaml` 5.5, with overrides for four transitive packages, so `npm audit` reports nothing ([#144](https://github.com/maplibre/maplibre-agent-skills/pull/144))
+- `scripts/setup-hooks.js`: `npm install` outside a git checkout skips the pre-push hook instead of failing ([#140](https://github.com/maplibre/maplibre-agent-skills/pull/140))
+- `changelog.yml`: the changelog bot runs `npm run check` before pushing, so an entry that fails it fails the run instead of reaching `main` unchecked ([#109](https://github.com/maplibre/maplibre-agent-skills/pull/109))
+- workflows: every job runs the Node version in `.nvmrc`, now 26, with each action on its Node 24 release, and `check.yml` runs the unit tests ([#137](https://github.com/maplibre/maplibre-agent-skills/pull/137))
+- `eval.yml`: a config the judge's or the generator's daily limit cuts off waits for the next day instead of failing the run, and a 5xx from either provider is retried ([#134](https://github.com/maplibre/maplibre-agent-skills/pull/134))
+- evals: `maplibre-terrain-rendering` test 4 fails an answer that sets a Mapbox-only sky key, which the judge had passed ([#130](https://github.com/maplibre/maplibre-agent-skills/pull/130))
+- `eval.yml`: each config's requests are paced to the generator's measured per-minute limit, each config may use what the run's budget has left, and the run log and drift issue name every rate-limit wait ([#131](https://github.com/maplibre/maplibre-agent-skills/pull/131))
+- evals: `npm run lint:tripwires` fails on a `not-icontains` that matches the skill its test injects, and the two that did, in `maplibre-terrain-rendering` and `maplibre-v6-migration`, are gone ([#129](https://github.com/maplibre/maplibre-agent-skills/pull/129))
+- `eval.yml`: every eval request gets an answer cap that fits the generator's per-minute limit, and the drift check runs daily, grading the configs that have waited longest for a verdict as far as the day's tokens hold ([#126](https://github.com/maplibre/maplibre-agent-skills/pull/126))
+- `changelog.yml`: each run records every recently merged PR the changelog lacks, so merging several PRs at once no longer drops entries ([#123](https://github.com/maplibre/maplibre-agent-skills/pull/123))
+- evals: answers are graded with U+2011 (non-breaking hyphen) replaced by `-`, so a hyphenated name written in prose matches its `icontains` ([#122](https://github.com/maplibre/maplibre-agent-skills/pull/122))
+- `eval.yml`: a test that does not pass runs twice more, and its failure is recorded only if a re-run fails too ([#119](https://github.com/maplibre/maplibre-agent-skills/pull/119))
+- `eval.yml`: a failed judge call inside an `llm-rubric` records `error` instead of `fail`, so it no longer demotes a skill ([#110](https://github.com/maplibre/maplibre-agent-skills/pull/110))
+- `eval.yml`: the weekly drift check runs as three scheduled slices (Sunday, Wednesday, Friday) sized to Groq's daily token cap, and the status sync measures a run against its own plan instead of every config ([#113](https://github.com/maplibre/maplibre-agent-skills/pull/113))
+- `scripts/setup-hooks.js`: `npm install` from a git worktree installs the pre-push hook instead of failing ([#103](https://github.com/maplibre/maplibre-agent-skills/pull/103))
 - `eval.yml`: the runner rejects config and output paths that are not plain `evals/prompts/<skill>.yaml` files or plain directories before they reach `npm run`, answering the CodeQL shell-command alert ([#95](https://github.com/maplibre/maplibre-agent-skills/pull/95))
 - evals: the judge and the deterministic assertions grade the generator's answer only; the reasoning trace is no longer prepended to the graded output ([#94](https://github.com/maplibre/maplibre-agent-skills/pull/94))
 - `eval.yml`: a config that overruns its bound is now actually stopped (process-group kill with SIGKILL escalation), and a killed config's sidecar still feeds the drift issue's signals ([#93](https://github.com/maplibre/maplibre-agent-skills/pull/93))

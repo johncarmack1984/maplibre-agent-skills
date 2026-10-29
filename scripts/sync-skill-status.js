@@ -1,24 +1,31 @@
 #!/usr/bin/env node
 /**
- * Flips a skill's `status:` frontmatter to match the weekly drift check:
+ * Flips a skill's `metadata.status` frontmatter to match the drift check:
  * provisional -> verified on pass, verified -> provisional on fail.
  *
  * Reads one "skillName:pass", "skillName:fail", or "skillName:error" line per
  * skill from the file passed as argv[2] (written by scripts/run-evals.js).
- * Skills with no status field, or status: process, are left alone — this only
+ * Skills with no status field, or `status: process`, are left alone — this only
  * manages the provisional/verified pair, and only for skills that opted in.
  *
  * `error` means the run reached no verdict for that skill: a provider or judge
  * failure, the per-config time bound, or a run budget that ran out before the
  * config started. It never flips a status in either direction, so an unlucky
  * week cannot demote a skill and cannot promote one either. The cost is
- * deliberate: a real regression in a rate-limited week waits a week to be seen.
+ * deliberate: a real regression in a rate-limited run waits for the config's
+ * next turn to be seen.
  *
- * A skill with an eval config but no line at all is reported as missing and
- * makes the run `partial`, so a half-finished run is never read as a clean one.
+ * A skill the run planned but produced no line for is reported as missing and
+ * makes the run `partial`, so a half-finished run is never read as a clean
+ * one. The plan is the `planned` list in the summary.json beside the verdicts
+ * file: a scheduled run grades only as many configs as the generator key's
+ * daily tokens hold (#108), and measuring it against every config would
+ * report the rest missing on every run. With no readable plan,
+ * the expected set falls back to every
+ * config: a run that cannot say what it planned is checked against everything.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   listEvalConfigs,
@@ -26,6 +33,7 @@ import {
   parseVerdicts,
   skillOf
 } from './lib/eval-verdicts.js';
+import { statusIn, withStatus } from './lib/frontmatter.js';
 import { setOutputs } from './lib/github-output.js';
 
 export function syncSkillStatus({
@@ -48,9 +56,8 @@ export function syncSkillStatus({
       continue;
     }
 
-    const statusMatch = content.match(/^status:\s*(\S+)/m);
-    if (!statusMatch) continue; // no status field — not opted into auto-sync
-    const status = statusMatch[1];
+    const status = statusIn(content);
+    if (!status) continue; // no status field — not opted into auto-sync
     if (status === 'process') continue; // eval-exempt, never auto-flipped
 
     if (verdict === 'error') {
@@ -67,10 +74,7 @@ export function syncSkillStatus({
     if (status === 'verified' && verdict === 'fail') next = 'provisional';
     if (!next) continue;
 
-    writeFileSync(
-      skillFile,
-      content.replace(/^status:\s*\S+/m, `status: ${next}`)
-    );
+    writeFileSync(skillFile, withStatus(content, next));
     changes.push(`${skill}: ${status} -> ${next}`);
   }
 
@@ -79,6 +83,25 @@ export function syncSkillStatus({
     ignored,
     missing: missingVerdicts(verdicts, expectedSkills)
   };
+}
+
+/** The skills this run was supposed to grade — see the header. */
+export function expectedSkillsFor(verdictsPath) {
+  try {
+    const summary = JSON.parse(
+      readFileSync(join(dirname(verdictsPath), 'summary.json'), 'utf8')
+    );
+    if (
+      Array.isArray(summary.planned) &&
+      summary.planned.length > 0 &&
+      summary.planned.every((skill) => typeof skill === 'string')
+    ) {
+      return summary.planned;
+    }
+  } catch {
+    // No summary beside the verdicts file — fall back to every config.
+  }
+  return listEvalConfigs().map(skillOf);
 }
 
 /** Let the workflow open a report issue on the changes, and see a partial run. */
@@ -101,7 +124,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
     result = syncSkillStatus({
       verdictsText: readFileSync(verdictsPath, 'utf8'),
-      expectedSkills: listEvalConfigs().map(skillOf)
+      expectedSkills: expectedSkillsFor(verdictsPath)
     });
   } catch (error) {
     console.error(`❌ ${error.message}`);

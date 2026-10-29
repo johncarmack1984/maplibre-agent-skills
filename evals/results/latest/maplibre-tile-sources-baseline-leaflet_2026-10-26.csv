@@ -1,0 +1,686 @@
+Description,skillFile,injectSkill,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+implicit — Leaflet cannot render vector tiles natively,skills/maplibre-tile-sources/SKILL.md,false,"My app is built on Leaflet and I want to add a MapLibre-style vector tile basemap to it. Is that possible, and how?
+","## TL;DR  
+Yes – you can display a **MapLibre-style vector-tile basemap** inside a Leaflet map. The easiest way is to use the tiny bridge library **`maplibre-gl-leaflet`** (or its successor `leaflet-maplibre-gl`). It lets you treat a full-blown MapLibre GL JS map as a Leaflet layer, so you keep all of Leaflet’s UI (controls, markers, pop-ups, etc.) while the background tiles are rendered by MapLibre GL.
+
+Below is a complete, copy-and-paste-ready recipe (CDN-only) followed by a more detailed “how it works” section, alternative approaches, and a checklist of gotchas.
+
+---
+
+## 1️⃣ Quick-Start (CDN)
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"">
+  <title>Leaflet + MapLibre basemap</title>
+
+  <!-- Leaflet CSS -->
+  <link
+    rel=""stylesheet""
+    href=""https://unpkg.com/leaflet@1.9.4/dist/leaflet.css""
+    integrity=""sha256-sA+e2bZc+gZc+K5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c=""
+    crossorigin=""""
+  />
+
+  <style>
+    html, body, #map { height: 100%; margin: 0; }
+  </style>
+</head>
+<body>
+
+<div id=""map""></div>
+
+<!-- Leaflet JS -->
+<script src=""https://unpkg.com/leaflet@1.9.4/dist/leaflet.js""
+        integrity=""sha256-+bZc+gZc+K5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c=""
+        crossorigin=""""></script>
+
+<!-- MapLibre GL JS -->
+<script src=""https://unpkg.com/maplibre-gl@4.2.0/dist/maplibre-gl.js""></script>
+<link href=""https://unpkg.com/maplibre-gl@4.2.0/dist/maplibre-gl.css"" rel=""stylesheet""/>
+
+<!-- Bridge: maplibre-gl-leaflet (or leafet-maplibre-gl) -->
+<script src=""https://unpkg.com/maplibre-gl-leaflet@0.0.13/leaflet-maplibre-gl.js""></script>
+
+<script>
+  // 1️⃣ Initialise the Leaflet map (any CRS, any options you like)
+  const map = L.map('map', {
+    center: [51.505, -0.09],
+    zoom: 13,
+    // optional: make the Leaflet map use the same max/min zoom as the style
+    maxZoom: 22,
+    minZoom: 0
+  });
+
+  // 2️⃣ Create the MapLibre GL layer
+  const mapLibreLayer = L.maplibreGL({
+    // URL to a MapLibre style JSON (can be local or remote)
+    style: 'https://demotiles.maplibre.org/style.json',
+    // Optional: pass any MapLibre GL options you need
+    // e.g. accessToken: 'YOUR_TOKEN'   // if your source needs it
+    //   , attribution: '&copy; OpenMapTiles &copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  // 3️⃣ Add any Leaflet overlays you want (markers, polygons, etc.)
+  L.marker([51.5, -0.09]).addTo(map)
+    .bindPopup('I am a Leaflet marker on top of a MapLibre basemap')
+    .openPopup();
+
+  // 4️⃣ (Optional) Sync the cursor style for a smoother UX
+  mapLibreLayer.getContainer().style.cursor = 'grab';
+</script>
+</body>
+</html>
+```
+
+**Result:** A Leaflet map with a fully styled vector-tile basemap rendered by MapLibre GL, plus regular Leaflet markers, pop-ups, and controls.
+
+---
+
+## 2️⃣ What’s Happening Under the Hood?
+
+| Component | Role |
+|-----------|------|
+| **Leaflet** | Handles the map container, UI controls, DOM-based overlays (markers, pop-ups, vector layers, etc.). |
+| **MapLibre GL JS** | Renders the vector tiles on a WebGL canvas using the style JSON you provide. |
+| **`maplibre-gl-leaflet`** (or `leaflet-maplibre-gl`) | A thin wrapper that creates a Leaflet `Layer` whose `onAdd`/`onRemove` methods mount/unmount a MapLibre GL map inside the Leaflet map’s pane. It also forwards Leaflet events (zoom, pan, resize) to the GL map so the two stay in sync. |
+
+### Why Use the Bridge?
+
+* **Full MapLibre styling** – you can use any MapLibre style (OpenMapTiles, MapTiler, custom, etc.) without having to raster-tile it yourself.
+* **Leaflet UI stays familiar** – you still use `L.marker`, `L.geoJSON`, `L.control`, etc.
+* **Performance** – Vector tiles are rendered on the GPU, so you get smooth zoom/pan even at high zoom levels.
+
+---
+
+## 3️⃣ Step-by-Step Guide (npm / bundler)
+
+If you’re building with a bundler (Webpack, Vite, Rollup, etc.) you’ll probably want the npm versions instead of the CDN links.
+
+```bash
+# Install the three packages
+npm i leaflet maplibre-gl maplibre-gl-leaflet
+# (or yarn add …)
+```
+
+```js
+// main.js (or wherever you initialise the map)
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+
+import { MapLibreGL } from 'maplibre-gl-leaflet'; // the wrapper
+
+// 1️⃣ Leaflet map
+const map = L.map('map', {
+  center: [40.7128, -74.0060],
+  zoom: 12,
+  maxZoom: 22,
+  minZoom: 0
+});
+
+// 2️⃣ MapLibre GL layer
+const glLayer = new MapLibreGL({
+  style: 'https://api.maptiler.com/maps/streets/style.json?key=YOUR_KEY',
+  // any MapLibre GL options go here
+  // e.g. transformRequest: (url, resourceType) => { … }
+}).addTo(map);
+
+// 3️⃣ Leaflet overlays (markers, polygons, etc.)
+L.marker([40.7128, -74.0060]).addTo(map)
+  .bindPopup('Hello from Leaflet!');
+
+// 4️⃣ Optional: keep the GL canvas on top of the tile pane but below the overlay pane
+glLayer.setZIndex(1); // default is fine for most cases
+```
+
+**Note:** The wrapper exports a class called `MapLibreGL` (or `L.maplibreGL` when you import the side-effects version). Both work; pick the style you prefer.
+
+---
+
+## 4️⃣ Alternative Approaches (when the bridge isn’t enough)
+
+| Approach | When to use it | Pros | Cons |
+|----------|----------------|------|------|
+| **`L.VectorGrid` (leaflet.vectorgrid)** | You only need a few vector layers (e.g., roads, admin boundaries) and want them as Leaflet vector objects. | Full Leaflet interactivity (feature events, styling via Canvas/SVG). | No full MapLibre style support – you have to style each layer manually. |
+| **Render MapLibre GL in a separate container** | You want a completely independent GL map but still need Leaflet UI elsewhere. | Clean separation, can use MapLibre GL’s own controls. | Overlays can’t be mixed; you need to sync two maps manually. |
+| **Convert style to raster tiles (e.g., via TileServer-GL, Tileserver-PHP, MapTiler Cloud)** | Your target environment can’t use WebGL (very old browsers, some mobile WebViews). | Works everywhere Leaflet works. | Loss of vector benefits (no dynamic styling, larger bandwidth). |
+| **`leaflet-glify`** | You have a small amount of GeoJSON that you want to render with WebGL for performance. | Very lightweight, no external style JSON needed. | Not a full basemap solution. |
+
+---
+
+## 5️⃣ Gotchas & Best-Practice Checklist
+
+| Issue | What to watch for | Fix / Recommendation |
+|-------|-------------------|-----------------------|
+| **CORS / Access Tokens** | Many vector tile providers (MapTiler, Mapbox, OpenMapTiles) require an API key or CORS headers. | Use a style URL that includes your token (`?key=…`) **or** host the style & tiles on the same domain (or enable CORS). |
+| **Zoom limits** | Leaflet’s default `maxZoom` is 18; many vector styles go to 22. | Set `maxZoom` on the Leaflet map to match the style (`map.setMaxZoom(22)`). |
+| **Attribution** | MapLibre GL does not automatically add attributions to Leaflet’s control. | Pass `attribution` in the wrapper options or add a separate `L.control.attribution`. |
+| **CSS Z-index** | The GL canvas lives in its own pane; sometimes it can hide Leaflet markers. | Use `glLayer.setZIndex(1)` (or higher) and make sure your overlay pane (`overlayPane`) is above it (default). |
+| **Touch gestures** | On mobile, both Leaflet and MapLibre GL listen for pinch/drag. The bridge forwards events, but double-tap zoom can be jittery. | Set `mapLibreLayer.getMap().dragRotate = false;` if you don’t need map rotation. |
+| **Performance on low-end devices** | WebGL is fast, but rendering many layers (e.g., 30+ sources) can tax older GPUs. | Keep the style lean (disable unnecessary layers) or provide a raster fallback for those devices. |
+| **Version compatibility** | The bridge is thin; it tracks MapLibre GL major releases. | Use matching versions: `maplibre-gl@4.x` with `maplibre-gl-leaflet@0.0.13`. If you upgrade, check the bridge’s release notes. |
+| **SSR / Server-Side Rendering** | Leaflet expects a DOM; the bridge also creates a canvas. | Guard the initialization with `if (typeof window !== 'undefined') { … }`. |
+| **Custom fonts / glyphs** | Vector styles may reference glyphs that aren’t bundled. | Host the glyphs yourself or use a style that references a public glyphs URL (MapLibre’s demo style does). |
+
+---
+
+## 6️⃣ Full Example with a Private Tile Server (OpenMapTiles)
+
+If you have your own **OpenMapTiles** (or any MBTiles) server exposing vector tiles and a style JSON, the steps are identical – just point `style` to your own URL.
+
+```js
+const glLayer = L.maplibreGL({
+  style: 'https://mytileserver.example.com/styles/streets/style.json',
+  // If your server needs a token in the header:
+  transformRequest: (url, resourceType) => {
+    if (resourceType === 'Source' && url.includes('mytileserver')) {
+      return {
+        url,
+        headers: { 'Authorization': 'Bearer MY_SECRET_TOKEN' }
+      };
+    }
+  }
+}).addTo(map);
+```
+
+**Tip:** If you’re serving the style from the same origin, you can omit CORS handling altogether.
+
+---
+
+## 7️⃣ Where to Find Ready-Made Styles
+
+| Provider | URL (example) | Notes |
+|----------|---------------|-------|
+| **MapLibre Demo** | `https://demotiles.maplibre.org/style.json` | Public, no token, good for testing. |
+| **MapTiler** | `https://api.maptiler.com/maps/streets/style.json?key=YOUR_KEY` | Free tier (up to 100 k tiles/mo). |
+| **OpenMapTiles** | `https://free.tilehosting.com/data/v3.json?key=YOUR_KEY` | Open-source style, requires token for hosted version. |
+| **Your own** | `https://mydomain.com/styles/custom/style.json` | Host the JSON and glyphs yourself for full control. |
+
+---
+
+## 8️⃣ TL;DR Recap
+
+1. **Install** `leaflet`, `maplibre-gl`, and `maplibre-gl-leaflet` (or use CDN).
+2. **Create** a normal Leaflet map (`L.map`).
+3. **Add** a `L.maplibreGL({ style: '…' })` layer to the map.
+4. **Add** any Leaflet overlays you need (markers, polygons, etc.).
+5.",PASS,1.00,,All assertions passed,
+implicit — Leaflet cannot render vector tiles natively,skills/maplibre-tile-sources/SKILL.md,false,"My app is built on Leaflet and I want to add a MapLibre-style vector tile basemap to it. Is that possible, and how?
+","## TL;DR  
+Yes – you can display a **MapLibre-style vector-tile basemap** inside a Leaflet map.  
+The easiest way is to use the **`@maplibre/maplibre-gl-leaflet`** plugin, which embeds a MapLibre GL JS canvas as a Leaflet layer.  
+
+Below is a complete, copy-and-paste-ready example plus a step-by-step guide, alternatives, and a checklist of gotchas.
+
+---
+
+## 1. How it works under the hood  
+
+| Component | What it does | Why it matters |
+|-----------|--------------|----------------|
+| **Leaflet** | 2-D map framework (DOM, Canvas, SVG) | Handles UI, controls, other raster/vector layers, routing, etc. |
+| **MapLibre GL JS** | WebGL renderer for MapLibre style JSON + vector tiles (pbf) | Draws the basemap with the full styling power of MapLibre (layers, filters, expressions). |
+| **`@maplibre/maplibre-gl-leaflet`** | Thin wrapper that creates a Leaflet `Layer` (`L.maplibreGL`) whose `onAdd`/`onRemove` mount/unmount a MapLibre GL map inside the Leaflet container. | Lets you treat the GL canvas like any other Leaflet overlay (z-order, opacity, events). |
+
+Result: a Leaflet map that can still use its own layers (markers, polygons, heatmaps, etc.) **and** a full-featured vector-tile basemap styled with a MapLibre style JSON.
+
+---
+
+## 2. Minimal Working Example  
+
+> **Prerequisites**  
+> * A web server (even a simple `python -m http.server`) – Leaflet needs to load assets via HTTP.  
+> * A publicly reachable **style JSON** (or a local file served with CORS).  
+> * Vector tiles in the **MapLibre** format (`.pbf`).  
+>   – You can use a public source like **OpenMapTiles**, **Planetiler**, **tileserver-gl**, or any XYZ vector-tile service that returns `application/x-protobuf`.  
+
+### 2.1. HTML (index.html)
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"">
+  <title>Leaflet + MapLibre GL basemap</title>
+
+  <!-- Leaflet CSS -->
+  <link
+    rel=""stylesheet""
+    href=""https://unpkg.com/leaflet@1.9.4/dist/leaflet.css""
+    integrity=""sha256-sA+e2bZc+gZc+K5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c=""
+    crossorigin=""""
+  />
+
+  <style>
+    html, body, #map { height: 100%; margin: 0; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+
+<!-- Leaflet JS -->
+<script
+  src=""https://unpkg.com/leaflet@1.9.4/dist/leaflet.js""
+  integrity=""sha256-+bZc+gZc+K5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c=""
+  crossorigin=""""></script>
+
+<!-- MapLibre GL JS -->
+<script src=""https://unpkg.com/maplibre-gl@4.2.2/dist/maplibre-gl.js""></script>
+<link href=""https://unpkg.com/maplibre-gl@4.2.2/dist/maplibre-gl.css"" rel=""stylesheet""/>
+
+<!-- MapLibre-GL-Leaflet plugin -->
+<script src=""https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.0.13/leaflet-maplibre-gl.js""></script>
+
+<script>
+  // 1️⃣ Initialise the Leaflet map (any CRS works – we use the default EPSG:3857)
+  const map = L.map('map', {
+    center: [51.505, -0.09], // London
+    zoom: 12,
+    // optional: make the GL layer the “base” layer (no background tiles)
+    preferCanvas: false
+  });
+
+  // 2️⃣ Add the MapLibre GL layer
+  const glLayer = L.maplibreGL({
+    // 👉 Either a remote URL or a relative path to a style.json
+    style: 'https://demotiles.maplibre.org/style.json', // demo style (OpenStreetMap)
+    // If your style references a token (e.g. MapTiler), add it here:
+    // accessToken: 'YOUR_MAPTILER_TOKEN',
+    // Optional: set maxZoom/minZoom to match your vector tile source
+    maxZoom: 18,
+    minZoom: 0,
+    // Optional: make the GL canvas transparent so underlying Leaflet layers show through
+    // (default is false – the GL canvas clears the background each frame)
+    // transparent: true,
+  }).addTo(map);
+
+  // 3️⃣ Add a regular Leaflet marker on top (just to prove layering works)
+  L.marker([51.505, -0.09])
+    .addTo(map)
+    .bindPopup('I am a Leaflet marker!')
+    .openPopup();
+
+  // 4️⃣ (Optional) Add a Leaflet vector layer (e.g. GeoJSON) to test interaction
+  const geojson = {
+    ""type"": ""FeatureCollection"",
+    ""features"": [{
+      ""type"": ""Feature"",
+      ""properties"": { ""name"": ""Park"" },
+      ""geometry"": {
+        ""type"": ""Polygon"",
+        ""coordinates"": [[
+          [-0.1, 51.51],
+          [-0.08, 51.51],
+          [-0.08, 51.5],
+          [-0.1, 51.5],
+          [-0.1, 51.51]
+        ]]
+      }
+    }]
+  };
+  L.geoJSON(geojson, {
+    style: {color: 'orange', weight: 2, fillOpacity: 0.2}
+  }).addTo(map);
+</script>
+</body>
+</html>
+```
+
+### 2.2. What you just did  
+
+| Step | Explanation |
+|------|-------------|
+| **Leaflet map** | Standard Leaflet initialization (`L.map`). |
+| **`L.maplibreGL({style: …})`** | Creates a Leaflet layer that internally spins up a MapLibre GL map using the supplied style JSON. |
+| **Add Leaflet overlays** | Anything you add *after* the GL layer will be drawn **on top** (markers, GeoJSON, heatmaps, etc.). |
+| **`transparent: true`** (optional) | If you want the GL canvas to be transparent (e.g., you have a semi-transparent raster tile underneath), set this flag. Most basemap use-cases keep it `false`. |
+
+---
+
+## 3. Step-by-Step Guide for Your Own Project  
+
+### 3.1. Gather / Host a MapLibre Style  
+
+1. **Choose a source of vector tiles**  
+   * **OpenMapTiles** – free, global, MBTiles or XYZ endpoint (`https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.pbf`).  
+   * **MapTiler Cloud** – hosted tiles + style editor (requires API key).  
+   * **Planetiler**, **TileServer-GL**, **tileserver-php**, **tessera**, etc.  
+
+2. **Create a style JSON**  
+   * Use the **MapLibre Style Specification** (v8).  
+   * The easiest way: copy an existing style (e.g., the demo style above) and replace the `sources` URLs with your own tile endpoint.  
+   * Example source entry:  
+
+   ```json
+   ""sources"": {
+     ""openmaptiles"": {
+       ""type"": ""vector"",
+       ""url"": ""https://tileserver.example.com/data/v3.json"",   // TileJSON endpoint
+       ""maxzoom"": 14
+     }
+   }
+   ```
+
+   * If you only have an XYZ endpoint (no TileJSON), you can use the `tiles` array:  
+
+   ```json
+   ""openmaptiles"": {
+     ""type"": ""vector"",
+     ""tiles"": [""https://tileserver.example.com/{z}/{x}/{y}.pbf""],
+     ""minzoom"": 0,
+     ""maxzoom"": 14
+   }
+   ```
+
+3. **Host the style JSON** where it can be fetched with CORS enabled (e.g., GitHub Pages, Netlify, your own static server).  
+
+### 3.2. Install the required libraries  
+
+If you use a bundler (Webpack, Vite, Rollup, etc.):
+
+```bash
+npm i leaflet maplibre-gl @maplibre/maplibre-gl-leaflet
+```
+
+If you prefer CDN (as in the example above), just add the `<script>` tags.
+
+### 3.3. Initialise Leaflet + MapLibre GL  
+
+```js
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import maplibregl from 'maplibre-gl';
+import '@maplibre/maplibre-gl-leaflet';
+
+// 1️⃣ Leaflet map
+const map = L.map('map', {center: [0,0], zoom: 2});
+
+// 2️⃣ MapLibre GL layer
+const gl = L.maplibreGL({
+  style: '/styles/my-style.json',   // path or URL
+  // optional: if your style uses a token (MapTiler, Mapbox, etc.)
+  // accessToken: 'YOUR_TOKEN',
+  // optional: limit zoom range to match tile source
+  maxZoom: 14,
+  minZoom: 0,
+}).addTo(map);
+```
+
+### 3.4. Adding other Leaflet layers  
+
+All normal Leaflet layers work as usual:
+
+```js
+L.marker([0,0]).addTo(map);
+L.geoJSON(myGeojson).addTo(map);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map); // raster overlay (on top)
+```
+
+**Z-order**: The GL layer is just another Leaflet layer. Use `map.addLayer()` / `map.removeLayer()` or `bringToFront()` / `bringToBack()` to reorder.
+
+### 3.5. Interaction between GL and Leaflet  
+
+* **Map events** (`move`, `zoom`, `click`, …) fire on the Leaflet map as usual.  
+* The GL layer automatically follows the Leaflet view (it receives the same `center`, `zoom`, `bearing`, `pitch`).  
+* If you need to **listen to feature clicks** inside the vector tiles, you have two options:  
+
+  1. **MapLibre GL queryRenderedFeatures** – call it on the GL map instance:  
+
+     ```js
+     gl.getMap().on('click', e => {
+       const features = gl.getMap().queryRenderedFeatures(e.point);
+       console.log('GL features under click', features);
+     });
+     ```
+
+  2. **Leaflet overlay** – render the same data as a Leaflet vector layer (GeoJSON) if you need Leaflet-style popups.  
+
+* **Performance tip** – keep the GL canvas **below** heavy Leaflet overlays (markers, heatmaps) to avoid over-draw. Use `gl.setOpacity(0.9)` if you want a semi-transparent basemap.
+
+---
+
+## 4. Alternative Approaches (if the plugin doesn’t fit)
+
+| Approach | When to use | Pros | Cons |
+|----------|-------------|------|------|
+| **`leaflet.vectorgrid` (L.VectorGrid.Protobuf)** | You want *pure* Leaflet rendering (no WebGL) and need to style vector tiles with Leaflet’s `L.Path` API. | Works on all browsers, easy to style with Leaflet functions. | Limited styling (no expressions, filters, 3-D). Slower for large datasets. |
+| **Full MapLibre GL JS + Leaflet UI** | You only need a basemap and can forego Leaflet’s layer system. | Simpler, full GL styling power. | You lose Leaflet’s easy marker/heatmap APIs unless you re-implement them. |
+| **`mapbox-gl-le",FAIL,0.75,,"The output states 'Leaflet 2-D map framework (DOM, Canvas, SVG)' and 'Handles UI, controls, other raster/vector layers, routing, etc.', which incorrectly implies Leaflet can natively handle vector tile layers. While the output does recommend the maplibre-gl-leaflet plugin as the easiest way to display a MapLibre-style vector-tile basemap within Leaflet, it does not explicitly state that Leaflet itself cannot directly consume vector tile sources without such an integration.",
+implicit — Leaflet cannot render vector tiles natively,skills/maplibre-tile-sources/SKILL.md,false,"My app is built on Leaflet and I want to add a MapLibre-style vector tile basemap to it. Is that possible, and how?
+","## TL;DR  
+Yes – you can display a **MapLibre-style vector-tile basemap** inside a Leaflet map.  
+The easiest way is to use the **`@maplibre/maplibre-gl-leaflet`** plugin, which embeds a MapLibre GL JS canvas as a Leaflet layer.  
+
+Below is a complete, copy-and-paste-ready example plus a step-by-step guide, alternatives, and a checklist of gotchas.
+
+---
+
+## 1. How it works under the hood  
+
+| Component | What it does | Why it matters |
+|-----------|--------------|----------------|
+| **Leaflet** | 2-D map framework (DOM, Canvas, SVG) | Handles UI, controls, other raster/vector layers, routing, etc. |
+| **MapLibre GL JS** | WebGL renderer for MapLibre style JSON + vector tiles (pbf) | Draws the basemap with the full styling power of MapLibre (layers, filters, expressions). |
+| **`@maplibre/maplibre-gl-leaflet`** | Thin wrapper that creates a Leaflet `Layer` (`L.maplibreGL`) whose `onAdd`/`onRemove` mount/unmount a MapLibre GL map inside the Leaflet container. | Lets you treat the GL canvas like any other Leaflet overlay (z-order, opacity, events). |
+
+The result is a **single Leaflet map** that can contain:
+
+* MapLibre GL basemap (vector tiles + style)
+* Leaflet raster tiles, markers, popups, GeoJSON layers, etc.
+* Full Leaflet interactivity (zoom, pan, click, etc.) – the plugin synchronises the two maps automatically.
+
+---
+
+## 2. Quick-Start Code (HTML + JS)
+
+```html
+<!DOCTYPE html>
+<html lang=""en"">
+<head>
+  <meta charset=""UTF-8"">
+  <title>Leaflet + MapLibre GL basemap</title>
+  <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
+
+  <!-- Leaflet CSS -->
+  <link
+    rel=""stylesheet""
+    href=""https://unpkg.com/leaflet@1.9.4/dist/leaflet.css""
+    integrity=""sha256-sA+e2bZc+gZc+K5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c=""
+    crossorigin=""""
+  />
+
+  <style>
+    html, body, #map { height: 100%; margin: 0; }
+  </style>
+</head>
+<body>
+
+<div id=""map""></div>
+
+<!-- Leaflet JS -->
+<script src=""https://unpkg.com/leaflet@1.9.4/dist/leaflet.js""
+        integrity=""sha256-+bZc+gZc+K5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c=""
+        crossorigin=""""></script>
+
+<!-- MapLibre GL JS -->
+<script src=""https://unpkg.com/maplibre-gl@4.2.0/dist/maplibre-gl.js""></script>
+<link href=""https://unpkg.com/maplibre-gl@4.2.0/dist/maplibre-gl.css"" rel=""stylesheet""/>
+
+<!-- MapLibre-GL-Leaflet plugin -->
+<script src=""https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.0.13/leaflet-maplibre-gl.js""></script>
+
+<script>
+  // 1️⃣ Initialise the Leaflet map (any CRS, any options you like)
+  const map = L.map('map', {
+    center: [51.505, -0.09], // London
+    zoom: 12,
+    // optional: set maxZoom/minZoom to match your vector tiles
+    maxZoom: 18,
+    minZoom: 5
+  });
+
+  // 2️⃣ Add the MapLibre GL basemap as a Leaflet layer
+  const mapLibreLayer = L.maplibreGL({
+    // URL to a MapLibre style JSON (can be local or remote)
+    style: 'https://demotiles.maplibre.org/style.json',
+    // Optional: pass any MapLibre GL options (e.g. attribution, token)
+    // token: 'YOUR_ACCESS_TOKEN', // if your source needs it
+    // If you want the GL canvas to be transparent so underlying Leaflet layers show:
+    // transparent: true,
+  }).addTo(map);
+
+  // 3️⃣ (Optional) Add a regular Leaflet overlay to prove they work together
+  const marker = L.marker([51.5, -0.09]).addTo(map)
+    .bindPopup('I’m a Leaflet marker on top of a MapLibre basemap!')
+    .openPopup();
+
+  // 4️⃣ (Optional) Add a Leaflet tile layer as a fallback for low-end devices
+  // L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  //   attribution: '&copy; OpenStreetMap contributors'
+  // }).addTo(map);
+</script>
+</body>
+</html>
+```
+
+### What you just did
+
+| Step | Explanation |
+|------|-------------|
+| **1** | Created a normal Leaflet map (`L.map`). |
+| **2** | Instantiated `L.maplibreGL` with a **MapLibre style URL**. The plugin creates an internal MapLibre GL map, loads the style, and draws it on a WebGL canvas that is kept in sync with Leaflet’s view. |
+| **3** | Added a regular Leaflet marker to prove that Leaflet layers sit **above** the GL canvas (z-order works). |
+| **4** | (Optional) Show how you could add a raster fallback for browsers that don’t support WebGL. |
+
+---
+
+## 3. Step-by-Step Guide for a Real Project
+
+### 3.1. Prepare the vector-tile source & style
+
+1. **Vector tiles**  
+   * Must be in **Mapbox Vector Tile (MVT / .pbf)** format.  
+   * Serve them via a tile server that supports CORS (e.g., **tileserver-gl**, **tileserver-php**, **t-rex**, **tileserver-maplibre**, **Amazon S3 + CloudFront**, **MapLibre Cloud**, etc.).  
+   * URL pattern should be `https://example.com/tiles/{z}/{x}/{y}.pbf`.
+
+2. **Style JSON**  
+   * Either write your own style (see the MapLibre Style Specification) or start from an existing open-source style (e.g., **OSM Bright**, **OpenMapTiles**, **MapLibre Demo style**).  
+   * In the style, reference the vector source you just set up, e.g.:
+
+   ```json
+   {
+     ""version"": 8,
+     ""sources"": {
+       ""osm"": {
+         ""type"": ""vector"",
+         ""tiles"": [""https://example.com/tiles/{z}/{x}/{y}.pbf""],
+         ""maxzoom"": 14
+       }
+     },
+     ""layers"": [
+       {
+         ""id"": ""water"",
+         ""type"": ""fill"",
+         ""source"": ""osm"",
+         ""source-layer"": ""water"",
+         ""paint"": { ""fill-color"": ""#a0c8f0"" }
+       },
+       …
+     ]
+   }
+   ```
+
+   * Host the JSON somewhere reachable by the browser (static file on your CDN, GitHub Pages, etc.).  
+   * **Tip:** If you use **OpenMapTiles** you can download a ready-made style (`openmaptiles.json`) and just replace the `url` of the `openmaptiles` source.
+
+### 3.2. Add the required libraries
+
+| Library | CDN (latest stable) | NPM |
+|---------|--------------------|-----|
+| Leaflet | `https://unpkg.com/leaflet@1.9.4/dist/leaflet.js` | `npm i leaflet` |
+| MapLibre GL JS | `https://unpkg.com/maplibre-gl@4.2.0/dist/maplibre-gl.js` | `npm i maplibre-gl` |
+| MapLibre-GL-Leaflet plugin | `https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.0.13/leaflet-maplibre-gl.js` | `npm i @maplibre/maplibre-gl-leaflet` |
+
+> **Why the plugin?**  
+> Leaflet itself cannot render vector tiles directly. The plugin gives you a **Leaflet `Layer`** that internally runs a full MapLibre GL map, so you keep all the styling power without leaving the Leaflet ecosystem.
+
+### 3.3. Initialise the Leaflet map
+
+```js
+const map = L.map('map', {
+  center: [lat, lng],
+  zoom: 12,
+  maxZoom: 18, // match your vector tile maxzoom
+  minZoom: 5
+});
+```
+
+### 3.4. Add the MapLibre GL layer
+
+```js
+const glLayer = L.maplibreGL({
+  style: 'https://my.cdn.com/styles/my-style.json', // <-- your style URL
+  // optional MapLibre GL options:
+  // token: 'YOUR_ACCESS_TOKEN', // if you use a source that needs auth
+  // attributionControl: false, // Leaflet already has its own attribution
+  // interactive: true, // default – lets you click features via maplibre-gl's queryRenderedFeatures
+}).addTo(map);
+```
+
+### 3.5. (Optional) Sync Leaflet popups with vector features
+
+If you want to open a Leaflet popup when a user clicks a vector feature:
+
+```js
+map.on('click', function (e) {
+  // Query the MapLibre GL map that lives inside the layer
+  const features = glLayer.getMap().queryRenderedFeatures(
+    map.latLngToContainerPoint(e.latlng),
+    { layers: ['road', 'building'] } // limit to layers you care about
+  );
+
+  if (features.length) {
+    const f = features[0];
+    L.popup()
+      .setLatLng(e.latlng)
+      .setContent(`<strong>${f.layer.id}</strong><br>${JSON.stringify(f.properties)}`)
+      .openOn(map);
+  }
+});
+```
+
+### 3.6. Add any other Leaflet layers you need
+
+```js
+L.marker([lat, lng]).addTo(map);
+L.geoJSON(myGeojson).addTo(map);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OSM contributors'
+}).addTo(map);
+```
+
+All of these will appear **above** the GL basemap (unless you change the z-order with `bringToFront()` / `bringToBack()`).
+
+---
+
+## 4. Alternative Approaches (if you don’t want the plugin)
+
+| Approach | Pros | Cons | When to use |
+|----------|------|------|-------------|
+| **`leaflet.vectorgrid` (L.VectorGrid.Protobuf)** | Pure Leaflet, no WebGL, works on very old browsers. | You have to style everything in JavaScript; no MapLibre style JSON support out-of-the-box. | Small projects, limited styling, need maximum compatibility. |
+| **Render the whole map with MapLibre GL JS and embed Leaflet controls manually** | Full MapLibre feature set, no extra plugin. | You lose native Leaflet layers (markers, popups) unless you re-implement them. | When the map is *mostly* vector-tile based and you don’t need Leaflet’s layer system. |
+| **Use `mapbox-gl-leaflet` (deprecated)** | Older tutorials use it. | Unmaintained, tied to Mapbox GL JS (now closed-source). | Legacy code that you can’t upgrade. |
+| **Hybrid: raster fallback + GL for modern browsers** | Guarantees map works everywhere. | Requires two tile sources, extra bandwidth. | Public-facing sites where you must support very old devices. |
+
+---
+
+## 5. Checklist – Things That Can Trip You Up
+
+| Issue | What to check / fix |
+|-------|----------------------|
+| **CORS** on vector-tile endpoint | The tile server must send `Access-Control-Allow-Origin: *",PASS,1.00,,All assertions passed,

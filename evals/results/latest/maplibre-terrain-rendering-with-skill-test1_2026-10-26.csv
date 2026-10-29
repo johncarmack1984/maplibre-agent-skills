@@ -1,0 +1,216 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+"explicit — client-side hypsometric tint (color-relief layer, GL JS 5.6+)",skills/maplibre-terrain-rendering/SKILL.md,"I have terrain tiles as a raster-dem source in MapLibre GL JS and I want to color the map by elevation ranges (a hypsometric tint) directly client-side — blues at sea level through greens and browns to white peaks — without pre-rendering colored raster tiles. What layer type do I use and how do I configure the color ramp?
+","**Short answer**
+
+*Use a **`color-relief`** layer.*  
+It reads the same `raster-dem` source you already have and lets you paint the DEM directly with an **`[""elevation""]`** expression. The colour ramp is built with an `interpolate` expression that maps elevation (in metres) to the colours you want (blue → green → brown → white).
+
+Below is a complete, ready-to-copy example that shows:
+
+1. Adding the DEM source (`type: ""raster-dem""`).  
+2. Adding a `color-relief` layer that tints the terrain with a hypsometric colour ramp.  
+3. Optional tweaks (opacity, resampling, exaggeration, sky) so you can see the effect clearly.
+
+---
+
+## 1. Add the DEM source (if you haven’t already)
+
+```js
+// Assuming you already have a MapLibre map instance called `map`
+map.addSource('terrain-dem', {
+  type: 'raster-dem',
+  // URL can be a TileJSON, a template string, or a PMTiles URL, etc.
+  url: 'https://tiles.example.com/terrain/{z}/{x}/{y}.webp',
+  // The encoding must match the tiles you are serving (terrarium, mapbox, etc.)
+  // encoding: 'terrarium',   // uncomment if you need it
+  maxzoom: 12
+});
+```
+
+> **Note** – The source is *only* a DEM. It does **not** contain any colour information; the colour will be supplied by the `color-relief` layer.
+
+---
+
+## 2. Add the `color-relief` layer
+
+```js
+map.addLayer({
+  id: 'hypsometric-tint',
+  type: 'color-relief',          // ← the layer type that does the job
+  source: 'terrain-dem',         // the raster-dem source defined above
+  paint: {
+    // 1️⃣ The colour ramp – an interpolate expression over [""elevation""]
+    'color-relief-color': [
+      'interpolate',
+      ['linear'],                // linear interpolation between stops
+      ['elevation'],             // expression that returns the elevation (m)
+      // ── elevation (m) ──   ── colour (hex or rgba) ──
+      0,    '#2c7bb6',          // deep water – dark blue
+      50,   '#3b8cc4',          // shallow water – lighter blue
+      200,  '#73c0e5',          // low land – turquoise / light blue
+      500,  '#a8ddb5',          // low-mid land – pale green
+      1000, '#c7e9b4',          // mid-elevation – greener
+      1500, '#e6f5c9',          // sub-alpine – yellow-green
+      2000, '#fee08b',          // alpine-grass – light yellow
+      2500, '#fdae61',          // rocky slopes – orange
+      3000, '#f46d43',          // high rock – reddish-orange
+      3500, '#d53e4f',          // near-summit – dark red
+      4000, '#ffffff'           // snow-capped peaks – white
+    ],
+
+    // 2️⃣ Optional opacity (default = 1)
+    'color-relief-opacity': 0.85,
+
+    // 3️⃣ Optional resampling method (GL JS 5.20+)
+    // 'resampling': 'linear'   // or 'nearest'
+  }
+});
+```
+
+### How the ramp works
+
+* `['interpolate', ['linear'], ['elevation'], …]` tells MapLibre to look at the **elevation value** (in metres) that it reads from the DEM tile at each pixel.
+* The series of *stop* pairs (`elevation, colour`) define the colour you want at that height.
+* Between stops MapLibre interpolates linearly, giving a smooth gradient.
+* You can add, remove, or move stops to suit your own colour palette. The only requirement is that the first stop be at or below sea level (0 m) and the last stop be at the highest elevation you expect to see.
+
+---
+
+## 3. (Optional) Make the 3-D view obvious
+
+If you also want to see the terrain in 3-D (so the colour ramp looks like a real surface), enable terrain and tilt the camera:
+
+```js
+// 3-D terrain (same DEM source)
+map.setTerrain({
+  source: 'terrain-dem',
+  exaggeration: 1.0   // increase >1.0 if you want more dramatic relief
+});
+
+// Tilt the map so you can see the relief
+map.easeTo({ pitch: 60, bearing: 0, duration: 1500 });
+
+// Add a sky so the horizon isn’t just a blank background
+map.setSky({
+  'sky-color': '#199EF3',
+  'sky-horizon-blend': 0.5,
+  'horizon-color': '#ffffff',
+  'horizon-fog-blend': 0.5,
+  'fog-color': '#cceeff',
+  'fog-ground-blend': 0.5
+});
+```
+
+> **Why the sky?**  
+> Without a `sky` object the area above the terrain is just the map’s background colour, which can look “empty”. Adding a sky gives a natural horizon and makes the hypsometric tint feel like a real landscape.
+
+---
+
+## 4. Full minimal example (HTML + JS)
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=""utf-8"" />
+  <title>MapLibre – Hypsometric colour-relief</title>
+  <script src=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.js""></script>
+  <link href=""https://unpkg.com/maplibre-gl@4.4.0/dist/maplibre-gl.css"" rel=""stylesheet"" />
+  <style>
+    body, html { margin:0; padding:0; height:100%; }
+    #map { width:100%; height:100%; }
+  </style>
+</head>
+<body>
+<div id=""map""></div>
+<script>
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {},
+      layers: []   // we’ll add sources/layers programmatically
+    },
+    center: [0, 45],
+    zoom: 5,
+    pitch: 0,
+    bearing: 0
+  });
+
+  map.on('load', () => {
+    // 1️⃣ DEM source
+    map.addSource('terrain-dem', {
+      type: 'raster-dem',
+      url: 'https://tiles.example.com/terrain/{z}/{x}/{y}.webp',
+      maxzoom: 12
+    });
+
+    // 2️⃣ Colour-relief layer
+    map.addLayer({
+      id: 'hypsometric-tint',
+      type: 'color-relief',
+      source: 'terrain-dem',
+      paint: {
+        'color-relief-color': [
+          'interpolate',
+          ['linear'],
+          ['elevation'],
+          0,    '#2c7bb6',
+          50,   '#3b8cc4',
+          200,  '#73c0e5',
+          500,  '#a8ddb5',
+          1000, '#c7e9b4',
+          1500, '#e6f5c9',
+          2000, '#fee08b',
+          2500, '#fdae61',
+          3000, '#f46d43',
+          3500, '#d53e4f',
+          4000, '#ffffff'
+        ],
+        'color-relief-opacity': 0.9
+      }
+    });
+
+    // 3️⃣ Optional 3-D terrain + sky
+    map.setTerrain({ source: 'terrain-dem', exaggeration: 1 });
+    map.easeTo({ pitch: 60, duration: 1200 });
+    map.setSky({
+      'sky-color': '#199EF3',
+      'sky-horizon-blend': 0.5,
+      'horizon-color': '#ffffff',
+      'horizon-fog-blend': 0.5,
+      'fog-color': '#cceeff',
+      'fog-ground-blend': 0.5
+    });
+  });
+</script>
+</body>
+</html>
+```
+
+Open the file in a browser (or serve it locally) and you’ll see the DEM coloured directly on the client, with a smooth hypsometric ramp from deep blue (sea level) up to white snow caps.
+
+---
+
+## 5. Quick checklist – “Did I use the right thing?”
+
+| Goal | Correct layer type | Key paint property | Expression needed |
+|------|-------------------|--------------------|-------------------|
+| **Hypsometric tint** (colour-by-elevation) | `color-relief` | `color-relief-color` (and optionally `color-relief-opacity`) | `[""elevation""]` inside an `interpolate` |
+| **Hillshade** (shaded relief) | `hillshade` | `hillshade-method`, `hillshade-exaggeration`, … | *none* |
+| **Pre-rendered coloured raster** | `raster` (with `raster-color` – **not** supported in MapLibre) | – | – |
+| **Contours** | `line` (vector source generated by `maplibre-contour`) | `line-color`, `line-width` | `[""get"",""level""]` etc. |
+| **3-D terrain mesh** | *root-level* `terrain` (via `map.setTerrain`) | `exaggeration` | – |
+
+If you see a `raster` layer with `raster-color` or `raster-value` properties doing nothing, you’re using the wrong layer type – switch to `color-relief`.
+
+---
+
+### TL;DR
+
+* **Layer type:** `color-relief`  
+* **Paint property:** `color-relief-color` (an `interpolate` over `[""elevation""]`)  
+* **Optional:** `color-relief-opacity`, `resampling`  
+* **Result:** A client-side hypsometric tint (blue → green → brown → white) without any pre-rendered coloured tiles.
+
+Happy mapping! 🚀",PASS,1.00,,All assertions passed,
