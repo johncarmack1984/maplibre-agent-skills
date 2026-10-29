@@ -8,6 +8,7 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Fixed
 
+- `maplibre-pmtiles-patterns`: the layer names are the `vector_layers` array of `pmtiles show --metadata`, which plain `show` prints only as `<object>`; `verify` checks the archive structure, not tile contents ([#157](https://github.com/maplibre/maplibre-agent-skills/pull/157))
 - `maplibre-source-wiring`: opens with its scope rule, so an answer to an unrelated styling question no longer adds a blank-map debugging section ([#156](https://github.com/maplibre/maplibre-agent-skills/pull/156))
 - `maplibre-v6-migration`: opens with its scope rule, so an answer to an unrelated question no longer adds v6 migration sections ([#153](https://github.com/maplibre/maplibre-agent-skills/pull/153))
 - `maplibre-fonts-glyphs`: GL JS reads `font-faces` since 6.7.0, needs no right-to-left plugin since 6.9.0, and draws Devanagari and other complex scripts correctly since 6.15.0 ([#152](https://github.com/maplibre/maplibre-agent-skills/pull/152))
@@ -15,6 +16,7 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Internal
 
+- `eval.yml`: a test that fails any attempt fails its config and the run; the re-runs show whether the failure repeats, and the drift issue lists every attempt ([#158](https://github.com/maplibre/maplibre-agent-skills/pull/158))
 - `eval:graded`: the judge is `gemini-3.1-flash-lite`, which held recorded answers to their rubrics where `gemini-2.5-flash-lite` passed misses ([#150](https://github.com/maplibre/maplibre-agent-skills/pull/150))
 - `eval.yml`: the scheduled run grades a config when its SKILL.md, eval config or harness changes, and re-grades the rest weekly; each run commits `evals/results/<date>.json` with what it graded on ([#149](https://github.com/maplibre/maplibre-agent-skills/pull/149))
 - `eval.yml`: the publish job's status sync imports no package again, and a unit test keeps every script that job runs free of packages ([#148](https://github.com/maplibre/maplibre-agent-skills/pull/148))
