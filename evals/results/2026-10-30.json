@@ -1,0 +1,21 @@
+{
+  "commit": "12a45a1b14afcf5f427a2964e2c52bab9b29fb4b",
+  "configs": {
+    "maplibre-pmtiles-patterns": {
+      "inputs": {
+        "skill": "af0da2882497c467",
+        "config": "bd0b0b3208f4ee29",
+        "harness": "addb1d2ec77b56d9"
+      },
+      "judge": "google:gemini-3.1-flash-lite"
+    },
+    "maplibre-source-wiring": {
+      "inputs": {
+        "skill": "aa71410f29b26793",
+        "config": "16c9f9fe5e8596d1",
+        "harness": "addb1d2ec77b56d9"
+      },
+      "judge": "google:gemini-3.1-flash-lite"
+    }
+  }
+}

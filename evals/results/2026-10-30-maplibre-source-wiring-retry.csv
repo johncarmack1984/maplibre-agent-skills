@@ -1,0 +1,77 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+explicit — TileJSON url vs hand-wired tiles template,skills/maplibre-source-wiring/SKILL.md,"In a MapLibre vector source, should I use the `url` field pointing at a TileJSON endpoint, or just put the {z}/{x}/{y} template straight into the `tiles` array? My tile server offers both.
+","Use the **`url`** field whenever the server provides a TileJSON endpoint.
+
+**Why `url` is preferred**
+
+* The TileJSON document contains the tile URL template **plus** the source’s metadata (minzoom, maxzoom, bounds, attribution, and— for vector sources— the list of `vector_layers`).  
+* MapLibre reads that information automatically, so you don’t have to duplicate it in the source definition.  
+* If the TileJSON includes the `vector_layers` array, MapLibre knows the exact `source-layer` names that are available, which prevents the common “nothing draws because of a source-layer typo” problem.  
+* When the TileJSON changes (e.g., new zoom levels or additional layers), the client picks up the updates without you having to edit the style.
+
+**When to use `tiles` instead**
+
+* The server does **not** expose a TileJSON endpoint (e.g., a raw raster tile service that only gives you a URL template).  
+* You are deliberately overriding the metadata (minzoom, maxzoom, attribution) and you know the exact values you need. In that case you can supply a `tiles` array and set the other fields yourself.
+
+**Example**
+
+```json
+{
+  ""type"": ""vector"",
+  ""url"": ""https://example.com/tileset/tiles.json""
+}
+```
+
+If you must fall back to a hand-wired template:
+
+```json
+{
+  ""type"": ""vector"",
+  ""tiles"": [""https://example.com/tileset/{z}/{x}/{y}.pbf""],
+  ""minzoom"": 0,
+  ""maxzoom"": 14,
+  ""attribution"": ""© Example""
+}
+```
+
+So, with both options available, point `url` at the TileJSON endpoint. Use `tiles` only when no TileJSON is provided or you need to supply the metadata manually.",FAIL,0.88,,The output fails to mention the specific concrete cost of the 'tiles' array: that MapLibre will request zoom levels the tileset does not contain if the zoom range is not manually supplied.,
+explicit — TileJSON url vs hand-wired tiles template,skills/maplibre-source-wiring/SKILL.md,"In a MapLibre vector source, should I use the `url` field pointing at a TileJSON endpoint, or just put the {z}/{x}/{y} template straight into the `tiles` array? My tile server offers both.
+","Use the **`url`** field whenever the server provides a TileJSON endpoint.
+
+**Why `url` is preferred**
+
+* The TileJSON document contains the tile URL template **plus** the source’s metadata (minzoom, maxzoom, bounds, attribution, and— for vector sources— the list of `vector_layers`).  
+* MapLibre reads that metadata automatically, so you don’t have to duplicate it in the source definition.  
+* If the TileJSON includes the `vector_layers` array, MapLibre knows the exact `source-layer` names that are available, which prevents the common “nothing renders because of a source-layer typo” problem.  
+* When the TileJSON changes (e.g., new zoom levels or additional layers), the client picks up the updates without you having to edit the style.
+
+**When to use `tiles` instead**
+
+* The server does **not** expose a TileJSON endpoint (e.g., a raw raster tile service that only gives you a URL template).  
+* You need a very minimal source and are willing to supply all required metadata yourself (`minzoom`, `maxzoom`, `attribution`, etc.).  
+
+In that case you would write:
+
+```json
+{
+  ""type"": ""vector"",
+  ""tiles"": [""https://example.com/tiles/{z}/{x}/{y}.pbf""],
+  ""minzoom"": 0,
+  ""maxzoom"": 14,
+  ""attribution"": ""© Example""
+}
+```
+
+**Bottom line**
+
+If your tile server offers a TileJSON URL, point `url` at it:
+
+```json
+{
+  ""type"": ""vector"",
+  ""url"": ""https://example.com/tiles.json""
+}
+```
+
+Only fall back to a hand-wired `tiles` array when a TileJSON endpoint is unavailable. This avoids missing metadata, reduces the chance of source-layer mismatches, and keeps your style robust.",FAIL,0.88,,"The output recommends 'url' over 'tiles' when a TileJSON endpoint is available and correctly lists the benefits (URL template, zoom, bounds, attribution, vector layers). It also correctly identifies that 'tiles' should be used when no TileJSON exists. However, it fails to explicitly explain that the 'tiles' array approach risks requesting zoom levels the tileset does not contain, missing this specific part of the rubric requirements.",
