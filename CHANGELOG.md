@@ -8,6 +8,7 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Fixed
 
+- `maplibre-source-wiring`: states what a hand-wired `tiles` source costs (no zoom range unless you supply one) in the paragraph that recommends `url`, so a short answer still says it ([#168](https://github.com/maplibre/maplibre-agent-skills/pull/168))
 - `maplibre-source-wiring`: keeps its failure modes out of the tips or gotchas section of an answer to an unrelated question ([#163](https://github.com/maplibre/maplibre-agent-skills/pull/163))
 - `maplibre-pmtiles-patterns`: the layer names are the `vector_layers` array of `pmtiles show --metadata`, which plain `show` prints only as `<object>`; `verify` checks the archive structure, not tile contents ([#157](https://github.com/maplibre/maplibre-agent-skills/pull/157))
 - `maplibre-source-wiring`: opens with its scope rule, so an answer to an unrelated styling question no longer adds a blank-map debugging section ([#156](https://github.com/maplibre/maplibre-agent-skills/pull/156))
@@ -17,6 +18,7 @@ Notable changes to this repo's skills and tooling. Loosely follows [Keep a Chang
 
 ### Internal
 
+- `eval.yml`: the scheduled run sizes every config it plans again, which #164 left planned at no cost, and stops before spending anything when a config cannot be sized ([#167](https://github.com/maplibre/maplibre-agent-skills/pull/167))
 - `npm run check` and `eval.yml`: a config whose `SKILL.md` is not written yet (a new skill's rubric round) is sized with the skill withheld, passes the tripwire check, and is left out of the scheduled run until the skill exists ([#164](https://github.com/maplibre/maplibre-agent-skills/pull/164))
 - `npm run format:check`: checks the files git tracks or would track, so a file that `.git/info/exclude` or a global excludes file hides from git no longer fails the check ([#160](https://github.com/maplibre/maplibre-agent-skills/pull/160))
 - `.githooks/pre-push`: a push that only deletes branches skips the checks ([#159](https://github.com/maplibre/maplibre-agent-skills/pull/159))
