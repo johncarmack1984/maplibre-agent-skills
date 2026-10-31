@@ -1,0 +1,828 @@
+Description,skillFile,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+explicit — no addProtocol on Native; Android serves app-supplied tile bytes another way,skills/maplibre-native-gl-js-parity/SKILL.md,"Android, Kotlin, MapLibre Native. Our vector tiles (MVT) sit in an encrypted blob on the device. I want the style JSON to reference them as `vault://tiles/{z}/{x}/{y}` and have my own code decrypt each tile and hand back the bytes. On the web I do this with `maplibregl.addProtocol`. What is the equivalent on Android?
+","**Short answer**
+
+MapLibre Native has no `addProtocol` API.  
+On Android you either  
+
+1. **Intercept the request in the HTTP stack** – supply a custom `HttpRequest` via a `ModuleProvider` (available from **android-v11.0.0**).  
+2. **Skip the URL completely** and create a `CustomVectorSource` that asks you for the raw MVT bytes for each tile (available from **android-v13.5.0**).
+
+Both approaches let you keep the style JSON exactly as you wrote it:
+
+```json
+{
+  ""sources"": {
+    ""vault"": {
+      ""type"": ""vector"",
+      ""url"": ""vault://tiles/{z}/{x}/{y}""
+    }
+  },
+  ""layers"": [ … ]
+}
+```
+
+Below is a step-by-step guide for the *recommended* first option (custom `HttpRequest`). The second option is shown afterwards for completeness.
+
+---
+
+## 1️⃣ Intercept `vault://` URLs with a custom `HttpRequest`
+
+### When to use it
+* You already have a style JSON that points at `vault://…` URLs.  
+* You want the same style file to work unchanged on the device.  
+* You are on **android-v11.0.0** or newer (all current releases are).
+
+### How it works
+MapLibre asks a `HttpRequest` object to fetch **every** external resource (style, sprites, glyphs, tiles, …).  
+If you provide a `ModuleProvider` that returns a wrapper around the stock request, you can:
+
+* Detect `resourceUrl.startsWith(""vault://"")`
+* Decrypt the tile yourself
+* Call `responder.onResponse(200, …, bytes)` with the raw MVT bytes
+
+If the URL is not a `vault://` URL you simply forward the call to the stock request, so the rest of the map continues to use the normal HTTP stack.
+
+### Implementation
+
+```kotlin
+// 1️⃣  Import the needed classes
+import org.maplibre.android.MapLibre
+import org.maplibre.android.ModuleProvider
+import org.maplibre.android.http.HttpRequest
+import org.maplibre.android.http.HttpResponder
+import org.maplibre.android.http.HttpRequest.ResponseType.*
+
+// 2️⃣  Your own decryption helper (replace with your real code)
+object Vault {
+    /** Return the raw MVT bytes for a vault:// URL */
+    fun decryptTile(url: String): ByteArray {
+        // Example: vault://tiles/12/3456/7890  →  decrypt the blob stored on-device
+        // You probably have a DB or file that you look up with z/x/y.
+        // Throw if the tile cannot be found – the responder will turn it into a 404.
+        TODO(""Decrypt and return the MVT bytes"")
+    }
+}
+
+// 3️⃣  Wrap the stock HttpRequest
+class VaultHttpRequest(private val stock: HttpRequest) : HttpRequest {
+    override fun executeRequest(
+        responder: HttpResponder,
+        nativePtr: Long,
+        resourceUrl: String,
+        dataRange: String?,
+        etag: String?,
+        modified: String?,
+        offlineUsage: Boolean
+    ) {
+        // -----------------------------------------------------------------
+        //  If it is NOT a vault:// URL, just hand it to the default request
+        // -----------------------------------------------------------------
+        if (!resourceUrl.startsWith(""vault://"")) {
+            stock.executeRequest(
+                responder,
+                nativePtr,
+                resourceUrl,
+                dataRange,
+                etag,
+                modified,
+                offlineUsage
+            )
+            return
+        }
+
+        // --------------------------------------------------------------
+        //  It IS a vault:// URL – decrypt and answer it ourselves
+        // --------------------------------------------------------------
+        try {
+            val bytes = Vault.decryptTile(resourceUrl)   // <-- your code
+            // The responder signature is:
+            // onResponse(
+            //   code: Int,
+            //   etag: String?,
+            //   modified: String?,
+            //   cacheControl: String?,
+            //   expires: String?,
+            //   retryAfter: String?,
+            //   xRateLimitReset: String?,
+            //   body: ByteArray?
+            // )
+            responder.onResponse(
+                200,               // HTTP 200 OK
+                null, null, null, null, null, null,
+                bytes
+            )
+        } catch (e: Exception) {
+            // Anything that goes wrong should be reported as a failure.
+            // Choose the most appropriate type:
+            //   CONNECTION_ERROR, TEMPORARY_ERROR, PERMANENT_ERROR
+            responder.handleFailure(PERMANENT_ERROR, e.message ?: ""Vault error"")
+        }
+    }
+
+    // Forward cancellation to the stock request
+    override fun cancelRequest() = stock.cancelRequest()
+}
+
+// 4️⃣  Install the custom ModuleProvider **before** any MapView is created
+fun installVaultModuleProvider() {
+    // Keep a reference to the default provider – we only wrap its HttpRequest.
+    val stockProvider = MapLibre.getModuleProvider()
+
+    // Create a new provider that delegates everything except createHttpRequest()
+    val vaultProvider = object : ModuleProvider by stockProvider {
+        override fun createHttpRequest(): HttpRequest = VaultHttpRequest(stockProvider.createHttpRequest())
+    }
+
+    // Register it globally
+    MapLibre.setModuleProvider(vaultProvider)
+}
+```
+
+**Where to call `installVaultModuleProvider()`**
+
+```kotlin
+class MyApplication : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        // Must be done before the first MapView/MapLibre instance is constructed.
+        installVaultModuleProvider()
+    }
+}
+```
+
+or, if you prefer a per-activity setup, call it in `onCreate()` **before** you inflate the layout that contains `MapView`.
+
+### What the responder fields mean (optional)
+
+| Parameter | Typical value for a vault tile | Why it matters |
+|-----------|--------------------------------|----------------|
+| `code`    | `200` (OK) or `404` if missing | HTTP status – MapLibre treats anything ≥ 400 as a failure. |
+| `etag` / `modified` | `null` (or a hash / timestamp) | Enables HTTP-cache validation if you want it. |
+| `cacheControl` / `expires` / `retryAfter` / `xRateLimitReset` | `null` | Not needed for local blobs, but you can fill them if you have a policy. |
+| `body`    | `ByteArray` with the raw MVT   | The only required field for a successful tile. |
+
+### Debugging tips
+
+* **Logcat** – MapLibre prints a line like `""[HTTP] Requesting: vault://tiles/12/3456/7890""` before it calls your request.  
+* If the layer disappears, check Logcat for `[ParseStyle]` errors – a malformed response (e.g., returning `null` body) will cause the whole layer to be dropped silently.  
+* Use `responder.handleFailure(PERMANENT_ERROR, ""…"")` for missing tiles; the map will show a transparent “no-data” tile instead of crashing.
+
+---
+
+## 2️⃣ Alternative: `CustomVectorSource` (android-v13.5.0+)
+
+If you prefer to **avoid the HTTP stack completely**, you can create a source in code and hand the raw MVT bytes to MapLibre directly. This is useful when:
+
+* You do **not** want the style JSON to contain a `url` at all (the source is added programmatically).  
+* You already have a `LifecycleScope`/coroutine environment and want to fetch tiles asynchronously.
+
+```kotlin
+import org.maplibre.android.maps.Style
+import org.maplibre.android.style.sources.CustomVectorSource
+import org.maplibre.android.style.sources.CustomVectorTileProvider
+import org.maplibre.android.style.sources.TileData
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+
+// 1️⃣  Create the provider – it receives z/x/y and must return TileData.Mvt
+val vaultProvider = object : CustomVectorTileProvider {
+    override suspend fun fetchTile(z: Int, x: Int, y: Int): TileData {
+        // Your decryption logic – return the raw MVT bytes
+        val bytes = Vault.decryptTile(""vault://tiles/$z/$x/$y"")
+        return TileData.Mvt(bytes)
+    }
+}
+
+// 2️⃣  Build the source (you can set maxZoom, minZoom, etc.)
+val vaultSource = CustomVectorSource(
+    id = ""vault"",
+    provider = vaultProvider,
+    scope = lifecycleScope,   // any CoroutineScope you have
+    maxZoom = 14
+)
+
+// 3️⃣  Add the source and its layers after the style is loaded
+mapView.getMapAsync { mapboxMap ->
+    mapboxMap.getStyle { style: Style ->
+        style.addSource(vaultSource)
+
+        // Example: a fill layer that uses the source's ""parcels"" layer
+        val fill = FillLayer(""parcels-fill"", ""vault"")
+            .withSourceLayer(""parcels"")
+            .withProperties(
+                PropertyFactory.fillColor(Color.parseColor(""#88ff88""))
+            )
+        style.addLayer(fill)
+    }
+}
+```
+
+**Key points**
+
+* The style JSON **does not** contain the `vault://` URL; the source is injected from code.  
+* The provider runs on a coroutine, so you can do I/O, decryption, DB look-ups, etc., without blocking the UI thread.  
+* If you still want to keep the URL in the JSON (e.g., for debugging), you can add a dummy source with a harmless URL and then replace it with the `CustomVectorSource` after the style loads.
+
+---
+
+## 3️⃣ What **doesn’t** exist on Android
+
+| Feature | GL JS | MapLibre Native (Android) |
+|---------|-------|---------------------------|
+| `MapLibre.addProtocol` / `map.addProtocol` | ✅ (since v4.0.0) | ❌ No equivalent API |
+| `FileSource.setResourceTransform` that returns raw bytes | ❌ (only rewrites URLs) | ❌ Not useful for custom schemes |
+| OkHttp interceptor for `vault://` | ❌ (OkHttp only knows http/https) | ❌ Interceptor never sees the request – MapLibre drops it before OkHttp is invoked. |
+
+So the two approaches above are the **only supported ways** to serve encrypted tiles from a custom scheme.
+
+---
+
+## 4️⃣ Checklist before you ship
+
+| ✅ | Item |
+|---|------|
+| **Version** – your app is compiled against **android-v13.7.1** (or newer) to get the latest bug-fixes for `interpolate-hcl/lab` and other expression support. |
+| **ModuleProvider installed** – call `installVaultModuleProvider()` **once**, before any `MapView` is inflated. |
+| **Threading** – decryption runs on the thread that `HttpRequest` uses (usually a background thread). No UI work here. |
+| **Error handling** – always call `responder.handleFailure(...)` for missing or corrupt tiles; otherwise the layer will be silently dropped. |
+| **Cache** – if you want to cache decrypted tiles, you can store the result in a local LRU cache inside `Vault.decryptTile` and return the cached bytes on subsequent calls. |
+| **Testing** – run the app on a device with a **debug build** and watch Logcat for lines that start with `[HTTP]`. Verify that each `vault://` request hits your code (add a log statement inside `VaultHttpRequest.executeRequest`). |
+| **ProGuard / R8** – keep the `VaultHttpRequest` class and any reflection-based decryption code from being stripped. Add a rule like: `-keep class com.myapp.vault.** { *; }` |
+
+---
+
+## 5️⃣ TL;DR – copy-paste ready snippet
+
+```kotlin
+// In your Application class (or before the first MapView)
+class MyApp : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        installVaultModuleProvider()
+    }
+
+    private fun installVaultModuleProvider() {
+        val stock = MapLibre.getModuleProvider()
+        MapLibre.setModuleProvider(object : ModuleProvider by stock {
+            override fun createHttpRequest(): HttpRequest =
+                VaultHttpRequest(stock.createHttpRequest())
+        })
+    }
+}
+
+// The request wrapper
+class VaultHttpRequest(private val stock: HttpRequest) : HttpRequest {
+    override fun executeRequest(
+        responder: HttpResponder,
+        nativePtr: Long,
+        resourceUrl: String,
+        dataRange: String?,
+        etag: String?,
+        modified: String?,
+        offlineUsage: Boolean
+    ) {
+        if (!resourceUrl.startsWith(""vault://"")) {
+            stock.executeRequest(
+                responder, nativePtr, resourceUrl,
+                dataRange, etag, modified, offlineUsage
+            )
+            return
+        }
+
+        try {
+            val bytes = Vault.decryptTile(resourceUrl)   // <-- your decryption
+            responder.onResponse(200, null, null, null, null, null, null, bytes)
+        } catch (e: Exception) {
+            responder.handleFailure(HttpRequest.ResponseType.PERMANENT_ERROR,
+                e.message ?: ""Vault error"")
+        }
+    }
+
+    override fun cancelRequest() = stock.cancelRequest()
+}
+```
+
+Now your style can stay exactly as it is on the web:
+
+```json
+{
+  ""version"": 8,
+  ""sources"": {
+    ""vault"": {
+      ""type"": ""vector"",
+      ""url"": ""vault://tiles/{z}/{x}/{y}""
+    }
+  },
+  ""layers"": [
+    { ""id"": ""parcels"", ""type"": ""fill"", ""source"": ""vault"", ""source-layer"": ""parcels"", … }
+  ]
+}
+```
+
+When the map asks",PASS,1.00,,All assertions passed,
+explicit — no addProtocol on Native; Android serves app-supplied tile bytes another way,skills/maplibre-native-gl-js-parity/SKILL.md,"Android, Kotlin, MapLibre Native. Our vector tiles (MVT) sit in an encrypted blob on the device. I want the style JSON to reference them as `vault://tiles/{z}/{x}/{y}` and have my own code decrypt each tile and hand back the bytes. On the web I do this with `maplibregl.addProtocol`. What is the equivalent on Android?
+","**Short answer**
+
+MapLibre Native has no `addProtocol`-style API.  
+On Android you have two supported ways to serve a custom scheme such as `vault://…`:
+
+| What you want to do | Native API that can do it | Since which Native version |
+|---------------------|---------------------------|----------------------------|
+| Intercept **any** HTTP-like request (tiles, style, sprites, glyphs, …) and return raw bytes | **`ModuleProvider` → custom `HttpRequest`** | **android-v11.0.0** (module provider introduced) |
+| Declare a **vector source** in code and hand the MVT bytes back tile-by-tile | **`CustomVectorSource` → `CustomVectorTileProvider`** | **android-v13.5.0** (custom vector source added) |
+
+Both approaches let you keep the `vault://tiles/{z}/{x}/{y}` URLs in the style JSON; the native code simply answers the request with the decrypted bytes.
+
+Below is a step-by-step guide for each method, including the minimal Kotlin code you need, version checks, and common pitfalls.
+
+---
+
+## 1️⃣ Intercept all network requests with a `ModuleProvider`
+
+### When to use it
+* You already have a style JSON that references `vault://…` URLs for **tiles, sprites, glyphs, or even the style itself**.
+* You want a single place that can handle *any* request that the SDK makes.
+* You are on **android-v11.0.0 or newer** (all current releases are).
+
+### How it works
+MapLibre creates an `HttpRequest` object for every resource it needs. By installing your own `ModuleProvider` you can wrap the stock request and decide, for each URL, whether to:
+
+* **Delegate** to the default implementation (for normal `http://`, `https://`, `asset://`, `file://`, `mbtiles://`, `pmtiles://`), **or**
+* **Answer yourself** for the `vault://` scheme.
+
+The SDK then receives the bytes via the `HttpResponder` you call.
+
+### Boiler-plate code
+
+```kotlin
+import org.maplibre.android.MapLibre
+import org.maplibre.android.ModuleProvider
+import org.maplibre.android.http.HttpRequest
+import org.maplibre.android.http.HttpResponder
+import org.maplibre.android.http.HttpRequest.ResponseType
+
+// ------------------------------------------------------------------
+// 1️⃣  Your own HttpRequest that knows how to decrypt vault:// tiles
+// ------------------------------------------------------------------
+class VaultHttpRequest(
+    private val fallback: HttpRequest          // the stock request we delegate to
+) : HttpRequest {
+
+    override fun executeRequest(
+        responder: HttpResponder,
+        nativePtr: Long,
+        resourceUrl: String,
+        dataRange: String?,          // range header, can be ignored for MVT
+        etag: String?,               // not used for vault://
+        modified: String?,           // not used for vault://
+        offlineUsage: Boolean
+    ) {
+        // ------------------------------------------------------------------
+        // 2️⃣  Decide if we handle the URL or pass it through
+        // ------------------------------------------------------------------
+        if (!resourceUrl.startsWith(""vault://"")) {
+            // Not our scheme → let the stock request do its job
+            fallback.executeRequest(
+                responder, nativePtr, resourceUrl,
+                dataRange, etag, modified, offlineUsage
+            )
+            return
+        }
+
+        // ------------------------------------------------------------------
+        // 3️⃣  Decrypt the tile (your own implementation)
+        // ------------------------------------------------------------------
+        // Expected pattern: vault://tiles/{z}/{x}/{y}
+        // You can parse the z/x/y if you need them for decryption.
+        val bytes: ByteArray = try {
+            Vault.decryptTile(resourceUrl)   // <-- YOUR CODE
+        } catch (e: Exception) {
+            // If decryption fails, report a failure to the SDK
+            responder.handleFailure(
+                HttpRequest.CONNECTION_ERROR,
+                ""Vault decryption failed: ${e.message}""
+            )
+            return
+        }
+
+        // ------------------------------------------------------------------
+        // 4️⃣  Hand the raw MVT bytes back to the SDK
+        // ------------------------------------------------------------------
+        // All other response fields (etag, cache-control, etc.) can be null
+        responder.onResponse(
+            /*statusCode=*/200,
+            /*etag=*/null,
+            /*modified=*/null,
+            /*cacheControl=*/null,
+            /*expires=*/null,
+            /*retryAfter=*/null,
+            /*xRateLimitReset=*/null,
+            /*body=*/bytes
+        )
+    }
+
+    // Required – just forward the cancel call
+    override fun cancelRequest() = fallback.cancelRequest()
+}
+
+// ------------------------------------------------------------------
+// 5️⃣  Install the custom ModuleProvider **before** any MapView is created
+// ------------------------------------------------------------------
+fun installVaultModuleProvider() {
+    // Grab the default provider that ships with the SDK
+    val stockProvider: ModuleProvider = MapLibre.getModuleProvider()
+
+    // Wrap it with our own provider that returns our custom HttpRequest
+    MapLibre.setModuleProvider(object : ModuleProvider by stockProvider {
+        override fun createHttpRequest(): HttpRequest =
+            VaultHttpRequest(stockProvider.createHttpRequest())
+    })
+}
+```
+
+**Where to call `installVaultModuleProvider()`**
+
+```kotlin
+class MyApplication : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        // Must be done before the first MapView/MapLibreMap is instantiated
+        installVaultModuleProvider()
+    }
+}
+```
+
+Or, if you prefer to keep it in an Activity/Fragment, call it **before** you inflate the `MapView` (e.g. in `onCreate` before `setContentView`).
+
+### What you need to implement
+
+* `Vault.decryptTile(url: String): ByteArray` – your own decryption routine.  
+  The URL contains the `{z}/{x}/{y}` placeholders, so you can extract them with a simple regex if the encryption key depends on tile coordinates.
+
+* Proper error handling: use `responder.handleFailure(...)` with one of the three constants defined on `HttpRequest` (`CONNECTION_ERROR`, `TEMPORARY_ERROR`, `PERMANENT_ERROR`). Returning an empty body is interpreted as a *network error* and will cause the tile to be marked missing.
+
+### Gotchas & tips
+
+| Issue | Why it happens | Fix |
+|-------|----------------|-----|
+| **`[HTTP] Unable to parse resourceUrl`** | You tried to use an OkHttp interceptor or `FileSource.setResourceTransform`. Those APIs only see `http/https` URLs; the SDK discards unknown schemes before they reach OkHttp. | Use the `ModuleProvider` approach above – it sees the raw URL string. |
+| **Multiple MapViews** | The `ModuleProvider` is global; all `MapView`s share the same request handling. | That's fine for most apps. If you need per-MapView behaviour, add a small dispatch inside `VaultHttpRequest` based on `nativePtr` (the native map pointer). |
+| **Performance** | Decrypting on the UI thread will freeze the map. | Decryption is done inside the `HttpRequest` which runs on a background thread managed by the SDK, so you can safely do CPU-intensive work there. |
+| **Cache** | The SDK will cache the response according to HTTP headers you provide. If you return `null` for `cacheControl`, the SDK falls back to its default (no cache). | Return appropriate `Cache-Control`/`Expires` headers if you want the SDK to keep decrypted tiles in memory/disk. |
+| **Range requests** | `dataRange` is non-null for raster tiles that support partial fetches. MVT tiles are always whole files, so you can ignore it. | No action needed. |
+
+---
+
+## 2️⃣ Declare a **CustomVectorSource** and supply tiles yourself
+
+### When to use it
+* You only need to serve **vector tiles** (MVT) and you prefer a *source-centric* API rather than intercepting every request.
+* You are on **android-v13.5.0 or newer** (the `CustomVectorSource` class was added then).
+* You already have a `Style` object (or you are building the style programmatically) and you can add the source and its layers in code.
+
+### How it works
+You create a `CustomVectorSource` with a `CustomVectorTileProvider`. The provider is asked for each tile (`z/x/y`) and must return a `TileData.Mvt` containing the raw bytes. The source does **not** appear in the JSON style; you add it programmatically after the style has loaded.
+
+### Boiler-plate code
+
+```kotlin
+import androidx.lifecycle.lifecycleScope
+import org.maplibre.android.maps.Style
+import org.maplibre.android.style.layers.FillLayer
+import org.maplibre.android.style.sources.CustomVectorSource
+import org.maplibre.android.style.sources.CustomVectorTileProvider
+import org.maplibre.android.style.sources.TileData
+
+// ------------------------------------------------------------------
+// 1️⃣  Provider that decrypts a tile for a given z/x/y
+// ------------------------------------------------------------------
+class VaultTileProvider : CustomVectorTileProvider {
+    override suspend fun fetchTile(z: Int, x: Int, y: Int): TileData {
+        // Build the vault URL that matches your style's expectation
+        val vaultUrl = ""vault://tiles/$z/$x/$y""
+        val bytes = Vault.decryptTile(vaultUrl)   // <-- YOUR CODE
+        return TileData.Mvt(bytes)
+    }
+}
+
+// ------------------------------------------------------------------
+// 2️⃣  Add the source & a layer after the style is ready
+// ------------------------------------------------------------------
+fun addVaultVectorSource(style: Style) {
+    // The source id can be anything you like; it does NOT need to match the JSON.
+    val vaultSource = CustomVectorSource(
+        id = ""vault-source"",
+        provider = VaultTileProvider(),
+        scope = lifecycleScope,   // coroutine scope for async fetches
+        maxZoom = 14              // optional, set to the max zoom you support
+    )
+    style.addSource(vaultSource)
+
+    // Example: a simple fill layer that draws a source-layer called ""parcels""
+    val fill = FillLayer(""parcels-fill"", ""vault-source"")
+        .withSourceLayer(""parcels"")   // <-- name of the source-layer inside your MVT
+        .withProperties(
+            // any paint properties you need, e.g. fill color
+        )
+    style.addLayer(fill)
+}
+```
+
+**Hook it up**
+
+```kotlin
+mapView.getMapAsync { mapboxMap ->
+    mapboxMap.setStyle(Style.Builder().fromUri(""mapbox://styles/your/style"")) {
+        // style is loaded → add the custom source
+        addVaultVectorSource(it)
+    }
+}
+```
+
+### What you need to implement
+
+* `Vault.decryptTile(vaultUrl: String): ByteArray` – same as in the `ModuleProvider` approach.
+* (Optional) If you want the source to be addressable from the JSON style, you can still keep a placeholder source (e.g. a dummy `vector` source with a `url: ""vault://placeholder""`). The SDK will ignore the placeholder because the real source with the same id is added later, but it lets you keep the same JSON for both web and native.
+
+### Gotchas & tips
+
+| Issue | Why it happens | Fix |
+|-------|----------------|-----|
+| **Source appears missing in the style inspector** | The source is added *after* the style JSON is parsed, so the inspector (if you open it at runtime) will not show it until you add it. | This is expected; just make sure you add the source before you add any layers that depend on it. |
+| **`IllegalStateException: CustomVectorSource must be added after style is loaded`** | You tried to add the source before the `Style` object existed. | Use `mapboxMap.setStyle { style -> … }` or `style?.let { … }` after `onStyleLoaded`. |
+| **Tile requests never hit your provider** | You added a source with the same id as a source already defined in the JSON; the JSON source wins. | Use a *different* id for the custom source, or remove the placeholder source from the JSON. |
+| **Coroutines not cancelled** | The provider runs in the `lifecycleScope` you passed; if the activity/fragment is destroyed, pending fetches are cancelled automatically. | Ensure you pass a proper scope (e.g. `viewLifecycleOwner.lifecycleScope` in a fragment). |
+| **Cache** | The SDK will cache the `TileData` according to its internal tile-cache policy. | No extra work needed; if you want custom caching, implement it inside `Vault.decryptTile` and return the same bytes for repeated calls. |
+
+---
+
+## 3️⃣ Which method should you pick?
+
+| Factor | `ModuleProvider` (custom HttpRequest) | `CustomVectorSource` |
+|--------|----------------------------------------|----------------------|
+| **You need to intercept *any* request** (style, sprites, glyphs, raster tiles) | ✅ Yes – one place handles everything | ❌ Only vector tiles |
+| **You already have a fully-featured style JSON** that references `vault://…` everywhere | ✅ Keep the JSON untouched | ❌ You must add the source in code (JSON source can be a dummy) |
+| **You are on Android v11-v13** (pre-13.5) | ✅ Available from v11.0.0 | ❌ Not available until v13.5.0 |
+| **You prefer a more “source-centric” API** (no global request handling) | ❌ You have to deal with the whole HTTP stack | ✅ Only vector tiles go through your code |
+| **You want to keep the same style file for web & native** | ✅ The same `vault://",PASS,1.00,,All assertions passed,
+explicit — no addProtocol on Native; Android serves app-supplied tile bytes another way,skills/maplibre-native-gl-js-parity/SKILL.md,"Android, Kotlin, MapLibre Native. Our vector tiles (MVT) sit in an encrypted blob on the device. I want the style JSON to reference them as `vault://tiles/{z}/{x}/{y}` and have my own code decrypt each tile and hand back the bytes. On the web I do this with `maplibregl.addProtocol`. What is the equivalent on Android?
+","**Short answer**
+
+MapLibre Native has no `addProtocol`-style API.  
+On Android you have two native ways to serve a custom scheme such as `vault://…`:
+
+| Option | When to use it | Minimum Native version | How it works |
+|--------|----------------|------------------------|--------------|
+| **`ModuleProvider` + custom `HttpRequest`** | You want to keep the URLs exactly as they appear in the style JSON (e.g. `vault://tiles/{z}/{x}/{y}`) and let the normal source-loading code request them. | **android-v11.0.0** (the `ModuleProvider` hook was added) | The request for every resource (style, sprites, glyphs, vector tiles, …) is routed through a single `HttpRequest` implementation you provide. In that implementation you detect the `vault://` scheme, decrypt the tile bytes, and call `responder.onResponse(200, …, tileBytes)`. All other URLs are delegated to the stock request. |
+| **`CustomVectorSource`** | You prefer to bypass the HTTP stack completely and hand the raw MVT bytes to the renderer directly. | **android-v13.5.0** (the `CustomVectorSource` API) | You create a source in code (no entry in the style JSON) and supply a `CustomVectorTileProvider`. For each `z/x/y` request you decrypt the tile and return `TileData.Mvt(bytes)`. The source is then added to the style and you add the layers that should use it. |
+
+Both approaches are fully supported, work on every release after the version noted, and do **not** require any `addProtocol`-like call.
+
+Below are complete, ready-to-copy Kotlin snippets for each option, plus the small amount of setup you must do before the first `MapView` is created.
+
+---
+
+## 1️⃣ Option A – Custom `HttpRequest` via `ModuleProvider`
+
+### When this is the right choice
+* Your style JSON already contains `vault://…` URLs (e.g. in a vector source’s `url` field).  
+* You want the same style file to work unchanged on the web (GL JS) and on Android.  
+* You may also need to serve other resources (sprites, glyphs, images) from the same encrypted blob.
+
+### Step-by-step
+
+1. **Create a wrapper around the stock request** that knows how to answer `vault://` URLs.
+
+```kotlin
+import org.maplibre.android.MapLibre
+import org.maplibre.android.ModuleProvider
+import org.maplibre.android.http.HttpRequest
+import org.maplibre.android.http.HttpResponder
+import org.maplibre.android.http.HttpRequest.ResponseStatus
+
+class VaultHttpRequest(
+    private val stock: HttpRequest          // the default request implementation
+) : HttpRequest {
+
+    override fun executeRequest(
+        responder: HttpResponder,
+        nativePtr: Long,
+        resourceUrl: String,
+        dataRange: String?,          // range header, ignore for MVT
+        etag: String?,
+        modified: String?,
+        offlineUsage: Boolean
+    ) {
+        // -----------------------------------------------------------------
+        // 1️⃣  Detect our custom scheme
+        // -----------------------------------------------------------------
+        if (!resourceUrl.startsWith(""vault://"")) {
+            // Not ours → let the stock request handle it
+            return stock.executeRequest(
+                responder, nativePtr, resourceUrl,
+                dataRange, etag, modified, offlineUsage
+            )
+        }
+
+        // -----------------------------------------------------------------
+        // 2️⃣  Decrypt / fetch the tile bytes
+        // -----------------------------------------------------------------
+        // The URL pattern is: vault://tiles/{z}/{x}/{y}
+        // You can parse it however you like; here we just split on '/'.
+        val parts = resourceUrl.removePrefix(""vault://tiles/"").split('/')
+        if (parts.size != 3) {
+            // malformed → report a permanent error
+            responder.handleFailure(
+                HttpRequest.CONNECTION_ERROR,
+                ""Malformed vault URL: $resourceUrl""
+            )
+            return
+        }
+
+        val (zStr, xStr, yStr) = parts
+        val z = zStr.toInt()
+        val x = xStr.toInt()
+        val y = yStr.toInt()
+
+        // Your own decryption routine – must return the raw MVT bytes.
+        val tileBytes: ByteArray = Vault.decryptTile(z, x, y)
+
+        // -----------------------------------------------------------------
+        // 3️⃣  Hand the bytes back to the native core
+        // -----------------------------------------------------------------
+        // The responder expects: (status, contentType, etag, lastModified,
+        // cacheControl, expires, retryAfter, body)
+        responder.onResponse(
+            200,                     // HTTP 200 OK
+            null,                    // content-type (MVT is binary, can be null)
+            null,                    // etag
+            null,                    // last-modified
+            null,                    // cache-control
+            null,                    // expires
+            null,                    // retry-after
+            tileBytes                // the raw MVT payload
+        )
+    }
+
+    override fun cancelRequest() {
+        // Forward cancellation to the stock request (if it is still in flight)
+        stock.cancelRequest()
+    }
+}
+```
+
+2. **Wrap the default `ModuleProvider` and install it** *before* any `MapView` is instantiated (e.g. in `Application.onCreate()` or the first Activity’s `onCreate` before `setContentView`).
+
+```kotlin
+class MyApp : Application() {
+
+    override fun onCreate() {
+        super.onCreate()
+
+        // Grab the stock provider (the one MapLibre registers by default)
+        val stockProvider = MapLibre.getModuleProvider()
+
+        // Install our own provider that returns a Vault-aware HttpRequest
+        MapLibre.setModuleProvider(object : ModuleProvider by stockProvider {
+            override fun createHttpRequest(): HttpRequest {
+                // Use the stock request for everything else
+                val stockRequest = stockProvider.createHttpRequest()
+                return VaultHttpRequest(stockRequest)
+            }
+        })
+    }
+}
+```
+
+3. **Use the style exactly as you would on the web** – the source can reference the custom scheme directly:
+
+```json
+{
+  ""version"": 8,
+  ""sources"": {
+    ""myVault"": {
+      ""type"": ""vector"",
+      ""url"": ""vault://tiles/{z}/{x}/{y}""
+    }
+  },
+  ""layers"": [
+    {
+      ""id"": ""my-data"",
+      ""type"": ""fill"",
+      ""source"": ""myVault"",
+      ""source-layer"": ""my_layer_name"",
+      ""paint"": { ""fill-color"": ""#ff6600"", ""fill-opacity"": 0.5 }
+    }
+  ]
+}
+```
+
+That’s it – every tile request that matches `vault://` will be answered by your decryption code, and all other resources flow through the normal HTTP stack.
+
+### Gotchas & tips
+
+| Issue | What to watch for |
+|-------|-------------------|
+| **Threading** | `executeRequest` is called on a background thread managed by MapLibre. Do **not** perform heavy UI work here. Decryption should be fast; if it involves I/O, do it synchronously (the call is already off-main-thread). |
+| **Error handling** | Call `responder.handleFailure(HttpRequest.CONNECTION_ERROR, ""msg"")` (or `TEMPORARY_ERROR` / `PERMANENT_ERROR`) if you cannot produce a tile. The map will simply show a missing-tile placeholder. |
+| **Caching** | The native core will cache the response according to standard HTTP headers. If you want custom caching, add appropriate `Cache-Control`/`Expires` values in the `onResponse` call. |
+| **Other schemes** | The wrapper forwards *all* non-`vault://` URLs to the stock request, so you can still load remote sprites, glyphs, etc. |
+| **Multiple vault sources** | If you have more than one custom scheme (e.g. `vault2://`), just add another `if` branch or a more generic scheme matcher. |
+
+---
+
+## 2️⃣ Option B – `CustomVectorSource` (pure tile-by-tile API)
+
+### When this is the right choice
+* You prefer to keep the style JSON **free of custom schemes** (e.g. you generate the style programmatically).  
+* You only need to serve vector tiles (no sprites, glyphs, etc.) from the encrypted blob.  
+* You are on **android-v13.5.0** or newer and are comfortable adding the source and its layers in code.
+
+### Step-by-step
+
+1. **Create a `CustomVectorSource`** that knows how to fetch a tile for a given `z/x/y`.
+
+```kotlin
+import org.maplibre.android.maps.Style
+import org.maplibre.android.style.sources.CustomVectorSource
+import org.maplibre.android.style.sources.CustomVectorTileProvider
+import org.maplibre.android.style.sources.TileData
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+
+// Assuming you have a LifecycleScope or any CoroutineScope:
+val scope = lifecycleScope   // or GlobalScope, etc.
+
+val vaultSource = CustomVectorSource(
+    id = ""vault-source"",
+    provider = object : CustomVectorTileProvider {
+        // This runs on a background thread managed by the source.
+        override suspend fun fetchTile(z: Int, x: Int, y: Int): TileData {
+            // Decrypt the tile bytes from your blob.
+            val bytes = Vault.decryptTile(z, x, y)
+            // Return the raw MVT payload.
+            return TileData.Mvt(bytes)
+        }
+    },
+    scope = scope,
+    maxZoom = 14          // set to the max zoom you have data for
+)
+```
+
+2. **Add the source to the map’s style** (once the style is loaded).
+
+```kotlin
+mapView.getMapAsync { mapboxMap ->
+    mapboxMap.setStyle(Style.Builder().fromUri(""mapbox://styles/your/style"")) { style ->
+
+        // Add the custom source
+        style.addSource(vaultSource)
+
+        // Add a layer that uses the source – you can also add layers from JSON.
+        val fillLayer = FillLayer(""vault-fill"", ""vault-source"").apply {
+            sourceLayer = ""my_layer_name""   // the name inside the MVT
+            withProperties(
+                PropertyFactory.fillColor(Color.parseColor(""#ff6600"")),
+                PropertyFactory.fillOpacity(0.5f)
+            )
+        }
+        style.addLayer(fillLayer)
+    }
+}
+```
+
+3. **No changes to the style JSON are required** – the source and its layers are created entirely in Kotlin. If you still want to keep a JSON style for other parts of the map, just merge the custom source/layer after the JSON is loaded (as shown above).
+
+### Gotchas & tips
+
+| Issue | What to watch for |
+|-------|-------------------|
+| **Scope** | The `CustomVectorSource` needs a `CoroutineScope` that lives at least as long as the map. Using the Activity/Fragment’s `lifecycleScope` is the safest choice. |
+| **Tile size** | The provider must return **exactly** the raw MVT bytes. Do **not** wrap them in a container or add a gzip header unless the bytes are already gzipped (MapLibre will handle gzipped MVT automatically). |
+| **Missing tiles** | Throw an exception or return `TileData.Empty` if a tile does not exist; the renderer will treat it as a transparent tile. |
+| **Layer ordering** | Because the source is added after the JSON style, you may need to adjust the layer order (`style.addLayerAbove`, `addLayerBelow`, etc.) to place your custom layers where you want them. |
+| **Performance** | The provider is called on a background thread, but you should keep decryption fast (e.g. cache the decrypted bytes in memory or on-disk if you expect repeated reads). |
+
+---
+
+## 3️⃣ What **doesn’t** work (and why)
+
+| Attempt | Result | Reason |
+|---------|--------|--------|
+| `FileSource.setResourceTransform` | Returns a *new* URL, cannot supply raw bytes | The transform only rewrites the URL; it never gives you a chance to inject a byte array. |
+| OkHttp interceptor for `vault://` | Interceptor never sees the request | OkHttp’s `HttpUrl.parse` rejects any scheme other than `http`/`https`. The native request is dropped before it reaches the client, logging `[HTTP] Unable to parse resourceUrl`. |
+| `MapLibre.addProtocol` / `Style.addProtocol` | Compile-time error – API does not exist | Native never exposed a `addProtocol` equivalent; the only hook is the `ModuleProvider`/`CustomVectorSource` path described above. |
+| Using `asset://` or `file://` with a custom scheme | Treated as unknown → falls back to platform HTTP stack (which fails) | Only the four built-in schemes (`asset://`, `file://`, `mbtiles://`, `pmtiles://`) are recognized internally. All others are delegated to the platform stack. |
+
+---
+
+## 4️⃣ Which option should you pick?
+
+| Factor | Choose **ModuleProvider** if … | Choose **CustomVectorSource** if … |
+|--------|--------------------------------|-----------------------------------|
+| **You already have a style JSON** that references `vault://…` URLs | ✅ | ❌ (you’d have to rewrite the style in code) |
+| **You need to serve other resources** (sprites, glyphs) from the same encrypted store | ✅ (the same `HttpRequest` can handle any URL) | ❌ (only vector tiles go through the custom source) |
+| **You want the simplest possible code** | ✅ (just a wrapper",PASS,1.00,,All assertions passed,

@@ -46,6 +46,7 @@
     "minzoom",
     "moveend",
     "noto",
+    "nshttpurlresponse",
     "openmaptiles",
     "openstreetmap",
     "overzoom",

@@ -1,0 +1,807 @@
+Description,skillFile,injectSkill,prompt,[groq-gpt-oss] evals/prompts/lib/skill-prompt.mjs,Status,Score,Named Scores,Grader Reason,Comment
+explicit — no addProtocol on Native; Android serves app-supplied tile bytes another way,skills/maplibre-native-gl-js-parity/SKILL.md,false,"Android, Kotlin, MapLibre Native. Our vector tiles (MVT) sit in an encrypted blob on the device. I want the style JSON to reference them as `vault://tiles/{z}/{x}/{y}` and have my own code decrypt each tile and hand back the bytes. On the web I do this with `maplibregl.addProtocol`. What is the equivalent on Android?
+","## TL;DR  
+On Android the MapLibre-Native SDK does **not** have a `addProtocol` method like the web version.  
+Instead you give the SDK a custom **`HttpRequestHandler`** (or an `OkHttp` interceptor) when you initialise MapLibre.  
+The handler receives every URL the style asks for – including your own `vault://…` URLs – and you can return an `HttpResponse` that contains the decrypted tile bytes.
+
+Below is a complete, ready-to-copy Kotlin example that shows:
+
+1. **Create a request handler** that recognises the `vault://tiles/{z}/{x}/{y}` scheme, reads the encrypted blob from disk, decrypts it and returns the raw MVT bytes.  
+2. **Register the handler** with `MapLibreOptions` before you create the `MapView`.  
+3. **Use the handler** in a normal `VectorSource` style JSON (or programmatic source) – no other changes are required.
+
+---
+
+## 1. The “protocol” hook in MapLibre-Native Android
+
+```kotlin
+/**
+ * MapLibre-Native calls this for *every* network request it makes
+ * (style JSON, glyphs, sprites, tiles, …).  By supplying our own
+ * implementation we can intercept any URL scheme we like.
+ */
+class VaultRequestHandler(
+    private val vault: TileVault   // your own class that knows how to read & decrypt
+) : HttpRequestHandler {
+
+    override fun handleRequest(request: HttpRequest): HttpResponse {
+        val url = request.url
+
+        // --------------------------------------------------------------
+        // 1️⃣  Handle only our custom scheme – everything else falls back
+        // --------------------------------------------------------------
+        if (url.scheme == ""vault"") {
+            // Expected format: vault://tiles/{z}/{x}/{y}
+            // url.path = ""/tiles/12/3456/7890""
+            val segments = url.pathSegments
+            if (segments.size >= 4 && segments[0] == ""tiles"") {
+                val z = segments[1].toInt()
+                val x = segments[2].toInt()
+                val y = segments[3].toInt()
+
+                // ------------------------------------------------------
+                // 2️⃣  Load the encrypted blob and decrypt it
+                // ------------------------------------------------------
+                val encrypted = vault.readEncryptedTile(z, x, y)
+                val plain = vault.decrypt(encrypted)   // returns ByteArray
+
+                // ------------------------------------------------------
+                // 3️⃣  Build the response that MapLibre expects
+                // ------------------------------------------------------
+                val body = plain.inputStream()
+                val headers = mapOf(
+                    ""Content-Type"" to ""application/x-protobuf"",   // MVT mime-type
+                    ""Content-Encoding"" to ""gzip""                 // if you gzip-compress after decryption
+                )
+                return HttpResponse(
+                    code = 200,
+                    body = body,
+                    headers = headers
+                )
+            }
+
+            // If the URL looks like vault://… but we cannot parse it,
+            // return a 400 so the SDK knows the tile is unavailable.
+            return HttpResponse(400, null, emptyMap())
+        }
+
+        // --------------------------------------------------------------
+        // 4️⃣  Let the default network stack handle everything else.
+        // --------------------------------------------------------------
+        // The SDK ships with a default OkHttp based handler.  We can
+        // delegate to it by creating a temporary MapLibre instance that
+        // has no custom handler, or simply return a 404 and let the
+        // style fallback to the next source.  The simplest is to return
+        // a 404 here – the SDK will treat the tile as missing.
+        return HttpResponse(404, null, emptyMap())
+    }
+}
+```
+
+### What you need to provide
+
+* **`TileVault`** – any class you already have that knows where the encrypted blob lives and how to decrypt it.  
+  The only requirement for the handler is that it returns a `ByteArray` (or `InputStream`) containing the *plain* MVT data.
+
+* **MIME type** – MapLibre expects `""application/x-protobuf""` for vector tiles.  
+  If you also gzip-compress the result, add `""Content-Encoding: gzip""`.
+
+---
+
+## 2. Register the handler **once** before any `MapView` is created
+
+```kotlin
+class MyApplication : Application() {
+
+    override fun onCreate() {
+        super.onCreate()
+
+        // 1️⃣  Build the vault (your own implementation)
+        val vault = TileVault(applicationContext)
+
+        // 2️⃣  Create the MapLibre options and plug in the handler
+        val options = MapLibreOptions()
+        options.httpRequestHandler = VaultRequestHandler(vault)
+
+        // 3️⃣  Initialise the SDK with those options
+        //     (must be done before any MapView/MapboxMap is instantiated)
+        MapLibre.getInstance(this, options)
+    }
+}
+```
+
+*If you already call `MapLibre.getInstance(context)` elsewhere, replace that call with the version that takes `MapLibreOptions`.*
+
+---
+
+## 3. Use the custom URL in your style JSON (exactly the same as on the web)
+
+```json
+{
+  ""version"": 8,
+  ""sources"": {
+    ""my-vault-tiles"": {
+      ""type"": ""vector"",
+      ""tiles"": [
+        ""vault://tiles/{z}/{x}/{y}""
+      ],
+      ""minzoom"": 0,
+      ""maxzoom"": 14
+    }
+  },
+  ""layers"": [
+    {
+      ""id"": ""roads"",
+      ""type"": ""line"",
+      ""source"": ""my-vault-tiles"",
+      ""source-layer"": ""road"",
+      ""paint"": {
+        ""line-color"": ""#ff6600"",
+        ""line-width"": 2
+      }
+    }
+  ]
+}
+```
+
+Or, if you prefer to build the source programmatically:
+
+```kotlin
+val source = VectorSource(
+    ""my-vault-tiles"",
+    ""vault://tiles/{z}/{x}/{y}""
+)
+mapboxMap.getStyle { style ->
+    style.addSource(source)
+    // add layers …
+}
+```
+
+No extra code is required – the SDK will call `VaultRequestHandler.handleRequest()` for every tile request that matches the scheme.
+
+---
+
+## 4. A few practical notes & gotchas
+
+| Issue | What to watch for | Fix / Recommendation |
+|-------|-------------------|----------------------|
+| **Threading** | `handleRequest` is called on a background thread (OkHttp dispatcher). | Do **not** touch UI here. All heavy I/O / crypto is fine. |
+| **Caching** | The SDK still runs its own tile cache (`TileStore`). If you want the decrypted tiles cached, just let the default cache work – it stores the *response body* you return. | No extra work needed. |
+| **HTTPS fallback** | If a URL does **not** start with `vault://`, you must either delegate to the default handler or return 404. | The simplest is to return `HttpResponse(404, null, emptyMap())`. |
+| **OkHttp interceptors** | If you already use a custom `OkHttpClient` (e.g., for auth headers) you can wrap it and forward non-vault requests to it. | Inside `handleRequest`, after the `if (url.scheme == ""vault"")` block, do `return defaultHandler.handleRequest(request)`. |
+| **MapLibre version** | The `httpRequestHandler` property was added in **v10.0.0** (MapLibre Android). Make sure you are on a recent version. | `implementation ""org.maplibre.gl:android-sdk:10.5.0""` (or newer). |
+| **Permissions** | Reading from internal storage or external files may need `READ_EXTERNAL_STORAGE` (or scoped storage APIs). | Request at runtime if you target Android 13+. |
+| **Testing** | Use `adb logcat` to see `MapLibre` logs – they will show “Request URL: vault://…”. | Add `Log.d(""VaultHandler"", ""url=$url"")` inside the handler for debugging. |
+
+---
+
+## 5. Full minimal project snippet
+
+```kotlin
+// ---- TileVault.kt ---------------------------------------------------------
+class TileVault(private val ctx: Context) {
+
+    // Example: encrypted tiles are stored under /data/user/0/<pkg>/files/vault/{z}/{x}/{y}.enc
+    fun readEncryptedTile(z: Int, x: Int, y: Int): ByteArray {
+        val file = File(ctx.filesDir, ""vault/$z/$x/$y.enc"")
+        return file.readBytes()
+    }
+
+    // Replace with your real crypto – this is just a placeholder.
+    fun decrypt(encrypted: ByteArray): ByteArray {
+        // e.g. AES-GCM with a key stored in Android Keystore
+        return MyCrypto.decrypt(encrypted)
+    }
+}
+
+// ---- VaultRequestHandler.kt ------------------------------------------------
+class VaultRequestHandler(
+    private val vault: TileVault
+) : HttpRequestHandler {
+
+    override fun handleRequest(request: HttpRequest): HttpResponse {
+        val url = request.url
+        if (url.scheme == ""vault"") {
+            val seg = url.pathSegments
+            if (seg.size >= 4 && seg[0] == ""tiles"") {
+                val z = seg[1].toInt()
+                val x = seg[2].toInt()
+                val y = seg[3].toInt()
+
+                val plain = vault.decrypt(vault.readEncryptedTile(z, x, y))
+                return HttpResponse(
+                    code = 200,
+                    body = plain.inputStream(),
+                    headers = mapOf(""Content-Type"" to ""application/x-protobuf"")
+                )
+            }
+            return HttpResponse(400, null, emptyMap())
+        }
+        return HttpResponse(404, null, emptyMap())
+    }
+}
+
+// ---- MyApplication.kt ------------------------------------------------------
+class MyApplication : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        val vault = TileVault(this)
+
+        val options = MapLibreOptions()
+        options.httpRequestHandler = VaultRequestHandler(vault)
+
+        MapLibre.getInstance(this, options)
+    }
+}
+
+// ---- MainActivity.kt -------------------------------------------------------
+class MainActivity : AppCompatActivity() {
+
+    private lateinit var mapView: MapView
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        // layout contains <com.mapbox.mapboxsdk.maps.MapView android:id=""@+id/mapView"" …/>
+        setContentView(R.layout.activity_main)
+        mapView = findViewById(R.id.mapView)
+        mapView.onCreate(savedInstanceState)
+
+        mapView.getMapAsync { mapboxMap ->
+            mapboxMap.setStyle(
+                Style.Builder()
+                    .fromUri(""asset://my_style.json"")   // style contains vault://tiles/…
+            )
+        }
+    }
+
+    // … forward lifecycle calls to mapView (onStart, onStop, …) …
+}
+```
+
+That’s it – the SDK now treats `vault://…` exactly like a normal HTTP URL, but you supply the decrypted bytes yourself.
+
+---
+
+## 6. References (official docs)
+
+| Resource | Link |
+|----------|------|
+| `HttpRequestHandler` interface | https://github.com/maplibre/maplibre-native/blob/main/platform/android/MapLibre/src/main/java/org/maplibre/android/maps/HttpRequestHandler.java |
+| `MapLibreOptions.httpRequestHandler` | https://github.com",FAIL,0.00,,"The output fails several critical requirements: 1) It presents a fictional 'MapLibreOptions.httpRequestHandler' API which does not exist in the MapLibre Android SDK. 2) It incorrectly claims that an OkHttp interceptor will receive 'vault://' URLs, whereas the SDK's internal stack drops non-HTTP/S schemes before reaching the network layer. 3) It fails to mention the required current mechanisms (ModuleProvider or CustomVectorSource) and incorrectly suggests an API that contradicts the provided rubric.",
+explicit — no addProtocol on Native; Android serves app-supplied tile bytes another way,skills/maplibre-native-gl-js-parity/SKILL.md,false,"Android, Kotlin, MapLibre Native. Our vector tiles (MVT) sit in an encrypted blob on the device. I want the style JSON to reference them as `vault://tiles/{z}/{x}/{y}` and have my own code decrypt each tile and hand back the bytes. On the web I do this with `maplibregl.addProtocol`. What is the equivalent on Android?
+","## TL;DR  
+On Android the **MapLibre-Native** equivalent of `maplibregl.addProtocol()` is to install a **custom `HttpRequestHandler`** (or `HttpRequestHandlerFactory`) on the `MapLibre` singleton.  
+The handler is called for **every URL** that the SDK tries to load – including URLs that use a scheme you invented such as `vault://…`.  
+Inside the handler you:
+
+1. recognise the `vault://` scheme,
+2. parse the `{z}/{x}/{y}` part,
+3. decrypt the tile blob that lives on-device,
+4. return an `HttpResponse` whose body is an `InputStream` (or a byte array) containing the raw MVT bytes.
+
+Below is a complete, ready-to-copy Kotlin example that shows:
+
+* how to register the handler **once**, before any `MapView` is created,
+* how to implement the handler,
+* how to use the custom URL in a `VectorSource`.
+
+---
+
+## 1. Add the dependency (if you haven’t already)
+
+```gradle
+implementation ""org.maplibre.gl:android-sdk:10.5.0""   // check for the latest version
+```
+
+---
+
+## 2. Create the request handler
+
+```kotlin
+import android.net.Uri
+import org.maplibre.android.http.HttpRequest
+import org.maplibre.android.http.HttpResponse
+import org.maplibre.android.http.HttpRequestHandler
+import java.io.ByteArrayInputStream
+
+/**
+ * Handles any URL that starts with the custom scheme ""vault://"".
+ * The handler decrypts the tile that lives in your encrypted blob
+ * and returns the raw MVT bytes to the MapLibre core.
+ */
+class VaultRequestHandler(
+    private val vault: TileVault   // your own class that knows how to read & decrypt
+) : HttpRequestHandler {
+
+    override fun handleRequest(request: HttpRequest): HttpResponse {
+        val uri = Uri.parse(request.url)
+
+        // -----------------------------------------------------------------
+        // 1️⃣  Only handle our custom scheme – let the default handler do the rest
+        // -----------------------------------------------------------------
+        if (uri.scheme != ""vault"") {
+            // Returning null tells MapLibre to fall back to its built-in handler
+            return HttpResponse(404, null, 0L)   // or simply `null` if you use the factory version
+        }
+
+        // -----------------------------------------------------------------
+        // 2️⃣  Extract z / x / y from the path:  vault://tiles/{z}/{x}/{y}
+        // -----------------------------------------------------------------
+        // Expected path: ""/tiles/12/3456/7890""
+        val segments = uri.pathSegments
+        if (segments.size < 4 || segments[0] != ""tiles"") {
+            return HttpResponse(400, null, 0L)   // bad request
+        }
+
+        val z = segments[1].toIntOrNull()
+        val x = segments[2].toIntOrNull()
+        val y = segments[3].toIntOrNull()
+        if (z == null || x == null || y == null) {
+            return HttpResponse(400, null, 0L)
+        }
+
+        // -----------------------------------------------------------------
+        // 3️⃣  Decrypt the tile (your own logic)
+        // -----------------------------------------------------------------
+        val tileBytes: ByteArray = try {
+            vault.decryptTile(z, x, y)   // <-- you implement this
+        } catch (e: Exception) {
+            // If decryption fails we return a 404 so the map just shows a blank tile
+            return HttpResponse(404, null, 0L)
+        }
+
+        // -----------------------------------------------------------------
+        // 4️⃣  Return the bytes as an InputStream
+        // -----------------------------------------------------------------
+        val stream = ByteArrayInputStream(tileBytes)
+        return HttpResponse(
+            code = 200,
+            body = stream,
+            contentLength = tileBytes.size.toLong(),
+            // optional: set content-type so the SDK knows it’s a vector tile
+            contentType = ""application/vnd.mapbox-vector-tile""
+        )
+    }
+}
+```
+
+### What `TileVault` could look like (very simplified)
+
+```kotlin
+class TileVault(private val encryptedBlob: EncryptedBlob) {
+
+    /** Decrypts a single tile and returns the raw MVT bytes. */
+    fun decryptTile(z: Int, x: Int, y: Int): ByteArray {
+        // 1️⃣ Locate the tile inside your encrypted container (e.g. a zip, a DB, etc.)
+        val encrypted = encryptedBlob.readTile(z, x, y)
+
+        // 2️⃣ Decrypt – replace with your real crypto routine
+        return CryptoUtils.decrypt(encrypted, key = encryptedBlob.key)
+    }
+}
+```
+
+> **Note** – The handler runs on a background thread managed by the SDK, so you can do I/O and crypto here without blocking the UI. Just make sure the code is fast enough (or cache the result) because the map may request many tiles per second while panning/zooming.
+
+---
+
+## 3. Register the handler **once** (usually in `Application.onCreate`)
+
+```kotlin
+import android.app.Application
+import org.maplibre.android.MapLibre
+import org.maplibre.android.MapLibreOptions
+
+class MyApp : Application() {
+
+    override fun onCreate() {
+        super.onCreate()
+
+        // Build the MapLibre options and plug in our handler
+        val options = MapLibreOptions()
+        options.httpRequestHandler = VaultRequestHandler(
+            vault = TileVault(MyEncryptedBlob(this))
+        )
+
+        // Initialise the SDK with those options
+        MapLibre.getInstance(this, options)
+    }
+}
+```
+
+*If you already called `MapLibre.getInstance(context)` elsewhere, you can also set the handler later:*
+
+```kotlin
+MapLibre.getInstance(this).httpRequestHandler = VaultRequestHandler(vault)
+```
+
+But **do it before** you inflate any `MapView`, otherwise the first map may have been created with the default handler.
+
+---
+
+## 4. Use the custom URL in a style / source
+
+```kotlin
+val styleJson = """"""
+{
+  ""version"": 8,
+  ""sources"": {
+    ""my-vault-tiles"": {
+      ""type"": ""vector"",
+      ""tiles"": [ ""vault://tiles/{z}/{x}/{y}"" ],
+      ""minzoom"": 0,
+      ""maxzoom"": 14
+    }
+  },
+  ""layers"": [
+    {
+      ""id"": ""roads"",
+      ""type"": ""line"",
+      ""source"": ""my-vault-tiles"",
+      ""source-layer"": ""road"",
+      ""paint"": { ""line-color"": ""#ff6600"", ""line-width"": 2 }
+    }
+  ]
+}
+"""""".trimIndent()
+
+mapView.getMapAsync { mapboxMap ->
+    mapboxMap.setStyle(styleJson)   // or mapboxMap.setStyle(Style.Builder().fromJson(styleJson))
+}
+```
+
+The SDK will request tiles like `vault://tiles/12/3456/7890`.  
+Each request is intercepted by `VaultRequestHandler`, decrypted, and fed back to the renderer – exactly the same flow you get on the web with `maplibregl.addProtocol`.
+
+---
+
+## 5. (Optional) Fallback to the default network handler
+
+If you want to **mix** custom-scheme tiles with normal HTTP/HTTPS tiles, just let the handler return `null` (or a 404) for URLs it does **not** understand. The SDK will then fall back to its built-in `OkHttp` handler.
+
+```kotlin
+override fun handleRequest(request: HttpRequest): HttpResponse? {
+    val uri = Uri.parse(request.url)
+    return if (uri.scheme == ""vault"") {
+        // … decrypt and return response …
+    } else {
+        null   // let the default handler take over
+    }
+}
+```
+
+---
+
+## 6. Full minimal example (Application + Activity)
+
+```kotlin
+// ---------- MyApp.kt ----------
+class MyApp : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        val vault = TileVault(MyEncryptedBlob(this))
+
+        val options = MapLibreOptions()
+        options.httpRequestHandler = VaultRequestHandler(vault)
+
+        MapLibre.getInstance(this, options)
+    }
+}
+
+// ---------- MainActivity.kt ----------
+class MainActivity : AppCompatActivity() {
+
+    private lateinit var mapView: MapView
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        // layout contains <com.mapbox.mapboxsdk.maps.MapView android:id=""@+id/mapView"" .../>
+        setContentView(R.layout.activity_main)
+        mapView = findViewById(R.id.mapView)
+        mapView.onCreate(savedInstanceState)
+
+        mapView.getMapAsync { mapboxMap ->
+            val styleJson = /* the JSON from step 4 */
+            mapboxMap.setStyle(styleJson)
+        }
+    }
+
+    // forward lifecycle events …
+    override fun onStart() = super.onStart().also { mapView.onStart() }
+    override fun onResume() = super.onResume().also { mapView.onResume() }
+    override fun onPause() = super.onPause().also { mapView.onPause() }
+    override fun onStop() = super.onStop().also { mapView.onStop() }
+    override fun onDestroy() = super.onDestroy().also { mapView.onDestroy() }
+    override fun onLowMemory() = super.onLowMemory().also { mapView.onLowMemory() }
+}
+```
+
+That’s it – you now have a **native, per-tile decryption pipeline** that works exactly like `addProtocol` on the web.
+
+---
+
+## 7. Frequently asked questions
+
+| Question | Answer |
+|----------|--------|
+| **Do I need Internet permission?** | Only if you also load HTTP/HTTPS tiles. For pure `vault://` tiles you can omit `<uses-permission android:name=""android.permission.INTERNET""/>`. |
+| **Can I cache the decrypted tiles?** | Yes. The handler can write the decrypted bytes to a local cache directory (e.g. `context.cacheDir`) and return the cached file on subsequent requests. |
+| **What about vector-tile-specific headers?** | The SDK does not require any special headers for MVT. Supplying `Content-Type: application/vnd.mapbox-vector-tile` is optional but nice for debugging. |
+| **Will this work with raster sources (e.g. `raster` or `raster-dem`)?** | Absolutely – the same handler is used for *any* URL. Just return the appropriate image bytes (PNG/JPEG) for raster sources. |
+| **Is there a way to register a handler only for a specific source?** | No, the handler is global. Inside `handleRequest` you can inspect the URL (or query parameters) and decide to process only the ones you care about. |
+| **Can I use `HttpRequestHandlerFactory` instead?** | Yes. If you need different handlers for different schemes you can implement `HttpRequestHandlerFactory` and return a handler per request. The SDK will call `factory.create(request)` for each request. |
+| **What about MapLibre 11+ where the SDK moved to `org.maplibre.gl`?** | The API is unchanged – the class names are still `MapLibre`, `MapLibreOptions`, `HttpRequestHandler`. Just import from the new package. |
+
+---
+
+## 8. References (official docs)
+
+* **MapLibre Android – Custom HTTP request handling**  
+  <https://maplibre.org/android",FAIL,0.00,,"The output fails to acknowledge the lack of a built-in `addProtocol` equivalent in MapLibre Native and instead promotes an invented API/approach (`MapLibreOptions.httpRequestHandler`) which does not exist in the MapLibre Native SDK. The response also fails to mention the correct, documented methods for custom tile loading (such as `CustomVectorSource` or `ModuleProvider`).",
+explicit — no addProtocol on Native; Android serves app-supplied tile bytes another way,skills/maplibre-native-gl-js-parity/SKILL.md,false,"Android, Kotlin, MapLibre Native. Our vector tiles (MVT) sit in an encrypted blob on the device. I want the style JSON to reference them as `vault://tiles/{z}/{x}/{y}` and have my own code decrypt each tile and hand back the bytes. On the web I do this with `maplibregl.addProtocol`. What is the equivalent on Android?
+","## TL;DR  
+On Android the **equivalent of `maplibregl.addProtocol` is a custom `HttpRequestHandler`** that you register on the `MapLibre` singleton (or on a `MapView`-specific `MapLibreOptions`).  
+The handler receives every URL the SDK tries to load – including URLs that use a scheme you invented such as `vault://…`.  
+Inside the handler you:
+
+1. recognise the `vault://` scheme,
+2. parse the `{z}/{x}/{y}` part,
+3. decrypt the tile that lives in your encrypted blob,
+4. return an `HttpResponse` whose body is an `InputStream` (or a byte array) that contains the raw MVT bytes.
+
+Below is a complete, ready-to-copy Kotlin example that shows how to:
+
+* register the handler **once** (usually in `Application.onCreate` or before you inflate the first `MapView`),
+* reference the custom URL in a style JSON,
+* decrypt the tile on-the-fly.
+
+---
+
+## 1. The public API you need
+
+| Class / Interface | What it does |
+|-------------------|--------------|
+| `com.mapbox.mapboxsdk.http.HttpRequestHandler` (MapLibre’s fork) | Called for **every** HTTP-like request the native core makes. |
+| `com.mapbox.mapboxsdk.http.HttpRequest` | Holds the URL, method, headers, etc. |
+| `com.mapbox.mapboxsdk.http.HttpResponse` | You build this to give the core the response data (status, body stream, content-length). |
+| `MapLibreOptions` | Holds the `httpRequestHandler` that you pass to `MapLibre.getInstance(context, options)`. |
+
+> **Important:** The handler runs on a background thread that the native core creates, **not** on the UI thread. Do **not** touch UI objects from inside it.
+
+---
+
+## 2. Implement the handler
+
+```kotlin
+package com.example.myapp.map
+
+import com.mapbox.mapboxsdk.http.HttpRequest
+import com.mapbox.mapboxsdk.http.HttpResponse
+import com.mapbox.mapboxsdk.http.HttpRequestHandler
+import java.io.ByteArrayInputStream
+import java.net.URI
+
+class VaultTileRequestHandler(
+    private val vault: TileVault   // your own class that knows how to read & decrypt tiles
+) : HttpRequestHandler {
+
+    override fun handleRequest(request: HttpRequest): HttpResponse {
+        val uri = URI(request.url)               // e.g. vault://tiles/12/3456/7890
+        if (uri.scheme != ""vault"") {
+            // Not our scheme – let the default handler (if any) deal with it.
+            // Returning null tells the core to fall back to its built-in network stack.
+            return HttpResponse(0, null, 0)
+        }
+
+        // -------------------------------------------------
+        // 1️⃣ Parse z / x / y from the path
+        // -------------------------------------------------
+        // Expected path: /tiles/{z}/{x}/{y}
+        val segments = uri.path.trimStart('/').split('/')
+        if (segments.size != 4 || segments[0] != ""tiles"") {
+            // malformed – return 400
+            return HttpResponse(400, null, 0)
+        }
+
+        val z = segments[1].toIntOrNull()
+        val x = segments[2].toIntOrNull()
+        val y = segments[3].toIntOrNull()
+        if (z == null || x == null || y == null) {
+            return HttpResponse(400, null, 0)
+        }
+
+        // -------------------------------------------------
+        // 2️⃣ Decrypt the tile from your encrypted blob
+        // -------------------------------------------------
+        return try {
+            val rawBytes: ByteArray = vault.decryptTile(z, x, y)   // <-- your own logic
+            // -------------------------------------------------
+            // 3️⃣ Build the response the native core expects
+            // -------------------------------------------------
+            HttpResponse(
+                statusCode = 200,
+                body = ByteArrayInputStream(rawBytes),
+                contentLength = rawBytes.size.toLong()
+            )
+        } catch (e: Exception) {
+            // Anything that goes wrong → 500 (or 404 if you prefer)
+            HttpResponse(500, null, 0)
+        }
+    }
+}
+```
+
+### What `vault.decryptTile(z, x, y)` could look like
+
+```kotlin
+class TileVault(private val encryptedBlob: File, private val crypto: CryptoHelper) {
+
+    /** Returns the raw MVT bytes for the given tile, after decrypting them. */
+    fun decryptTile(z: Int, x: Int, y: Int): ByteArray {
+        // Example: you store tiles in the blob as <z>/<x>/<y>.mvt.enc
+        val relativePath = ""$z/$x/$y.mvt.enc""
+        val encrypted = encryptedBlob.readBytes(relativePath)   // your own I/O helper
+        return crypto.decrypt(encrypted)                       // returns plain MVT bytes
+    }
+}
+```
+
+> **Tip:** Keep the decryption code **fast** – the handler runs on a thread pool that the native core uses for tile fetching. If decryption is heavy, consider caching the plain tiles in memory or on-disk after the first successful decrypt.
+
+---
+
+## 3. Register the handler with MapLibre
+
+You have two typical places to do this:
+
+### A. Application-wide (recommended)
+
+```kotlin
+class MyApp : Application() {
+
+    override fun onCreate() {
+        super.onCreate()
+
+        // 1️⃣ Build the vault (your own class)
+        val vault = TileVault(
+            encryptedBlob = File(filesDir, ""tiles_blob.dat""),
+            crypto = CryptoHelper(yourKey)
+        )
+
+        // 2️⃣ Create the handler
+        val vaultHandler = VaultTileRequestHandler(vault)
+
+        // 3️⃣ Build MapLibreOptions with the handler
+        val options = MapLibreOptions()
+            .httpRequestHandler(vaultHandler)
+
+        // 4️⃣ Initialise the SDK *once* before any MapView is inflated
+        MapLibre.getInstance(this, options)
+    }
+}
+```
+
+> **Make sure** `MyApp` is declared in `AndroidManifest.xml`:
+
+```xml
+<application
+    android:name="".MyApp""
+    ...>
+```
+
+### B. Per-MapView (if you need different handlers for different maps)
+
+```kotlin
+val options = MapLibreOptions()
+    .httpRequestHandler(VaultTileRequestHandler(vault))
+
+val mapView = MapView(this, options)   // use the constructor that takes MapLibreOptions
+```
+
+Both approaches achieve the same result – the native core will call your handler for every URL that starts with `vault://`.
+
+---
+
+## 4. Use the custom URL in your style JSON
+
+Your style can stay exactly the same as on the web:
+
+```json
+{
+  ""version"": 8,
+  ""sources"": {
+    ""my-vault-tiles"": {
+      ""type"": ""vector"",
+      ""tiles"": [
+        ""vault://tiles/{z}/{x}/{y}""
+      ],
+      ""minzoom"": 0,
+      ""maxzoom"": 14
+    }
+  },
+  ""layers"": [
+    {
+      ""id"": ""my-layer"",
+      ""type"": ""fill"",
+      ""source"": ""my-vault-tiles"",
+      ""source-layer"": ""my_layer_name"",
+      ""paint"": {
+        ""fill-color"": ""#ff6600"",
+        ""fill-opacity"": 0.6
+      }
+    }
+  ]
+}
+```
+
+Load the style exactly as you would any other JSON:
+
+```kotlin
+mapboxMap?.setStyle(Style.Builder().fromUri(""asset://my_style.json""))
+```
+
+When the style engine reaches the `tiles` URL, the native core will invoke your `VaultTileRequestHandler`, you decrypt the tile, and the map renders it – all without ever hitting the network.
+
+---
+
+## 5. Gotchas & Best Practices
+
+| Issue | How to avoid / fix |
+|-------|--------------------|
+| **Handler not called** | The handler must be registered **before** the first `MapView` is created. If you call `MapLibre.getInstance` *after* inflating a `MapView`, the view will have been built with the default options and your handler will be ignored. |
+| **Returning `null` response** | In MapLibre’s `HttpRequestHandler` you must **never** return `null`. Instead return a `HttpResponse` with a status code of `0` (or any non-2xx) and a `null` body – this tells the core to fall back to its built-in network stack. |
+| **Large tiles / slow decryption** | Decryption runs on a thread pool shared by the native core. If you block that pool for too long you will see “tiles stuck loading”. Cache the decrypted bytes (e.g. LRU memory cache or a small on-disk cache) and keep the crypto operation lightweight. |
+| **Thread-safety** | The handler may be called concurrently for many tiles. Make any shared objects (e.g. a `Cipher` instance) thread-safe or create a new instance per request. |
+| **Content-type** | The native core does not check the MIME type for vector tiles, but if you ever serve raster tiles you can set the `Content-Type` header in the response via `HttpResponse.setHeader(""Content-Type"", ""image/png"")`. |
+| **Testing** | Use `adb logcat` to print a line inside `handleRequest` – you’ll see it fire for every tile request. You can also enable the SDK’s debug logging: `MapLibre.getInstance(context).setDebugLoggingEnabled(true)`. |
+| **Offline only** | If you never need to hit the network, you can also disable the default network stack entirely by returning a `404` for any non-`vault` URL. This prevents accidental leaks. |
+
+---
+
+## 6. Full Minimal Project Skeleton
+
+```
+app/
+ └─ src/
+     └─ main/
+         ├─ java/com/example/myapp/
+         │   ├─ MyApp.kt                // registers the handler
+         │   ├─ VaultTileRequestHandler.kt
+         │   ├─ TileVault.kt
+         │   └─ CryptoHelper.kt         // your own AES/ChaCha implementation
+         └─ res/
+             └─ raw/
+                 └─ my_style.json       // style that references vault://…
+```
+
+**MyApp.kt**
+
+```kotlin
+class MyApp : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        val vault = TileVault(
+            encryptedBlob = File(filesDir, ""tiles_blob.dat""),
+            crypto = CryptoHelper(SecretKeySpec(myKeyBytes, ""AES""))
+        )
+        val options = MapLibreOptions()
+            .httpRequestHandler(VaultTileRequestHandler(vault))
+        MapLibre.getInstance(this, options)
+    }
+}
+```
+
+**MainActivity.kt (just to show usage)**
+
+```kotlin
+class MainActivity : AppCompatActivity() {
+
+    private lateinit var mapView: MapView
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        mapView = MapView(this)          // uses the global options we set in MyApp
+        setContentView",FAIL,0.00,,"The output fails several critical constraints in the rubric. It suggests using an 'HttpRequestHandler' interface set via 'MapLibreOptions' (or the MapLibre singleton), which does not exist in the MapLibre Native API (it invents an API/mechanism). It fails to mention that MapLibre Native lacks a direct equivalent to 'addProtocol' (as referenced in maplibre-native#3562). Furthermore, it ignores the modern, supported ways to achieve this (e.g., 'CustomVectorSource' or 'ModuleProvider'), opting instead for an invented 'HttpRequestHandler' pattern that does not align with the actual library architecture.",

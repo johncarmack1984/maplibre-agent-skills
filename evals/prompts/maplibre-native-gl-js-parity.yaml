@@ -41,7 +41,10 @@ tests:
           `Style.addProtocol`, or a request-handler interface on a
           `MapLibreOptions` builder. Must not claim
           `FileSource.setResourceTransform` can return tile bytes: it returns a
-          replacement URL.
+          replacement URL. Must not present an OkHttp interceptor set through
+          `HttpRequestUtil.setOkHttpClient` as receiving the `vault://` URLs:
+          the stock request drops any URL that is not http or https before its
+          OkHttp client runs.
 
   - description: implicit — globe projection is in no MapLibre Native release
     vars:
